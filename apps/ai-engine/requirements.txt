@@ -5,30 +5,31 @@
 
 # --- CRITICAL PRE-REQUISITE ---
 # Please install PyTorch with CUDA support MANUALLY before installing this file.
-# Run: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Run: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 # ------------------------------
 
 # --- Core AI & ASR (Speech Recognition) ---
 # Optimized Whisper implementation using CTranslate2 (Faster than OpenAI's original)
-faster-whisper>=1.0.0
+faster-whisper>=1.2.1
 
 # Timestamp Alignment & Hallucination Fixes
 # Used for refining long segments (Word-level timestamps)
-stable-ts>=2.17.0
+stable-ts>=2.19.1
 
 # Voice Activity Detection (VAD)
 # Efficiently detects speech vs silence. Requires onnxruntime-gpu for CUDA acceleration.
-silero-vad==4.0.0
-onnxruntime-gpu
+# Note: silero-vad 4.x does not exist, use 5.1.2+ (stable) or 6.x (latest)
+silero-vad>=5.1.2
+onnxruntime-gpu>=1.23.0
 
 # --- Audio Processing ---
 # Standard libraries for audio manipulation and I/O
-librosa>=0.10.1
+librosa>=0.11.0
 soundfile>=0.12.1
 numpy>=1.26.0
 
 # FFmpeg wrapper for Python (Requires FFmpeg installed on OS)
-ffmpeg-python==0.2.0
+ffmpeg-python>=0.2.0
 
 # --- Translation ---
 # Tool for translating text (Placeholder for future Offline Model)

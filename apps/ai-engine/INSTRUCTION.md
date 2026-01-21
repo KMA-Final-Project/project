@@ -80,3 +80,31 @@ Output must strictly adhere to the schema required by the Mobile App:
     }
   ]
 }
+```
+
+## 7. Basic technical flow (current idea)
+```text
+[Input File (Video/Audio)]
+      |
+      v
+(AudioProcessor) -----------------> Audio standalizing (16kHz, Mono)
+      |
+      v
+(VADManager - Silero VAD) --------> Audio segmentation (Silent points)
+      |
+      |--- [Segment < 15s] ----------> (DeepTranscriber: Standard Mode)
+      |                                  |
+      |--- [Segment > 15s] ----------> (DeepTranscriber: Refinement Mode)
+      |                                  |--> Word-level Alignment (stable-ts)
+      |                                  |--> Find natural break points (Gap/Punctuation)
+      |                                  |--> Split into smaller segments & Transcribe again
+      |
+      v
+(SmartAligner) -------------------> Sentence alignment (<15s)
+      |
+      v
+(TranslatorEngine) ---------------> Translate (Sentence-by-Sentence) & G2P (Phonetic)
+      |
+      v
+[Output JSON File] ---------------> Save & Ready for Mobile App
+```
