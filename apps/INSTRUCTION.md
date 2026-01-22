@@ -54,3 +54,9 @@
 -   **Language:** Python 3.12 (AI), Node.js/TypeScript (API).
 -   **AI Configuration:** NEVER hardcode parameters. Use `AI_PERF_MODE` (Low/Medium/High) to adjust Batch Size/Beam Size dynamically.
 -   **Error Handling:** Graceful failure. If GPU OOM, log error and retry or fallback (do not crash the worker).
+
+## 6. Instructions for project parts
+
+- AI Engine: `apps/ai-engine/INSTRUCTION.md`
+- Mobile App: `apps/mobile-app/INSTRUCTION.md`
+- Backend: `apps/backend/INSTRUCTION.md`

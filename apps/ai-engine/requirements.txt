@@ -27,6 +27,7 @@ onnxruntime-gpu>=1.23.0
 librosa>=0.11.0
 soundfile>=0.12.1
 numpy>=1.26.0
+audio-separator>=0.30.0
 
 # FFmpeg wrapper for Python (Requires FFmpeg installed on OS)
 ffmpeg-python>=0.2.0
