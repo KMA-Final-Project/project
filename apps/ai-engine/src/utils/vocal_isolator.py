@@ -35,6 +35,10 @@ class VocalIsolator:
         self.output_dir = output_dir or (settings.TEMP_DIR / "vocals")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # internal configuration
+        self.log_level = logging.INFO
+        self.model_dir = settings.TEMP_DIR / "models"
+        
         # Model Configuration
         # BS-Roformer is SOTA for vocals. 
         # Filename might vary by library version, but this is the standard ID.
@@ -77,15 +81,15 @@ class VocalIsolator:
         logger.info(f"Starting vocal separation for: {input_path.name}")
         
         try:
-            # 1. Initialize configuration for ONNX Runtime
-            # We explicitly force CUDAExecutionProvider to ensure GPU acceleration is used.
-            # This prevents the library from silently falling back to CPU if CUDA has minor version mismatches.
-            env_specific_config = {
-                "onnx_execution_providers": ["CUDAExecutionProvider"]
-            }
+            # # 1. Initialize configuration for ONNX Runtime
+            # # We explicitly force CUDAExecutionProvider to ensure GPU acceleration is used.
+            # # This prevents the library from silently falling back to CPU if CUDA has minor version mismatches.
+            # env_specific_config = {
+            #     "onnx_execution_providers": ["CUDAExecutionProvider"]
+            # }
 
-            # 2. Initialize the Separator
-            # output_single_stem="Vocals": Critical optimization. 
+            # 1. Initialize the Separator
+            # output_single_stem="Vocals" 
             # It tells the model to ONLY save the vocal file and discard the instrumental immediately.
             # This saves 50% disk I/O and storage space in the temp folder.
             separator = Separator(
@@ -94,19 +98,19 @@ class VocalIsolator:
                 output_dir=str(self.output_dir),
                 output_format="WAV",
                 output_single_stem="Vocals",  # ONLY save the Vocals
-                env_specific_config=json.dumps(env_specific_config)
+                # env_specific_config=json.dumps(env_specific_config)
             )
 
-            # 3. Load the SOTA Model (BS-Roformer ViperX 1297)
+            # 2. Load the SOTA Model (BS-Roformer ViperX 1297)
             # This model is currently state-of-the-art for vocal isolation,
             # outperforming Demucs v4 in clarity and artifact reduction.
             separator.load_model(model_filename="model_bs_roformer_ep_317_sdr_12.9755.ckpt")
 
-            # 4. Perform Separation
+            # 3. Perform Separation
             # The library returns a list of output filenames.
             output_files = separator.separate(str(input_path))
 
-            # 5. Validate Output
+            # 4. Validate Output
             if not output_files:
                 logger.error("Vocal separation failed: No output files generated.")
                 return input_path

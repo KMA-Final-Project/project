@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import List, Union
 
 from loguru import logger
-from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
+import torch
+import numpy as np
+import librosa
+from silero_vad import load_silero_vad, get_speech_timestamps
 
 from src.config import settings
 from src.schemas import SegmentType, VADSegment
@@ -102,7 +105,15 @@ class VADManager:
              speech_pad_ms = 100
         
         # 1. Read Audio (Proxy or Original)
-        wav = read_audio(str(vad_input_path), sampling_rate=16000)
+        # wav = read_audio(str(vad_input_path), sampling_rate=16000)
+        logger.info(f"Loading audio via Librosa: {file_path}")
+        
+        wav_np, sr = librosa.load(str(vad_input_path), sr=16000)
+        
+        wav = torch.from_numpy(wav_np)
+        
+        if len(wav.shape) == 1:
+            wav = wav.unsqueeze(0)
         
         # 2. Get Raw Timestamps
         raw_speech_timestamps = get_speech_timestamps(
@@ -116,12 +127,12 @@ class VADManager:
         )
         
         # Cleanup proxy if used
-        if profile == "music" and vad_input_path != path:
-            try:
-                vad_input_path.unlink()
-                logger.debug(f"Removed temporary VAD proxy: {vad_input_path}")
-            except Exception as e:
-                logger.warning(f"Failed to cleanup proxy: {e}")
+        # if profile == "music" and vad_input_path != path:
+        #     try:
+        #         vad_input_path.unlink()
+        #         logger.debug(f"Removed temporary VAD proxy: {vad_input_path}")
+        #     except Exception as e:
+        #         logger.warning(f"Failed to cleanup proxy: {e}")
         
         if not raw_speech_timestamps:
             logger.warning(f"No speech detected in {path.name}")

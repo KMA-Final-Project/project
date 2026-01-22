@@ -1,11 +1,11 @@
 # ==========================================
 # AI ENGINE REQUIREMENTS
-# Environment: Python 3.10+ | CUDA 12.x
+# Environment: Python 3.12 | CUDA 13.1
 # ==========================================
 
 # --- CRITICAL PRE-REQUISITE ---
 # Please install PyTorch with CUDA support MANUALLY before installing this file.
-# Run: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# Run: pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
 # ------------------------------
 
 # --- Core AI & ASR (Speech Recognition) ---
@@ -27,7 +27,7 @@ onnxruntime-gpu>=1.23.0
 librosa>=0.11.0
 soundfile>=0.12.1
 numpy>=1.26.0
-audio-separator>=0.30.0
+audio-separator[gpu]>=0.30.0
 
 # FFmpeg wrapper for Python (Requires FFmpeg installed on OS)
 ffmpeg-python>=0.2.0
