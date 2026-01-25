@@ -54,130 +54,206 @@ class SmartAligner:
             )
             logger.success(f"Faster-Whisper Model ({model_size}) loaded successfully.")
 
-    def process(self, file_path: Path | str, segments: List[VADSegment]) -> List[Sentence]:
+    def process(self, file_path: Path | str, segments: List[VADSegment], profile: str = "standard") -> List[Sentence]:
         """
-        Transcribe the audio segments with context injection.
+        Transcribe audio with Dynamic Anchor Strategy and Advanced Prompting.
         """
         path = Path(file_path)
         if not path.exists():
             raise FileNotFoundError(f"Audio file not found: {path}")
 
-        logger.info(f"Starting Smart Alignment for: {path.name} ({len(segments)} segments)")
+        logger.info(f"Starting Smart Alignment for: {path.name} ({len(segments)} segments) | Profile: {profile}")
 
-        # 1. Load Audio Output (Full) into Memory
-        # We load as 16kHz mono because Whisper expects this.
-        # Librosa is robust.
-        start_load = torch.cuda.Event(enable_timing=True)
-        end_load = torch.cuda.Event(enable_timing=True)
-        
-        # Simple timing usage if on CUDA, otherwise just ignore
-        # Loading audio
+        # Loading audio (16kHz mono)
         audio_full, sr = librosa.load(str(path), sr=16000)
         
         sentences: List[Sentence] = []
-        previous_text_context = "" # Context window (last 200 chars)
-
+        previous_text_context = "" 
+        
+        # Pillar 1: Anchor Language State
+        anchor_language: str | None = None
+        
         for i, seg in enumerate(segments):
-            # Calculate sample indices
             start_sample = int(seg.start * 16000)
             end_sample = int(seg.end * 16000)
             
-            # Safe slicing
-            if start_sample >= len(audio_full):
-                break
-            
-            # Extract segment audio
-            # Padding is handled by VAD usually, but we take strict VAD boundaries here.
+            if start_sample >= len(audio_full): break
             audio_segment = audio_full[start_sample:end_sample]
+            if len(audio_segment) < 160: continue
+                
+            # --- Pillar 2: Dynamic Prompt Injection ---
+            prompt = self._construct_prompt(profile, previous_text_context)
             
-            # Skip empty
-            if len(audio_segment) < 160: # < 0.01s
-                continue
-                
-            # Prepare Prompt (Context Injection)
-            prompt = previous_text_context[-200:] if previous_text_context else None
+            # --- Pillar 1: Language Strategy ---
+            # Determine language for this segment
+            # If Anchor is set, use it. Else Auto-detect.
+            current_lang = anchor_language # None if not set
             
-            # --- Transcription ---
-            try:
-                # word_timestamps=True is crucial for Karaoke
-                # condition_on_previous_text=False because we manually inject prompt
-                # language=None (Auto-Detect)
-                
-                gen, info = self._model.transcribe(
-                    audio_segment,
-                    beam_size=5,
-                    word_timestamps=True,
-                    condition_on_previous_text=False,
-                    initial_prompt=prompt,
-                    language=None # Auto-detect per segment
-                )
-                
-                # Consume generator
-                segment_results = list(gen)
-                
-                # Log detection info
-                if info.language_probability > 0.5:
-                     logger.debug(f"Detected: {info.language} ({info.language_probability:.0%})")
-                
-                # --- Anti-Hallucination ---
-                # Check metrics from 'segment_results' (which are segments)
-                
-                valid_words_bucket = []
-                full_text_bucket = []
-                
-                for res_seg in segment_results:
-                    # Guardrails
-                    if res_seg.avg_logprob < -1.0:
-                        logger.warning(f"Discarding segment (Low Confidence {res_seg.avg_logprob:.2f}): {res_seg.text}")
-                        continue
-                        
-                    if res_seg.compression_ratio > 2.4:
-                        logger.warning(f"Discarding segment (High Compression {res_seg.compression_ratio:.2f}): {res_seg.text}")
-                        continue
-                        
-                    if res_seg.no_speech_prob > 0.6:
-                         # 0.6 is a safe threshold
-                        logger.warning(f"Discarding segment (No Speech {res_seg.no_speech_prob:.2f}): {res_seg.text}")
-                        continue
+            transcription_result = self._transcribe_segment(
+                audio_segment, prompt, language=current_lang
+            )
+            
+            # Logic: Anchor Detection & Fallback
+            if anchor_language is None:
+                # Attempt to set Anchor
+                # Criteria: High Confidence (> -0.5)
+                # Note: Whisper 'avg_logprob' is negative. Closer to 0 is better.
+                best_segment = transcription_result["best_segment"]
+                if best_segment and best_segment.avg_logprob > -0.5:
+                    anchor_language = transcription_result["info"].language
+                    logger.success(f"⚓ Anchor Language Set: {anchor_language} (Conf: {best_segment.avg_logprob:.2f})")
+            else:
+                # We used Anchor. Check if Fallback needed.
+                # Criteria: Low Confidence (< -0.8) OR High Compression (> 2.4)
+                best_segment = transcription_result["best_segment"]
+                if best_segment and (best_segment.avg_logprob < -0.8 or best_segment.compression_ratio > 2.4):
+                    logger.warning(f"⚠️ Low confidence with Anchor ({best_segment.avg_logprob:.2f}). Retrying with Auto-Detect...")
                     
-                    full_text_bucket.append(res_seg.text)
-                    
-                    # Process Words
-                    if res_seg.words:
-                        for w in res_seg.words:
-                            # Shift timestamps relative to original audio
-                            abs_start = seg.start + w.start
-                            abs_end = seg.start + w.end
-                            
-                            valid_words_bucket.append(Word(
-                                word=w.word,
-                                start=round(abs_start, 3),
-                                end=round(abs_end, 3),
-                                confidence=round(w.probability, 3)
-                            ))
-                
-                # Construct Sentence for this VAD Segment
-                joined_text = "".join(full_text_bucket).strip()
-                
-                if joined_text:
-                    # Update context for next iteration
-                    previous_text_context += " " + joined_text
-                    
-                    sentence = Sentence(
-                        text=joined_text,
-                        start=seg.start,
-                        end=seg.end,
-                        words=valid_words_bucket
+                    # Retry with Auto-Detect
+                    fallback_result = self._transcribe_segment(
+                         audio_segment, prompt, language=None
                     )
-                    sentences.append(sentence)
                     
-                    msg = f"Segment {i+1}/{len(segments)}: {joined_text[:30]}... ({len(valid_words_bucket)} words)"
-                    logger.debug(msg)
-                else:
-                    logger.debug(f"Segment {i+1}: Silence/Filtered")
-
-            except Exception as e:
-                logger.error(f"Transcription failed for segment {i}: {e}")
+                    # Compare? Usually just trust the Auto result if it's better?
+                    # Honest Fallback: Usage of Auto result is safer here.
+                    transcription_result = fallback_result
+            
+            # Extract Results
+            res_sentences = self._process_transcription_result(transcription_result, seg)
+            
+            # --- Pillar 3 & 4: Post-Processing ---
+            for sent in res_sentences:
+                # CJK Splitting
+                self._split_cjk_words(sent)
                 
+                # Silence Splitting (Returns list of sentences)
+                split_sents = self._apply_silence_splitting(sent)
+                sentences.extend(split_sents)
+                
+                # Update Context (Use the last text)
+                if split_sents:
+                    previous_text_context += " " + split_sents[-1].text
+
         logger.success(f"Alignment Complete. Generated {len(sentences)} sentences.")
         return sentences
+
+    def _transcribe_segment(self, audio, prompt, language):
+        """Helper to run transcription and return generator + info."""
+        gen, info = self._model.transcribe(
+            audio,
+            beam_size=5,
+            word_timestamps=True,
+            condition_on_previous_text=False,
+            initial_prompt=prompt,
+            language=language
+        )
+        segments = list(gen)
+        # Find best segment for confidence stats (usually the longest or first?)
+        # Whisper might return multiple segments for one audio chunk?
+        # We take the one with best logprob or average?
+        # Usually for short VAD segments, there is 1 Whisper segment.
+        best = max(segments, key=lambda s: s.avg_logprob) if segments else None
+        
+        return {"segments": segments, "info": info, "best_segment": best}
+
+    def _construct_prompt(self, profile: str, prev_context: str) -> str:
+        """Pillar 2: Construct prompt based on profile."""
+        if profile == "music":
+            genre = "Genre: Lyrics, Song, Ancient/Xianxia context."
+        else:
+            genre = "Genre: General speech, Interview, Conversation."
+            
+        context = prev_context[-200:].strip() if prev_context else ""
+        return f"{genre} Previous context: {context}"
+
+    def _process_transcription_result(self, result, vad_seg: VADSegment) -> List[Sentence]:
+        """Convert Whisper segments to Schema Sentences."""
+        sentences = []
+        for res_seg in result["segments"]:
+            # Basic Filters
+            if res_seg.no_speech_prob > 0.6: continue
+            
+            words = []
+            if res_seg.words:
+                for w in res_seg.words:
+                    words.append(Word(
+                        word=w.word,
+                        start=round(vad_seg.start + w.start, 3),
+                        end=round(vad_seg.start + w.end, 3),
+                        confidence=round(w.probability, 3)
+                    ))
+            
+            if words:
+                 sentences.append(Sentence(
+                     text=res_seg.text.strip(),
+                     start=words[0].start, # Precise word-based start
+                     end=words[-1].end,
+                     words=words
+                 ))
+        return sentences
+
+    def _split_cjk_words(self, sentence: Sentence):
+        """Pillar 3: Split CJK words into characters."""
+        import re
+        new_words = []
+        cjk_pattern = re.compile(r'[\u4e00-\u9fff]')
+        
+        for w in sentence.words:
+            # Check if CJK and length > 1
+            if len(w.word) > 1 and cjk_pattern.search(w.word):
+                # Split
+                chars = list(w.word)
+                duration = w.end - w.start
+                char_duration = duration / len(chars)
+                
+                for i, char in enumerate(chars):
+                    c_start = w.start + (i * char_duration)
+                    c_end = w.start + ((i+1) * char_duration)
+                    new_words.append(Word(
+                        word=char,
+                        start=round(c_start, 3),
+                        end=round(c_end, 3),
+                        confidence=w.confidence
+                    ))
+            else:
+                new_words.append(w)
+        
+        sentence.words = new_words
+
+    def _apply_silence_splitting(self, sentence: Sentence) -> List[Sentence]:
+        """Pillar 4: Split sentence if gap > 1.0s."""
+        if not sentence.words:
+            return [sentence]
+            
+        sub_sentences = []
+        current_words = [sentence.words[0]]
+        
+        for i in range(1, len(sentence.words)):
+            prev_w = sentence.words[i-1]
+            curr_w = sentence.words[i]
+            gap = curr_w.start - prev_w.end
+            
+            if gap > 1.0:
+                # Split here
+                if current_words:
+                    sub_sentences.append(self._create_sentence_from_words(current_words))
+                current_words = [curr_w]
+            else:
+                current_words.append(curr_w)
+                
+        if current_words:
+            sub_sentences.append(self._create_sentence_from_words(current_words))
+            
+        return sub_sentences
+
+    def _create_sentence_from_words(self, words: List[Word]) -> Sentence:
+        text = "".join([w.word for w in words]) # Simple join for CJK, space?
+        # Ideally handle spaces for non-CJK. But prompt focused on CJK.
+        # For mixed, might need smarter join.
+        # Whisper words usually come with leading spaces if En?
+        return Sentence(
+            text=text,
+            start=words[0].start,
+            end=words[-1].end,
+            words=words
+        )

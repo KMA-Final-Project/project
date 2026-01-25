@@ -18,7 +18,7 @@ from silero_vad import load_silero_vad, get_speech_timestamps
 
 from src.config import settings
 from src.schemas import SegmentType, VADSegment
-from src.utils.audio_processor import AudioMetadata
+# from src.utils.audio_processor import AudioMetadata
 
 
 class VADManager:
@@ -79,7 +79,7 @@ class VADManager:
         
         if profile == "music":
             # MUSIC MODE (Vocal Isolation Enabled)
-            logger.info("🎶 Music Mode active: Using BS-Roformer Vocal Isolation")
+            logger.info("🎶 Music Mode active")
             
             # Use new VocalIsolator module
             try:

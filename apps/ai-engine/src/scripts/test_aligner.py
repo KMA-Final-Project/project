@@ -15,6 +15,8 @@ sys.path.append(str(project_root))
 from loguru import logger
 from src.core.vad_manager import VADManager
 from src.core.smart_aligner import SmartAligner
+from src.core.audio_inspector import AudioInspector
+from src.utils.audio_processor import AudioProcessor
 
 def main():
     # Input File
@@ -26,10 +28,21 @@ def main():
 
     logger.info(f"--- Testing Pipeline on {input_file.name} ---")
     
-    # 1. VAD (Music Mode)
-    logger.info(">>> Step 1: VAD (Music Mode)")
+    # 0. Standardize Audio (16kHz WAV)
+    logger.info(">>> Step 0: Audio Standardization")
+    processor = AudioProcessor()
+    meta = processor.process(input_file)
+    standardized_path = meta.path
+    
+    # 1. Audio Inspection (Gatekeeper)
+    logger.info(">>> Step 1: Audio Inspection")
+    inspector = AudioInspector()
+    profile = inspector.inspect(standardized_path) 
+    
+    # 2. VAD (Adaptive)
+    logger.info(f">>> Step 2: VAD ({profile.upper()} Mode)")
     vad = VADManager()
-    segments = vad.process(input_file, profile="music")
+    segments = vad.process(standardized_path, profile=profile)
     
     logger.info(f"VAD found {len(segments)} segments.")
     
@@ -37,10 +50,10 @@ def main():
         logger.warning("No segments found. Exiting.")
         return
 
-    # 2. Alignment
-    logger.info(">>> Step 2: Smart Aligner (Transcription)")
+    # 3. Alignment
+    logger.info(f">>> Step 3: Smart Aligner (Profile: {profile})")
     aligner = SmartAligner()
-    sentences = aligner.process(input_file, segments)
+    sentences = aligner.process(standardized_path, segments, profile=profile)
     
     # 3. Print Fancy Output
     print("\n" + "="*60)

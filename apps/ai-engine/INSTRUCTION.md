@@ -90,6 +90,9 @@ Output must strictly adhere to the schema required by the Mobile App:
 (AudioProcessor) -----------------> Audio standalizing (16kHz, Mono)
       |
       v
+(AudioInspector) -----------------> Classification (Music/Standard)
+      |
+      v
 (VADManager - Silero VAD) --------> Audio segmentation (Silent points)
       |
       |--- [Segment < 15s] ----------> (DeepTranscriber: Standard Mode)
