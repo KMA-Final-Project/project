@@ -1,20 +1,17 @@
-"""
-Audio Inspector Module
-======================
-Analyzer (Gatekeeper) that classifies audio content as 'music' or 'standard'.
-Used to optimize pipeline routing (deciding whether to run Vocal Isolation).
-"""
-
-from __future__ import annotations
-
-import librosa
-import numpy as np
+import logging
 from pathlib import Path
-from loguru import logger
 from typing import Literal
 
-from src.utils.audio_processor import AudioProcessor
+from loguru import logger
+from src.config import settings
 
+# Suppress HF warnings globally
+from transformers import logging as hf_logging
+hf_logging.set_verbosity_error()
+
+# Suppress PyTorch/NumPy writeable warning (benign for inference)
+import warnings
+warnings.filterwarnings("ignore", message=".*The given NumPy array is not writable.*")
 
 class AudioInspector:
     """
@@ -23,77 +20,79 @@ class AudioInspector:
     
     def inspect(self, file_path: Path | str) -> Literal["music", "standard"]:
         """
-        Analyze the full audio file to determine profile.
-        
-        Logic:
-        - Music: High rhythmic regularity (onset variance) + High spectral energy/flatness.
-        - Standard: Irregular rhythm, vocal-centric spectrum.
-        
-        Returns:
-            "music" if features suggest music/singing.
-            "standard" otherwise.
+        Analyze audio profile using Hugging Face Transformers (AST Model).
+        Model: MIT/ast-finetuned-audioset-10-10-0.4593
         """
         path = Path(file_path)
         if not path.exists():
-            logger.error(f"Inspector: File not found {path}")
-            return "standard" # Default safe
+            return "standard"
 
-        logger.info(f"Inspecting audio profile for: {path.name}")
+        logger.info(f"Inspecting profile with AST (Audio Spectrogram Transformer): {path.name}")
         
         try:
-            # Load full audio (16kHz mono)
-            # Duration check: Librosa load is fast.
-            # Assuming chunks < 5 mins as per requirements.
-            y, sr = librosa.load(str(path), sr=16000)
+            from transformers import pipeline
             
-            if len(y) < sr * 1.0: # Too short (<1s)
-                 logger.warning("Audio too short for inspection. Defaulting to 'standard'.")
-                 return "standard"
-
-            # --- Heuristic 1: Rhythm / Beat Strength ---
-            # Music has steady beats. Speech is irregular.
-            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+            # Initialize Pipeline
+            # device=0 for CUDA (if available) -> settings.DEVICE logic needed.
+            device = 0 if settings.DEVICE == "cuda" else -1
             
-            # Pulse clarity (beat variance)
-            # Higher std dev of onset envelope typically implies spikes (beats).
-            # But we want 'regularity'. 
-            # 'tempogram' is better but heavy.
-            # Simple Proxy: Mean onset strength (Energy of attacks)
-            onset_mean = np.mean(onset_env)
+            classifier = pipeline(
+                "audio-classification", 
+                model="MIT/ast-finetuned-audioset-10-10-0.4593",
+                device=device
+            )
             
-            # --- Heuristic 2: Spectral Features ---
-            # Music fills spectrum (drums + hats). Speech is band-limited.
-            # Spectral Flatness: How "noise-like" vs "tonal". 
-            # Music (High hats/Cymbals) -> High flatness components. 
-            # Speech -> Tonal (Harmonic) but low flatness.
-            # Spectral Centroid: 'Brightness'. Music often brighter.
+            # Predict
+            outputs = classifier(str(path), top_k=5)
             
-            spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
-            centroid_mean = np.mean(spectral_centroid)
+            # Outputs format: [{'score': 0.99, 'label': 'Speech'}, ...]
+            logger.info(f"Top 5 Predictions: {outputs}")
             
-            # --- Decision Logic (Empirical Thresholds) ---
-            # Thresholds need tuning.
-            # Onset Mean > 1.2 usually implies strong hits (Drums).
-            # Centroid Mean > 2000Hz implies brightness (Music/High fidelity).
+            # --- Robust Decision Logic ---
+            # Sum probabilites for Music vs Speech categories.
             
-            # Score-based approach
-            score = 0
+            music_keywords = [
+                "music", "singing", "instrument", "piano", "guitar", "violin", 
+                "drum", "zither", "flute", "orchestra", "band", "pop", "rock", 
+                "jazz", "electronic", "synthesizer", "harp", "pizzicato", "new-age"
+            ]
             
-            if onset_mean > 1.2: score += 1
-            if centroid_mean > 1800: score += 1
+            speech_keywords = ["speech", "narration", "conversation", "interview", "monologue"]
             
-            # Bias: We prefer "music" false positive over false negative.
-            # If ANY sign of music, classify music.
-            is_music = (score >= 1)
+            music_score = 0.0
+            speech_score = 0.0
             
-            # Detailed Logging for Tuning
-            logger.debug(f"Inspector Stats | Onset: {onset_mean:.3f} | Centroid: {centroid_mean:.0f} | Score: {score}")
+            for pred in outputs:
+                label_lower = pred["label"].lower()
+                score = pred["score"]
+                
+                # Check Music
+                if any(k in label_lower for k in music_keywords):
+                    music_score += score
+                
+                # Check Speech
+                if any(k in label_lower for k in speech_keywords):
+                    speech_score += score
             
-            profile = "music" if is_music else "standard"
-            logger.info(f"Inspector detected profile: [{profile.upper()}] (Onset={onset_mean:.2f}, Cent={centroid_mean:.0f})")
+            log_msg = f"Inspector Scores | Music: {music_score:.2f} | Speech: {speech_score:.2f}"
             
+            # Decision
+            # If Music Score is significant (> 0.2) AND higher than Speech Score -> Music
+            # (0.2 captures cases where 'Music' is 2nd or 3rd tag)
+            if music_score > 0.2 and music_score > speech_score:
+                profile = "music"
+                decision_reason = "Music Dominated"
+            elif speech_score > 0.5:
+                profile = "standard"
+                decision_reason = "Speech Dominated"
+            else:
+                # Ambiguous case (e.g. noise). Default to standard unless Strong Music.
+                profile = "standard"
+                decision_reason = "Ambiguous (Default Standard)"
+            
+            logger.success(f"Inspector Decision: [{profile.upper()}] ({decision_reason}) -- {log_msg}")
             return profile
 
         except Exception as e:
-            logger.error(f"Inspection failed: {e}. Defaulting to 'music' (Safe Mode).")
-            return "music" # Safe fallback (Isolate just in case)
+            logger.error(f"AST Inspection failed: {e}. Defaulting to 'music'.")
+            return "music"
