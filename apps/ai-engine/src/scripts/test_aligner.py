@@ -6,6 +6,7 @@ Runs the full pipeline:
 2. SmartAligner -> Detailed Sentences/Words
 """
 import sys
+import json
 from pathlib import Path
 
 # Add project root to sys.path
@@ -70,6 +71,16 @@ def main():
         print(f"   Words: {words_str}")
         
     print("\n" + "="*60)
+    
+    # 4. Save to JSON
+    output_path = project_root / "outputs" / f"{input_file.stem}_alignment.json"
+    output_path.parent.mkdir(exist_ok=True, parents=True)
+    
+    logger.info(f"Saving alignment results to {output_path}")
+    
+    data = [sent.model_dump() for sent in sentences]
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
     
 if __name__ == "__main__":
     main()
