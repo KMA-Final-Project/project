@@ -18,6 +18,7 @@ class Word(BaseModel):
     start: float
     end: float
     confidence: float
+    phoneme: str | None = None
 
 class Sentence(BaseModel):
     text: str

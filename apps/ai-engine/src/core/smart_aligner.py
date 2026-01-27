@@ -13,6 +13,11 @@ import numpy as np
 import librosa
 from pathlib import Path
 from typing import List, Optional
+import re # moved up for reuse
+
+# Phonetics
+import pypinyin
+import eng_to_ipa
 
 from loguru import logger
 from faster_whisper import WhisperModel
@@ -73,7 +78,10 @@ class SmartAligner:
         # Pillar 1: Anchor Language State
         anchor_language: str | None = None
         
+        logger.debug(f"Processing {len(segments)} VAD segments...")
+        
         for i, seg in enumerate(segments):
+            logger.debug(f"--- Segment {i+1}: {seg.start:.2f}s -> {seg.end:.2f}s ---")
             start_sample = int(seg.start * 16000)
             end_sample = int(seg.end * 16000)
             
@@ -128,11 +136,17 @@ class SmartAligner:
                 
                 # Silence Splitting (Returns list of sentences)
                 split_sents = self._apply_silence_splitting(sent)
-                sentences.extend(split_sents)
                 
                 # Update Context (Use the last text)
                 if split_sents:
                     previous_text_context += " " + split_sents[-1].text
+                    
+                    # --- Pillar 5 (NEW): Phonetic Transliteration ---
+                    # Uses the detected language for this segment
+                    detected_lang = transcription_result["info"].language
+                    self._add_phonemes(split_sents, detected_lang)
+                    
+                sentences.extend(split_sents)
 
         logger.success(f"Alignment Complete. Generated {len(sentences)} sentences.")
         return sentences
@@ -169,6 +183,8 @@ class SmartAligner:
     def _process_transcription_result(self, result, vad_seg: VADSegment) -> List[Sentence]:
         """Convert Whisper segments to Schema Sentences."""
         sentences = []
+        processed_sigs = set()
+        
         for res_seg in result["segments"]:
             # Basic Filters
             if res_seg.no_speech_prob > 0.6: continue
@@ -184,6 +200,14 @@ class SmartAligner:
                     ))
             
             if words:
+                 # Deduplication Check
+                 sig = (res_seg.text.strip(), words[0].start, words[-1].end)
+                 if sig in processed_sigs:
+                     logger.warning(f"Skipping duplicate segment: {sig}")
+                     continue
+
+                 processed_sigs.add(sig)
+
                  sentences.append(Sentence(
                      text=res_seg.text.strip(),
                      start=words[0].start, # Precise word-based start
@@ -257,3 +281,32 @@ class SmartAligner:
             end=words[-1].end,
             words=words
         )
+
+    def _add_phonemes(self, sentences: List[Sentence], language: str):
+        """Pillar 5: Add Pinyin (CN) or IPA (EN)."""
+        if language not in ["zh", "en"]:
+            return
+
+        for sent in sentences:
+            for w in sent.words:
+                text = w.word.strip()
+                if not text: continue
+                
+                try:
+                    if language == "zh":
+                        # Only apply to CJK characters
+                        if re.search(r'[\u4e00-\u9fff]', text):
+                            # Use TONE style (e.g., nǐ hǎo)
+                            pys = pypinyin.pinyin(text, style=pypinyin.Style.TONE, heteronym=False)
+                            # Flatten: [['ni'], ['hao']] -> "nihao" (but usually it's per character in our new logic)
+                            w.phoneme = "".join([x[0] for x in pys])
+                            
+                    elif language == "en":
+                        # Convert to IPA
+                        # Note: eng_to_ipa.convert returns output with '*' if unknown
+                        ipa = eng_to_ipa.convert(text)
+                        if ipa and "*" not in ipa:
+                            w.phoneme = ipa
+                except Exception as e:
+                    logger.warning(f"Phonetic error for '{text}': {e}")
+

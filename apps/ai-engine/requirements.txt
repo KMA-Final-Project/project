@@ -36,6 +36,12 @@ ffmpeg-python>=0.2.0
 # Tool for translating text (Placeholder for future Offline Model)
 deep-translator>=1.11.4
 
+# --- Phonetics (G2P) ---
+# Chinese Pinyin
+pypinyin>=0.50.0
+# English IPA
+eng-to-ipa>=0.0.2
+
 # --- System, Config & Logging ---
 # For loading .env variables
 python-dotenv>=1.0.0

@@ -12,6 +12,8 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
 
+sys.stdout.reconfigure(encoding='utf-8')
+
 from loguru import logger
 from src.core.vad_manager import VADManager
 from src.core.smart_aligner import SmartAligner
@@ -64,7 +66,7 @@ def main():
         print(f"\n#{i+1} [{sent.start:.2f}s -> {sent.end:.2f}s]: \"{sent.text}\"")
         
         # Print a few words as check
-        words_str = " | ".join([f"{w.word}({w.start:.2f})" for w in sent.words])
+        words_str = " | ".join([f"{w.word}({w.phoneme or '-'})" for w in sent.words])
         print(f"   Words: {words_str}")
         
     print("\n" + "="*60)
