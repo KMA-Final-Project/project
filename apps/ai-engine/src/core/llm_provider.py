@@ -234,3 +234,24 @@ class LLMProvider:
         
         logger.error("All translation attempts failed.")
         return [] # Return empty list on failure
+
+    def generate(self, prompt: str, system_prompt: str = None) -> str:
+        """
+        Generic generation method for flexible tasks.
+        """
+        messages = []
+        if system_prompt:
+            messages.append({'role': 'system', 'content': system_prompt})
+        
+        messages.append({'role': 'user', 'content': prompt})
+        
+        try:
+            response = ollama.chat(
+                model=self.model_name,
+                messages=messages,
+                options={'temperature': 0.3}
+            )
+            return response['message']['content']
+        except Exception as e:
+            logger.error(f"LLM Generation Failed: {e}")
+            raise e
