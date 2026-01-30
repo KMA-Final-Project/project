@@ -45,18 +45,21 @@ def main():
     # 2. VAD (Adaptive)
     logger.info(f">>> Step 2: VAD ({profile.upper()} Mode)")
     vad = VADManager()
-    segments = vad.process(standardized_path, profile=profile)
+    # VADManager now handles isolation internally if profile=music
+    # It returns the path used (which might be isolated) so we can reuse it!
+    segments, processed_audio_path = vad.process(standardized_path, profile=profile)
     
-    logger.info(f"VAD found {len(segments)} segments.")
+    logger.info(f"VAD found {len(segments)} segments. Processing Path: {processed_audio_path}")
     
     if not segments:
         logger.warning("No segments found. Exiting.")
         return
 
     # 3. Alignment
-    logger.info(f">>> Step 3: Smart Aligner (Profile: {profile})")
+    logger.info(f">>> Step 3: Smart Aligner (Profile: {profile} - Path: {standardized_path})")
     aligner = SmartAligner()
-    sentences = aligner.process(standardized_path, segments, profile=profile)
+    # We use the processed path (isolated vocals) from VAD!
+    sentences = aligner.process(processed_audio_path, segments, profile=profile)
     
     # 3. Print Fancy Output
     print("\n" + "="*60)

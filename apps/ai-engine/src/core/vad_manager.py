@@ -152,7 +152,7 @@ class VADManager:
             f"Happy: {happy_count} | Special: {special_count}"
         )
         
-        return segments
+        return segments, vad_input_path
 
     def _greedy_merge(self, raw_timestamps: List[dict]) -> List[VADSegment]:
         """
