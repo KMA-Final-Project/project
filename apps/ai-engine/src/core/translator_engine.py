@@ -67,6 +67,8 @@ class VietnamesePronoun(str, Enum):
     # Historical / Period (Kiem Hiep)
     HUYNH_DE = "Huynh / Đệ"  # Brothers (Martial Arts contexts)
     TAI_HA_CAC_HA = "Tại hạ / Các hạ"  # I / You (Period specific)
+    TA_NANG = "Ta / Nàng" # I / You (Period specific)
+    TA_NGUOI = "Ta / Ngươi" # I / You (Period specific)
 
     # Professional
     TOI_QUY_KHACH = "Tôi / Quý khách"  # Service provider to Customer
@@ -92,6 +94,8 @@ class ContextAnalysisResult(BaseModel):
         description="Key terms or proper nouns that should be preserved or handled consistently."
     )
 
+from .llm_provider import LLMProvider
+
 class TranslatorEngine:
     """
     Core Engine for Bilingual Subtitle Translation.
@@ -100,6 +104,8 @@ class TranslatorEngine:
     
     def __init__(self, config=None):
         self.config = config or {}
+        model_name = self.config.get("model_name", "qwen2.5:7b-instruct")
+        self.llm_provider = LLMProvider(model_name=model_name)
         logger.info("TranslatorEngine initialized.")
 
     def _get_analysis_batch(self, segments: List[dict]) -> List[dict]:
@@ -139,26 +145,80 @@ class TranslatorEngine:
         """
         logger.info(f"Starting Content Analysis for {len(segments)} segments. Target: {target_lang}")
         
-        # 1. smart batching
+        # 1. Smart Batching
         analysis_batch = self._get_analysis_batch(segments)
-        batch_text = "\n".join([s.get('text', '') for s in analysis_batch])
+        text_samples = [s.get('text', '') for s in analysis_batch]
         
         logger.info(f"Analysis Batch prepared. Size: {len(analysis_batch)} segments.")
         
-        # TODO: Phase 2 - Implement LLM Call here.
-        # For Phase 1, we return a Mock result.
+        # 2. LLM Analysis
+        result = self.llm_provider.analyze_context(text_samples, target_lang=target_lang)
         
-        logger.warning("LLM Integration not implemented yet. Returning MOCK result.")
-        
-        # Mock Logic for testing Phase 1 structure
-        mock_style = TranslationStyle.NEUTRAL
-        mock_pronouns = VietnamesePronoun.TOI_BAN if target_lang == 'vi' else None
-        
-        return ContextAnalysisResult(
-            detected_style=mock_style,
-            detected_pronouns=mock_pronouns,
-            summary="[MOCK] Analysis not implemented. This is a placeholder.",
-            keywords=["Mock", "Test"]
-        )
+        return result
 
-    # TODO: Implement translate_batch in Phase 3
+    def correct_content(self, segments: List[dict]) -> List[dict]:
+        """
+        Step 1.5: Homophone/ASR Correction.
+        Returns a NEW list of segments with 'text' corrected.
+        """
+        if not segments:
+            return []
+            
+        logger.info(f"Starting Content Correction for {len(segments)} segments.")
+        
+        # We need to batch this too if the list is huge, but for now let's assume one chunk
+        # In production, we'd chunk this by 20-50 lines to avoid context window limits
+        
+        # 1. Extract text
+        texts = [s.get('text', '') for s in segments]
+        
+        # 2. Analyze context first? Or just correct based on local context?
+        # Actually correction needs Style context. So we should analyze -> correct -> re-analyze?
+        # That's expensive. 
+        # Strategy: Analyze First (on raw text) -> Detect Style -> Correct (using Style) -> Translate.
+        
+        # For this method, we assume we want to correct. But we need style.
+        # Let's do a quick pre-analysis on the first few lines if not provided?
+        # To keep it simple for Phase 3: We will pass the 'Context' to this method if available, 
+        # or we just use a Generic correction prompt if not.
+        
+        # Refined Plan: 'process_two_pass' method in Engine will handle the flow.
+        return segments # Placeholder if we don't have the context yet.
+
+    def process_two_pass(self, segments: List[dict], target_lang: str) -> List[str]:
+        """
+        Executes the full "Analyze -> Correct -> Translate" workflow.
+        """
+        logger.info("Starting Two-Pass Workflow...")
+        
+        # Pass 1: Analyze (Raw)
+        analysis_result = self.analyze_content(segments, target_lang)
+        logger.info(f"Initial Analysis: {analysis_result.detected_style}")
+        
+        # Pass 2: Correct (Using Analysis)
+        texts = [s.get('text', '') for s in segments]
+        
+        # We process correction in batches of 20 to be safe
+        corrected_texts = []
+        batch_size = 20
+        for i in range(0, len(texts), batch_size):
+            chunk = texts[i:i+batch_size]
+            corrected_chunk = self.llm_provider.correct_text_batch(chunk, analysis_result)
+            corrected_texts.extend(corrected_chunk)
+            
+        logger.info(f"Correction Complete. Sample: {corrected_texts[:1]}")
+        
+        # Pass 3: Translate (Using Corrected Text & Analysis)
+        # We translate in batches of 20 as well
+        final_translations = []
+        for i in range(0, len(corrected_texts), batch_size):
+            chunk = corrected_texts[i:i+batch_size]
+            translated_chunk = self.llm_provider.translate_batch(
+                chunk, 
+                source_lang="auto", # or passed in
+                target_lang=target_lang,
+                context=analysis_result
+            )
+            final_translations.extend(translated_chunk)
+            
+        return final_translations
