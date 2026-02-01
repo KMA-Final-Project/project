@@ -1,0 +1,175 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ENUMS
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum MediaOriginType {
+  LOCAL
+  YOUTUBE
+}
+
+enum MediaStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// --- MODELS ---
+
+model User {
+  id           String @id @default(uuid())
+  email        String @unique
+  fullName     String @map("full_name")
+  passwordHash String @map("password_hash")
+
+  // Subscription Info
+  currentSubscriptionId         String?  @map("current_subscription_id")
+  quotaUsageCurrentMonth        Int      @default(0) @map("quota_usage_current_month")
+  quotaUsageCurrentMonthSeconds Int      @default(0) @map("quota_usage_current_month_seconds") // Track duration
+  lastQuotaResetDate            DateTime @default(now()) @map("last_quota_reset_date")
+  role                          Role     @default(USER)
+
+  // Relationships
+  currentSubscription Subscription?    @relation("UserCurrentSub", fields: [currentSubscriptionId], references: [id])
+  subscriptions       Subscription[]   @relation("UserHistorySub")
+  usageHistories      UsageHistory[]
+  mediaItems          MediaItem[]
+  vocabularies        UserVocabulary[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model SubscriptionPlan {
+  id                  String  @id // e.g. "FREE", "PRO_MONTHLY"
+  name                String
+  price               Decimal @db.Decimal(10, 2)
+  maxDurationPerFile  Int     @map("max_duration_per_file") // seconds
+  monthlyQuotaSeconds Int     @map("monthly_quota_seconds")
+  isActive            Boolean @default(true) @map("is_active")
+
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  planId String @map("plan_id")
+
+  startDate  DateTime           @map("start_date")
+  endDate    DateTime           @map("end_date")
+  amountPaid Decimal            @map("amount_paid") @db.Decimal(10, 2)
+  status     SubscriptionStatus @default(ACTIVE)
+
+  // Relationships
+  user           User             @relation("UserHistorySub", fields: [userId], references: [id])
+  activeUser     User[]           @relation("UserCurrentSub") // Reverse relation for current sub
+  plan           SubscriptionPlan @relation(fields: [planId], references: [id])
+  usageHistories UsageHistory[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("subscriptions")
+}
+
+model UsageHistory {
+  id             String @id @default(uuid())
+  userId         String @map("user_id")
+  subscriptionId String @map("subscription_id")
+
+  cycleStartDate       DateTime @map("cycle_start_date")
+  cycleEndDate         DateTime @map("cycle_end_date")
+  totalSecondsUsed     Int      @default(0) @map("total_seconds_used")
+  quotaLimitAtThatTime Int      @map("quota_limit_at_that_time") // Snapshot quota
+
+  user         User         @relation(fields: [userId], references: [id])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@map("usage_histories")
+}
+
+model MediaItem {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  title      String
+  originType MediaOriginType @map("origin_type")
+  originUrl  String?         @map("origin_url") // Youtube URL or null if LOCAL
+
+  // Storage Keys (MinIO/S3 Paths)
+  audioS3Key    String  @map("audio_s3_key")
+  subtitleS3Key String? @map("subtitle_s3_key") // JSON output path
+
+  durationSeconds Int         @default(0) @map("duration_seconds")
+  status          MediaStatus @default(QUEUED)
+
+  // Logic flag
+  countedInQuota Boolean @default(false) @map("counted_in_quota")
+
+  // Relationships
+  user             User             @relation(fields: [userId], references: [id])
+  userVocabularies UserVocabulary[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at") // Soft delete
+
+  @@map("media_items")
+}
+
+model Vocabulary {
+  id              String  @id @default(uuid())
+  word            String  @unique // Unique word
+  meaning         String  @db.Text
+  pronunciation   String?
+  exampleSentence String? @map("example_sentence") @db.Text
+  lookupCount     Int     @default(0) @map("lookup_count")
+
+  userVocabularies UserVocabulary[]
+
+  @@map("vocabularies")
+}
+
+model UserVocabulary {
+  id           String  @id @default(uuid())
+  userId       String  @map("user_id")
+  vocabularyId String  @map("vocabulary_id")
+  mediaItemId  String? @map("media_item_id") // Optional context
+
+  contextSentence String? @map("context_sentence") @db.Text // Personal context where user saved word
+
+  user       User       @relation(fields: [userId], references: [id])
+  vocabulary Vocabulary @relation(fields: [vocabularyId], references: [id])
+  mediaItem  MediaItem? @relation(fields: [mediaItemId], references: [id])
+
+  @@unique([userId, vocabularyId]) // Prevent duplicate saves per user
+  @@map("user_vocabularies")
+}
