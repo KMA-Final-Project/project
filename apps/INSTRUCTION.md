@@ -59,4 +59,4 @@
 
 - AI Engine: `apps/ai-engine/INSTRUCTION.md`
 - Mobile App: `apps/mobile-app/INSTRUCTION.md`
-- Backend: `apps/backend/INSTRUCTION.md`
+- Backend: `apps/backend-api/INSTRUCTION.md`
