@@ -37,13 +37,19 @@ enum MediaStatus {
   FAILED
 }
 
+enum OtpType {
+  REGISTER
+  FORGOT_PASSWORD
+}
+
 // --- MODELS ---
 
 model User {
-  id           String @id @default(uuid())
-  email        String @unique
-  fullName     String @map("full_name")
-  passwordHash String @map("password_hash")
+  id            String  @id @default(uuid())
+  email         String  @unique
+  fullName      String  @map("full_name")
+  passwordHash  String  @map("password_hash")
+  emailVerified Boolean @default(false) @map("email_verified")
 
   // Subscription Info
   currentSubscriptionId         String?  @map("current_subscription_id")
@@ -58,6 +64,7 @@ model User {
   usageHistories      UsageHistory[]
   mediaItems          MediaItem[]
   vocabularies        UserVocabulary[]
+  otps                Otp[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -172,4 +179,22 @@ model UserVocabulary {
 
   @@unique([userId, vocabularyId]) // Prevent duplicate saves per user
   @@map("user_vocabularies")
+}
+
+model Otp {
+  id     String  @id @default(uuid())
+  email  String // Always required for email delivery
+  userId String? @map("user_id") // Optional - null for REGISTER, set for FORGOT_PASSWORD
+  code   String // 6-digit OTP code
+  type   OtpType
+
+  expiresAt DateTime @map("expires_at")
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([email, type])
+  @@index([userId, type])
+  @@map("otps")
 }
