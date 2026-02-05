@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   Injectable,
   ConflictException,
@@ -5,12 +6,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
-import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
-import { MailService } from '../mail/mail.service';
-import { OtpService } from '../otp/otp.service';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { RedisService } from 'src/modules/redis/redis.service';
+import { MailService } from 'src/modules/mail/mail.service';
+import { OtpService } from 'src/modules/otp/otp.service';
 import {
   RegisterDto,
   VerifyRegistrationDto,
@@ -19,7 +19,7 @@ import {
   UserProfileDto,
   TokensDto,
 } from './dto';
-import { AUTH_ERRORS } from '../../common/constants/error-messages';
+import { AUTH_ERRORS } from 'src/common/constants/error-messages';
 import { OtpType } from 'prisma/generated/client';
 
 interface CachedRegistration {
@@ -40,16 +40,18 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly otpService: OtpService,
     private readonly jwtService: JwtService,
-    private readonly config: ConfigService,
   ) {}
 
   /**
    * Step 1: Cache registration data in Redis + send OTP
    */
   async register(dto: RegisterDto): Promise<{ message: string }> {
+    // Normalize email
+    const email = dto.email.toLowerCase().trim();
+
     // Check if email already exists in database
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email },
     });
 
     if (existingUser) {
@@ -60,19 +62,19 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
     // Generate OTP via OtpService (for audit trail)
-    const otp = await this.otpService.createOtp(dto.email, OtpType.REGISTER);
+    const otp = await this.otpService.createOtp(email, OtpType.REGISTER);
 
     // Cache registration data in Redis
-    const cacheKey = `reg:${dto.email}`;
+    const cacheKey = `reg:${email}`;
     const cacheData: CachedRegistration = {
-      email: dto.email,
+      email,
       passwordHash,
-      fullName: dto.fullName,
+      fullName: dto.fullName.trim(),
     };
     await this.redis.setJson(cacheKey, cacheData, REGISTRATION_TTL_SECONDS);
 
     // Send OTP email
-    await this.mail.sendOtp(dto.email, otp, OtpType.REGISTER);
+    await this.mail.sendOtp(email, otp, OtpType.REGISTER);
 
     return {
       message:
@@ -88,9 +90,12 @@ export class AuthService {
     ip?: string,
     deviceInfo?: string,
   ): Promise<AuthResponseDto> {
+    // Normalize email
+    const email = dto.email.toLowerCase().trim();
+
     // Verify OTP via OtpService
     const isValid = await this.otpService.verifyOtp(
-      dto.email,
+      email,
       dto.otp,
       OtpType.REGISTER,
     );
@@ -100,7 +105,7 @@ export class AuthService {
     }
 
     // Get cached registration data
-    const cacheKey = `reg:${dto.email}`;
+    const cacheKey = `reg:${email}`;
     const cached = await this.redis.getJson<CachedRegistration>(cacheKey);
 
     if (!cached) {
@@ -142,8 +147,11 @@ export class AuthService {
     ip?: string,
     deviceInfo?: string,
   ): Promise<AuthResponseDto> {
+    // Normalize email
+    const email = dto.email.toLowerCase().trim();
+
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email },
     });
 
     if (!user) {
@@ -232,8 +240,8 @@ export class AuthService {
       expiresIn: ACCESS_TOKEN_EXPIRY,
     });
 
-    // Generate refresh token (random UUID-based)
-    const refreshToken = this.generateRefreshToken();
+    // Generate refresh token using crypto.randomUUID (Node.js built-in)
+    const refreshToken = randomUUID();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
 
@@ -249,17 +257,6 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken };
-  }
-
-  private generateRefreshToken(): string {
-    // Generate a secure random token
-    const chars =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let token = '';
-    for (let i = 0; i < 64; i++) {
-      token += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return token;
   }
 
   private toUserProfile(user: {

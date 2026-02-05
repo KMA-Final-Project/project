@@ -34,11 +34,3 @@ export class MessageResponseDto {
   @ApiProperty({ example: 'Operation completed successfully' })
   message: string;
 }
-
-export class ErrorResponseDto {
-  @ApiProperty({ example: 'USER_EMAIL_EXISTS' })
-  code: string;
-
-  @ApiProperty({ example: 'Email already registered' })
-  message: string;
-}
