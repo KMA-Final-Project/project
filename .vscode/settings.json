@@ -1,6 +1,7 @@
 {
     "conventionalCommits.scopes": [
         "ai-engine",
-        "backend-api"
+        "backend-api",
+        "infra"
     ]
 }
