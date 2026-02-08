@@ -9,6 +9,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { OtpModule } from './modules/otp/otp.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
 @Module({
@@ -27,6 +28,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     MailModule,
     OtpModule,
     AuthModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

@@ -74,37 +74,81 @@ model User {
 }
 
 model SubscriptionPlan {
-  id                  String  @id // e.g. "FREE", "PRO_MONTHLY"
-  name                String
-  price               Decimal @db.Decimal(10, 2)
-  maxDurationPerFile  Int     @map("max_duration_per_file") // seconds
-  monthlyQuotaSeconds Int     @map("monthly_quota_seconds")
-  isActive            Boolean @default(true) @map("is_active")
+  id          String  @id // e.g. "FREE", "PRO_MONTHLY"
+  code        String  @unique
+  name        String
+  description String? @db.Text
 
+  // Marketing & Display
+  features  Json?   @map("features") // ["No Ads", "High Quality", "Fast Processing", etc]
+  tierLevel Int     @default(1)
+  isActive  Boolean @default(true) @map("is_active")
+
+  variants PlanVariant[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("subscription_plans")
+}
+
+model PlanVariant {
+  id     String @id @default(uuid())
+  planId String @map("plan_id")
+
+  name     String
+  price    Decimal @db.Decimal(10, 2)
+  currency String  @default("VND")
+
+  billingCycleType BillingCycleType @map("billing_cycle_type")
+
+  // Quota & Limits
+  maxDurationPerFile  Int @map("max_duration_per_file") // seconds
+  monthlyQuotaSeconds Int @map("monthly_quota_seconds")
+
+  isActive Boolean @default(true)
+
+  plan          SubscriptionPlan @relation(fields: [planId], references: [id])
   subscriptions Subscription[]
 
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("subscription_plans")
+  @@map("plan_variants")
+}
+
+enum BillingCycleType {
+  MONTHLY
+  SIX_MONTHS
+  YEARLY
+  LIFETIME
 }
 
 model Subscription {
   id     String @id @default(uuid())
   userId String @map("user_id")
-  planId String @map("plan_id")
 
-  startDate  DateTime           @map("start_date")
-  endDate    DateTime           @map("end_date")
-  amountPaid Decimal            @map("amount_paid") @db.Decimal(10, 2)
-  status     SubscriptionStatus @default(ACTIVE)
+  variantId String @map("variant_id")
+
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+
+  status SubscriptionStatus @default(ACTIVE)
+
+  // Snapshot
+  priceSnapshot               Decimal @map("price_snapshot") @db.Decimal(10, 2)
+  maxDurationPerFileSnapshot  Int     @map("max_duration_per_file_snapshot")
+  monthlyQuotaSecondsSnapshot Int     @map("monthly_quota_seconds_snapshot")
 
   // Relationships
-  user           User             @relation("UserHistorySub", fields: [userId], references: [id])
-  activeUser     User[]           @relation("UserCurrentSub") // Reverse relation for current sub
-  plan           SubscriptionPlan @relation(fields: [planId], references: [id])
+  user    User        @relation("UserHistorySub", fields: [userId], references: [id])
+  users   User[]      @relation("UserCurrentSub")
+  variant PlanVariant @relation(fields: [variantId], references: [id])
+
   usageHistories UsageHistory[]
 
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("subscriptions")
 }
