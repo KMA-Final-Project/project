@@ -1,0 +1,46 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: bilingual-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Required for correct presigned URLs behind Cloudflare tunnel
+      MINIO_SERVER_URL: https://bilingual-minio.sondndev.id.vn
+      MINIO_BROWSER_REDIRECT_URL: https://bilingual-minio-console.sondndev.id.vn
+    volumes:
+      - ./data:/data
+    networks:
+      - sondn_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Bucket initialization on startup
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - sondn_net
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://bilingual-minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb --ignore-existing myminio/raw;
+      mc mb --ignore-existing myminio/processed;
+      mc anonymous set download myminio/processed;
+      echo 'Buckets created successfully!';
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+networks:
+  sondn_net:
+    external: true
