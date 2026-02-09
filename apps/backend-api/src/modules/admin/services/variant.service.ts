@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PlanVariant } from 'prisma/generated/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { BaseCrudService } from '../../../common/services';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { BaseCrudService } from 'src/common/services';
 import { CreateVariantDto, UpdateVariantDto } from '../dto';
 import { PlanService } from './plan.service';
 

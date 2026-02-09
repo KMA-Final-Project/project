@@ -17,12 +17,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Role } from 'prisma/generated/client';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { RolesGuard } from 'src/common/guards/roles.guard';
 import { PlanService, VariantService } from './services';
 import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
-import { ErrorResponseDto } from '../../common/dto';
+import { ErrorResponseDto } from 'src/common/dto';
 
 @ApiTags('Admin - Subscription Plans')
 @ApiBearerAuth()

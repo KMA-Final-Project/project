@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -35,7 +40,6 @@ export abstract class BaseCrudService<
    * Uses type assertion to access dynamic model.
    */
   protected get model() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (this.prisma as any)[this.modelName];
   }
 

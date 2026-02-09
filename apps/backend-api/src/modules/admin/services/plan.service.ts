@@ -4,8 +4,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { SubscriptionPlan, Prisma } from 'prisma/generated/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { BaseCrudService } from '../../../common/services';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { BaseCrudService } from 'src/common/services';
 import { CreatePlanDto, UpdatePlanDto } from '../dto';
 
 @Injectable()
