@@ -21,16 +21,13 @@ import {
 } from './dto';
 import { AUTH_ERRORS } from 'src/common/constants/error-messages';
 import { OtpType } from 'prisma/generated/client';
+import { ConfigService } from '@nestjs/config';
 
 interface CachedRegistration {
   email: string;
   passwordHash: string;
   fullName: string;
 }
-
-const REGISTRATION_TTL_SECONDS = 10 * 60; // 10 minutes
-const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY_DAYS = 7;
 
 @Injectable()
 export class AuthService {
@@ -40,6 +37,7 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly otpService: OtpService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -71,7 +69,11 @@ export class AuthService {
       passwordHash,
       fullName: dto.fullName.trim(),
     };
-    await this.redis.setJson(cacheKey, cacheData, REGISTRATION_TTL_SECONDS);
+    await this.redis.setJson(
+      cacheKey,
+      cacheData,
+      this.configService.getOrThrow<number>('REGISTRATION_TTL_SECONDS'),
+    );
 
     // Send OTP email
     await this.mail.sendOtp(email, otp, OtpType.REGISTER);
@@ -188,9 +190,26 @@ export class AuthService {
     ip?: string,
     deviceInfo?: string,
   ): Promise<TokensDto> {
-    // Find the refresh token in database
+    // Decode JWT to get the token ID (jti)
+    let tokenId: string;
+    try {
+      const decoded = this.jwtService.verify<{ jti: string; type: string }>(
+        refreshToken,
+        {
+          secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        },
+      );
+      if (decoded.type !== 'refresh') {
+        throw new UnauthorizedException(AUTH_ERRORS.REFRESH_TOKEN_INVALID);
+      }
+      tokenId = decoded.jti;
+    } catch {
+      throw new UnauthorizedException(AUTH_ERRORS.REFRESH_TOKEN_INVALID);
+    }
+
+    // Find the refresh token in database by ID
     const storedToken = await this.prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+      where: { token: tokenId },
       include: { user: true },
     });
 
@@ -218,9 +237,20 @@ export class AuthService {
    * Logout: invalidate the refresh token
    */
   async logout(refreshToken: string): Promise<{ message: string }> {
-    await this.prisma.refreshToken.deleteMany({
-      where: { token: refreshToken },
-    });
+    try {
+      const decoded = this.jwtService.verify<{ jti: string }>(refreshToken, {
+        secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
+      });
+      await this.prisma.refreshToken.deleteMany({
+        where: { token: decoded.jti },
+      });
+    } catch (error) {
+      // Token may be expired or malformed - log for monitoring but don't block logout
+      console.warn(
+        '[Auth] Failed to decode refresh token during logout:',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
 
     return { message: 'Logged out successfully' };
   }
@@ -233,28 +263,42 @@ export class AuthService {
     ip?: string,
     deviceInfo?: string,
   ): Promise<TokensDto> {
-    const payload = { sub: userId, email };
+    // Config values
+    const accessTokenExpiry =
+      this.configService.get<string>('ACCESS_TOKEN_EXPIRY') ?? '15m';
+    const refreshTokenExpiryDays = Number(
+      this.configService.get<string>('REFRESH_TOKEN_EXPIRY_DAYS') ?? 7,
+    );
+    const refreshSecret =
+      this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
     // Generate access token
-    const accessToken = this.jwtService.sign(payload, {
-      expiresIn: ACCESS_TOKEN_EXPIRY,
-    });
+    const accessToken = this.jwtService.sign(
+      { sub: userId, email },
+      { expiresIn: accessTokenExpiry as '15m' | '1h' | '7d' },
+    );
 
-    // Generate refresh token using crypto.randomUUID (Node.js built-in)
-    const refreshToken = randomUUID();
+    // Generate refresh token ID and calculate expiry
+    const refreshTokenId = randomUUID();
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+    expiresAt.setDate(expiresAt.getDate() + refreshTokenExpiryDays);
 
-    // Store refresh token in database
+    // Store in database
     await this.prisma.refreshToken.create({
       data: {
-        token: refreshToken,
+        token: refreshTokenId,
         userId,
         ip,
         deviceInfo,
         expiresAt,
       },
     });
+
+    // Sign as JWT
+    const refreshToken = this.jwtService.sign(
+      { jti: refreshTokenId, type: 'refresh' },
+      { secret: refreshSecret, expiresIn: `${refreshTokenExpiryDays}d` },
+    );
 
     return { accessToken, refreshToken };
   }

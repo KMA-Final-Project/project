@@ -22,7 +22,8 @@ import { MailService } from './mail.service';
           from: config.getOrThrow<string>('SMTP_FROM'),
         },
         template: {
-          dir: join(__dirname, 'templates'),
+          // dir: join(__dirname, 'templates'),
+          dir: join(process.cwd(), 'src/modules/mail/templates'),
           adapter: new HandlebarsAdapter(),
           options: {
             strict: true,
