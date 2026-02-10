@@ -11,6 +11,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { RedisService } from 'src/modules/redis/redis.service';
 import { MailService } from 'src/modules/mail/mail.service';
 import { OtpService } from 'src/modules/otp/otp.service';
+import { UserSubscriptionService } from 'src/modules/user/services';
 import {
   RegisterDto,
   VerifyRegistrationDto,
@@ -38,6 +39,7 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly userSubscriptionService: UserSubscriptionService,
   ) {}
 
   /**
@@ -123,6 +125,9 @@ export class AuthService {
         emailVerified: true,
       },
     });
+
+    // Assign default FREE subscription (snapshot pattern)
+    await this.userSubscriptionService.assignDefaultFreePlan(user.id);
 
     // Cleanup Redis cache
     await this.redis.del(cacheKey);

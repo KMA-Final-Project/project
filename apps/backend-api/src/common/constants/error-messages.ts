@@ -16,3 +16,18 @@ export const AUTH_ERRORS = {
 } as const;
 
 export type AuthErrorKey = keyof typeof AUTH_ERRORS;
+
+export const SUBSCRIPTION_ERRORS = {
+  DEFAULT_PLAN_UNAVAILABLE:
+    'System configuration error: default plan unavailable. Please contact support.',
+} as const;
+
+export type SubscriptionErrorKey = keyof typeof SUBSCRIPTION_ERRORS;
+
+export const MEDIA_ERRORS = {
+  QUOTA_EXCEEDED: 'Monthly quota exceeded. Please upgrade your plan.',
+  FILE_NOT_FOUND: 'Uploaded file not found. Please try uploading again.',
+  INVALID_YOUTUBE_URL: 'Please provide a valid YouTube URL.',
+} as const;
+
+export type MediaErrorKey = keyof typeof MEDIA_ERRORS;
