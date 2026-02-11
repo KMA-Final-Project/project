@@ -5,7 +5,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaService } from './prisma/prisma.service';
+import { PrismaModule } from './prisma/prisma.module';
 import { MailModule } from './modules/mail/mail.module';
 import { OtpModule } from './modules/otp/otp.module';
 import { RedisModule } from './modules/redis/redis.module';
@@ -47,6 +47,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
       inject: [ConfigService],
     }),
 
+    PrismaModule,
     RedisModule,
     MailModule,
     OtpModule,
@@ -59,7 +60,6 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
   controllers: [AppController],
   providers: [
     AppService,
-    PrismaService,
     // Global JWT auth guard
     {
       provide: APP_GUARD,
