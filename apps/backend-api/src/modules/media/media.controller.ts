@@ -13,6 +13,9 @@ import {
   RequestPresignedUrlDto,
   ConfirmUploadDto,
   SubmitYoutubeDto,
+  PresignedUrlResponseDto,
+  ConfirmUploadResponseDto,
+  SubmitYoutubeResponseDto,
 } from './dto';
 
 @ApiTags('Media')
@@ -34,14 +37,14 @@ export class MediaController {
   })
   @ApiResponse({
     status: 201,
-    description:
-      'Presigned URL generated. Returns { uploadUrl, objectKey, expiresIn }',
+    description: 'Presigned URL generated successfully',
+    type: PresignedUrlResponseDto,
   })
   @ApiResponse({ status: 400, type: ErrorResponseDto })
   async requestPresignedUrl(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: RequestPresignedUrlDto,
-  ) {
+  ): Promise<PresignedUrlResponseDto> {
     return this.mediaService.requestPresignedUrl(user.id, dto);
   }
 
@@ -59,13 +62,14 @@ export class MediaController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Upload confirmed. Returns { id, title, status, jobId }',
+    description: 'Upload confirmed and job dispatched',
+    type: ConfirmUploadResponseDto,
   })
   @ApiResponse({ status: 400, type: ErrorResponseDto })
   async confirmUpload(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ConfirmUploadDto,
-  ) {
+  ): Promise<ConfirmUploadResponseDto> {
     return this.mediaService.confirmUpload(user.id, dto);
   }
 
@@ -82,14 +86,14 @@ export class MediaController {
   })
   @ApiResponse({
     status: 201,
-    description:
-      'Submission accepted. Returns { id, title, status, originUrl, jobId }',
+    description: 'Submission accepted and job dispatched',
+    type: SubmitYoutubeResponseDto,
   })
   @ApiResponse({ status: 400, type: ErrorResponseDto })
   async submitYoutube(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SubmitYoutubeDto,
-  ) {
+  ): Promise<SubmitYoutubeResponseDto> {
     return this.mediaService.submitYoutube(user.id, dto);
   }
 }

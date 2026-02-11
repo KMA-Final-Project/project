@@ -8,6 +8,11 @@ import {
   ConfirmUploadDto,
   SubmitYoutubeDto,
 } from './dto';
+import type {
+  PresignedUrlResponseDto,
+  ConfirmUploadResponseDto,
+  SubmitYoutubeResponseDto,
+} from './dto';
 import { randomUUID } from 'crypto';
 import { MediaOriginType } from 'prisma/generated/enums';
 
@@ -33,7 +38,10 @@ export class MediaService {
    * - Generates a unique S3 key under audio/{userId}/{uuid}/{fileName}
    * - Returns the public-facing presigned URL + key for the confirm step
    */
-  async requestPresignedUrl(userId: string, dto: RequestPresignedUrlDto) {
+  async requestPresignedUrl(
+    userId: string,
+    dto: RequestPresignedUrlDto,
+  ): Promise<PresignedUrlResponseDto> {
     // Optimistic quota check — we don't know the duration yet,
     // but we prevent obviously-exceeded users from even uploading.
     await this.assertQuotaNotExceeded(userId);
@@ -62,7 +70,10 @@ export class MediaService {
    * - Creates a MediaItem record with status QUEUED
    * - Dispatches a transcription job to BullMQ
    */
-  async confirmUpload(userId: string, dto: ConfirmUploadDto) {
+  async confirmUpload(
+    userId: string,
+    dto: ConfirmUploadDto,
+  ): Promise<ConfirmUploadResponseDto> {
     // Verify the file actually landed in MinIO
     const exists = await this.minioService.verifyObjectExists(dto.objectKey);
     if (!exists) {
@@ -105,7 +116,10 @@ export class MediaService {
    * - Creates a MediaItem record with status QUEUED and a placeholder S3 key
    * - Dispatches a transcription job (the worker will download + process)
    */
-  async submitYoutube(userId: string, dto: SubmitYoutubeDto) {
+  async submitYoutube(
+    userId: string,
+    dto: SubmitYoutubeDto,
+  ): Promise<SubmitYoutubeResponseDto> {
     // Optimistic quota check
     await this.assertQuotaNotExceeded(userId);
 
