@@ -84,11 +84,11 @@ export class MediaProcessor {
     mediaId: string,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Resolve script path relative to compiled JS output (dist/)
+      // __dirname at runtime = dist/src/modules/media/workers
+      // Python script at     = dist/src/modules/media/scripts/mock_processor.py
       const scriptPath = path.resolve(
         __dirname,
-        'modules',
-        'media',
+        '..',
         'scripts',
         'mock_processor.py',
       );

@@ -7,6 +7,7 @@
     "assets": [
       {
         "include": "modules/media/scripts/**/*.py",
+        "outDir": "dist/src",
         "watchAssets": true
       }
     ]

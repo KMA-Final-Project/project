@@ -11,6 +11,8 @@ services:
       MINIO_BROWSER_REDIRECT_URL: https://bilingual-minio-console.sondndev.id.vn
     volumes:
       - ./data:/data
+    ports:
+      - "9000:9000"   # API — backend connects via localhost:9000
     networks:
       - sondn_net
     restart: unless-stopped

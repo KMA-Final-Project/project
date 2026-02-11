@@ -38,9 +38,13 @@ export class MinioService {
     );
 
     // Build the internal origin for URL replacement
-    // e.g. "http://minio:9000" or "https://localhost:9000"
+    // e.g. "http://minio:9000" or "https://bilingual-minio.sondndev.id.vn"
+    // Omit default ports (443/80) since the SDK does the same in presigned URLs
     const protocol = useSSL ? 'https' : 'http';
-    this.internalOrigin = `${protocol}://${endPoint}:${port}`;
+    const isDefaultPort = (useSSL && port === 443) || (!useSSL && port === 80);
+    this.internalOrigin = isDefaultPort
+      ? `${protocol}://${endPoint}`
+      : `${protocol}://${endPoint}:${port}`;
 
     this.logger.log(
       `MinIO initialized (internal: ${this.internalOrigin}, public: ${this.publicEndpoint})`,
