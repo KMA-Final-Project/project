@@ -1,0 +1,12 @@
+{"我已经熬骨沉的第一道安灵酒田": "Tôi đã chịu đựng qua cơn đau đầu tiên của lễ an linh", 
+"首曲山川寄云雀 不读明书归雀": "Tổng đàn dãy núi gửi con quạ, không đọc sách trắng mà về", 
+"何惧这绝境回旋 等风起素叶": "Nỗi lo này tuyệt vọng xoay tròn, chờ gió nổi lá trắng", 
+"此曲不休此曲无邪": "Đây là khúc nhạc không ngừng, không có tà ác", 
+"一念间天荒雪面 我任力把黄箭 踏碎铃哨又藏下了天": "Trong một niệm trời hoang mặt tuyết, tôi dùng sức bắn mũi tên vàng, đạp nát chuông và dấu lại bầu trời", 
+"我欲恨见天啸 此曲沧海落浮摇 罔顾梦回 涅槃河岛": "Tôi muốn căm phẫn thấy tiếng sấm, khúc nhạc dâng biển lắc lư, không quan tâm đến giấc mơ trở về, hòn đảo Niết Bàn", 
+"一念间多少云烟 奋天灭海巨啸 我寂寥 只见身与月颠倒": "Trong một niệm bao nhiêu khói mây, chiến trời diệt biển tiếng gào lớn, tôi cô đơn chỉ thấy thân thể và mặt trăng đảo ngược", 
+"我欲尽赴江潮 漫随银果子飘渺 此生不了 剑不回敲": "Tôi muốn dấn thân vào dòng sông, mải theo quả bạc bay lơ lửng, cuộc đời không kết thúc, kiếm không quay lại đánh", 
+"我自宗人 不见魂 九四百转 忽返尘 为赴天下 有谁人大苦的": "Tôi tự mình là người, không thấy linh hồn, chín nghìn vòng quay đột nhiên trở về cát bụi, để đến thiên hạ, ai đã chịu khổ lớn", 
+"我本应见热山风 孤绝一身琉璃人 如有银过金甲无神": "Tôi nên gặp gió núi nóng, thân cô độc như người lục bảo, nếu có bạc qua giáp vàng mất linh hồn", 
+"我破苍穹一个人 独断天命自浮沉 穷笔落身 如素是谁遗憾": "Tôi phá vỡ bầu trời xanh một mình, tự quyết định số phận, bút nghèo viết thân, như tinh khiết ai tiếc nuối", 
+"我玄世外 恋之尘 回首过往多少瞬 轮回才深 不过方尘": "Tôi sống xa thế gian, yêu bụi trần, quay đầu nhìn quá khứ bao nhiêu khoảnh khắc, luân hồi mới sâu, chỉ là hạt cát"}

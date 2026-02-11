@@ -108,4 +108,30 @@ export class MinioService {
       throw error;
     }
   }
+
+  /**
+   * Download an object from the raw bucket to a local file path.
+   *
+   * Used by the Worker to download uploaded audio for validation (ffprobe).
+   *
+   * @param objectKey - S3 object key in the raw bucket
+   * @param localPath - Local filesystem path to save the file
+   */
+  async downloadObject(objectKey: string, localPath: string): Promise<void> {
+    await this.client.fGetObject(this.bucketRaw, objectKey, localPath);
+    this.logger.debug(`Downloaded ${objectKey} → ${localPath}`);
+  }
+
+  /**
+   * Upload a local file to the raw bucket.
+   *
+   * Used by the Worker to upload YouTube-downloaded audio to MinIO.
+   *
+   * @param objectKey - S3 object key in the raw bucket
+   * @param localPath - Local filesystem path of the file to upload
+   */
+  async uploadFile(objectKey: string, localPath: string): Promise<void> {
+    await this.client.fPutObject(this.bucketRaw, objectKey, localPath);
+    this.logger.debug(`Uploaded ${localPath} → ${objectKey}`);
+  }
 }

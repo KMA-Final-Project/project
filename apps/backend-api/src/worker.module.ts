@@ -2,8 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { PrismaService } from './prisma/prisma.service';
+import { MinioModule } from './modules/minio/minio.module';
 import { MediaProcessor } from './modules/media/workers/media.processor';
-import { TRANSCRIPTION_QUEUE } from './modules/queue/queue.types';
+import {
+  TRANSCRIPTION_QUEUE,
+  AI_PROCESSING_QUEUE,
+} from './modules/queue/queue.types';
 
 /**
  * Lean Worker Module — imports ONLY what the consumer needs.
@@ -14,7 +18,8 @@ import { TRANSCRIPTION_QUEUE } from './modules/queue/queue.types';
  * - No MailModule / OtpModule (no email sending)
  * - No HTTP Controllers
  *
- * Shares the same BullMQ + Redis config as AppModule.
+ * Consumes from: `transcription` queue (validates media)
+ * Produces to:   `ai-processing` queue (dispatches to Python AI Engine)
  */
 @Module({
   imports: [
@@ -34,8 +39,12 @@ import { TRANSCRIPTION_QUEUE } from './modules/queue/queue.types';
       inject: [ConfigService],
     }),
 
-    // Register the queue this worker consumes from
+    // Register queues: consume from transcription, produce to ai-processing
     BullModule.registerQueue({ name: TRANSCRIPTION_QUEUE }),
+    BullModule.registerQueue({ name: AI_PROCESSING_QUEUE }),
+
+    // MinIO — for downloading/uploading media files
+    MinioModule,
   ],
   providers: [PrismaService, MediaProcessor],
 })

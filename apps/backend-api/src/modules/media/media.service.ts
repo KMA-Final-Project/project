@@ -14,7 +14,7 @@ import type {
   SubmitYoutubeResponseDto,
 } from './dto';
 import { randomUUID } from 'crypto';
-import { MediaOriginType } from 'prisma/generated/enums';
+import { MediaOriginType, ProcessingMode } from 'prisma/generated/enums';
 
 /** Presigned URL validity: 1 hour */
 const PRESIGNED_URL_EXPIRY_SECONDS = 3600;
@@ -87,6 +87,10 @@ export class MediaService {
         title: dto.title,
         originType: MediaOriginType.LOCAL,
         audioS3Key: dto.objectKey,
+        processingMode:
+          dto.processingMode === 'TRANSCRIBE_TRANSLATE'
+            ? ProcessingMode.TRANSCRIBE_TRANSLATE
+            : ProcessingMode.TRANSCRIBE,
         status: 'QUEUED',
       },
     });
@@ -96,6 +100,7 @@ export class MediaService {
       type: MediaOriginType.LOCAL,
       filePath: dto.objectKey,
       userId,
+      processingMode: dto.processingMode ?? 'TRANSCRIBE',
     });
 
     this.logger.log(`Upload confirmed: media ${mediaItem.id}, job ${jobId}`);
@@ -135,6 +140,10 @@ export class MediaService {
         originType: MediaOriginType.YOUTUBE,
         originUrl: dto.url,
         audioS3Key: placeholderKey,
+        processingMode:
+          dto.processingMode === 'TRANSCRIBE_TRANSLATE'
+            ? ProcessingMode.TRANSCRIBE_TRANSLATE
+            : ProcessingMode.TRANSCRIBE,
         status: 'QUEUED',
       },
     });
@@ -144,6 +153,7 @@ export class MediaService {
       type: MediaOriginType.YOUTUBE,
       url: dto.url,
       userId,
+      processingMode: dto.processingMode ?? 'TRANSCRIBE',
     });
 
     this.logger.log(`YouTube submitted: media ${mediaItem.id}, job ${jobId}`);

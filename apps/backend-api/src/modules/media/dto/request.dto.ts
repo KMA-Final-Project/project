@@ -7,6 +7,7 @@ import {
   Matches,
   IsUrl,
   IsOptional,
+  IsIn,
 } from 'class-validator';
 
 // ==================== LOCAL UPLOAD FLOW ====================
@@ -63,6 +64,15 @@ export class ConfirmUploadDto {
   @IsString()
   @IsNotEmpty()
   objectKey: string;
+
+  @ApiProperty({
+    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
+    default: 'TRANSCRIBE',
+    description: 'Processing mode: transcribe only or transcribe + translate',
+  })
+  @IsOptional()
+  @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
+  processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
 }
 
 // ==================== YOUTUBE FLOW ====================
@@ -96,4 +106,13 @@ export class SubmitYoutubeDto {
   @IsOptional()
   @IsString()
   title?: string;
+
+  @ApiProperty({
+    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
+    default: 'TRANSCRIBE',
+    description: 'Processing mode: transcribe only or transcribe + translate',
+  })
+  @IsOptional()
+  @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
+  processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
 }

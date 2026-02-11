@@ -1,8 +1,18 @@
 import { MediaOriginType } from 'prisma/generated/client';
 
+// ==================== Queue Names ====================
+
+/** Queue consumed by the NestJS Worker (validation, download, quota checks) */
+export const TRANSCRIPTION_QUEUE = 'transcription';
+
+/** Queue consumed by the Python AI Engine (GPU processing) */
+export const AI_PROCESSING_QUEUE = 'ai-processing';
+
+// ==================== Job Payloads ====================
+
 /**
- * Standardized job payload dispatched to the transcription queue.
- * The (future) Python Worker will consume jobs matching this structure.
+ * Payload dispatched by the API → consumed by the NestJS Worker.
+ * The Worker validates, downloads, and re-checks quota before dispatching to AI.
  */
 export interface TranscriptionJobPayload {
   /** Database ID of the MediaItem record */
@@ -19,7 +29,28 @@ export interface TranscriptionJobPayload {
 
   /** User who submitted the media (for quota tracking in worker) */
   userId: string;
+
+  /** Processing mode selected by the user */
+  processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
 }
 
-/** Queue name constant — shared between producer and (future) consumer */
-export const TRANSCRIPTION_QUEUE = 'transcription';
+/**
+ * Payload dispatched by the NestJS Worker → consumed by the Python AI Engine.
+ * Only created AFTER validation passes (duration check, quota check, format check).
+ */
+export interface AiProcessingJobPayload {
+  /** Database ID of the MediaItem record */
+  mediaId: string;
+
+  /** Validated audio file location in MinIO (raw bucket) */
+  audioS3Key: string;
+
+  /** Processing mode: transcribe only or full bilingual pipeline */
+  processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+
+  /** Verified audio duration in seconds */
+  durationSeconds: number;
+
+  /** User who submitted the media */
+  userId: string;
+}
