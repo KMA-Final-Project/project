@@ -17,21 +17,38 @@ class Settings(BaseSettings):
     
     # --- Paths ---
     BASE_DIR: DirectoryPath = Path(__file__).resolve().parent.parent
-    TEMP_DIR: Path = Field(default=Path("temp"), description="Nơi chứa file audio tạm")
-    OUTPUT_DIR: Path = Field(default=Path("outputs"), description="Nơi chứa file JSON kết quả")
+    TEMP_DIR: Path = Field(default=Path("temp"), description="Temp audio files")
+    OUTPUT_DIR: Path = Field(default=Path("outputs"), description="JSON result files")
     
     # --- Hardware Configuration ---
-    DEVICE: str = Field(default="cuda", description="cuda hoặc cpu")
+    DEVICE: str = Field(default="cuda", description="cuda or cpu")
     DEVICE_INDEX: int = 0 # GPU index
     
     # --- AI Performance Mode ---
-    AI_PERF_MODE: AIProfile = Field(default=AIProfile.MEDIUM, description="Chế độ chạy")
+    AI_PERF_MODE: AIProfile = Field(default=AIProfile.MEDIUM, description="Performance profile")
+
+    # --- Redis (BullMQ) ---
+    REDIS_HOST: str = Field(default="localhost")
+    REDIS_PORT: int = Field(default=6379)
+    REDIS_PASSWORD: str = Field(default="")
+
+    # --- MinIO (Object Storage) ---
+    MINIO_ENDPOINT: str = Field(default="localhost")
+    MINIO_PORT: int = Field(default=9000)
+    MINIO_ACCESS_KEY: str = Field(default="")
+    MINIO_SECRET_KEY: str = Field(default="")
+    MINIO_USE_SSL: bool = Field(default=False)
+    MINIO_BUCKET_RAW: str = Field(default="raw")
+    MINIO_BUCKET_PROCESSED: str = Field(default="processed")
+
+    # --- Database (for direct status updates) ---
+    DATABASE_URL: str = Field(default="")
 
     # --- Parameters Mapping ---
     
     @property
     def whisper_compute_type(self) -> str:
-        """Kiểu tính toán (Quantization)"""
+        """Quantization type"""
         if self.AI_PERF_MODE == AIProfile.HIGH:
             return "float16"
         elif self.AI_PERF_MODE == AIProfile.MEDIUM:
@@ -41,7 +58,7 @@ class Settings(BaseSettings):
 
     @property
     def whisper_beam_size(self) -> int:
-        """Độ sâu tìm kiếm của thuật toán Beam Search"""
+        """Beam search depth"""
         if self.AI_PERF_MODE == AIProfile.HIGH:
             return 5
         elif self.AI_PERF_MODE == AIProfile.MEDIUM:
@@ -51,7 +68,7 @@ class Settings(BaseSettings):
 
     @property
     def batch_size(self) -> int:
-        """Kích thước lô xử lý"""
+        """Batch size"""
         if self.AI_PERF_MODE == AIProfile.HIGH:
             return 8
         elif self.AI_PERF_MODE == AIProfile.MEDIUM:
@@ -66,7 +83,7 @@ class Settings(BaseSettings):
     # --- Translation Config ---
     TRANSLATOR_PROVIDER: str = "google" 
 
-    # Load biến môi trường từ file .env (nếu có)
+    # Load env vars from .env file (if present)
     model_config = SettingsConfigDict(
         env_file=".env", 
         env_file_encoding="utf-8",

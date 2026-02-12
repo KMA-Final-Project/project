@@ -54,6 +54,16 @@ loguru>=0.7.0
 pydantic>=2.6.0
 pydantic-settings>=2.2.0
 
+# --- Queue & Infrastructure ---
+# BullMQ Python client (Redis-backed job queue)
+bullmq>=1.0.0
+
+# MinIO Python SDK (S3-compatible object storage)
+minio>=7.2.0
+
+# PostgreSQL adapter (for direct DB status updates from AI Engine)
+psycopg2-binary>=2.9.9
+
 # --- Development Utilities ---
 # Type checking and linting (Optional but recommended)
 types-requests

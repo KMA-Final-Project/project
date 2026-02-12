@@ -233,4 +233,64 @@ export class MediaService {
       return 'YouTube Video';
     }
   }
+
+  // ==================== STATUS & LIBRARY ====================
+
+  /**
+   * Get detailed status of a single media item (for polling/progress tracking).
+   * Ensures the item belongs to the requesting user (no cross-user leaks).
+   */
+  async getMediaStatus(userId: string, mediaId: string) {
+    const item = await this.prisma.mediaItem.findFirst({
+      where: {
+        id: mediaId,
+        userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        progress: true,
+        processingMode: true,
+        sourceLanguage: true,
+        durationSeconds: true,
+        failReason: true,
+        originType: true,
+        transcriptS3Key: true,
+        subtitleS3Key: true,
+        createdAt: true,
+      },
+    });
+
+    if (!item) {
+      throw new BadRequestException('Media item not found');
+    }
+
+    return item;
+  }
+
+  /**
+   * Get the user's media library — all non-deleted items, newest first.
+   */
+  async getUserMediaList(userId: string) {
+    return this.prisma.mediaItem.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        progress: true,
+        processingMode: true,
+        originType: true,
+        originUrl: true,
+        durationSeconds: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }

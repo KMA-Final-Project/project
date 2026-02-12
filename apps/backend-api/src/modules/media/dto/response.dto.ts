@@ -42,7 +42,7 @@ export class ConfirmUploadResponseDto {
   @ApiProperty({
     description: 'Current processing status',
     example: 'QUEUED',
-    enum: ['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED'],
+    enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
   })
   status: string;
 
@@ -71,7 +71,7 @@ export class SubmitYoutubeResponseDto {
   @ApiProperty({
     description: 'Current processing status',
     example: 'QUEUED',
-    enum: ['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED'],
+    enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
   })
   status: string;
 
@@ -87,4 +87,93 @@ export class SubmitYoutubeResponseDto {
     example: '43',
   })
   jobId: string;
+}
+
+// ==================== Media Status (Progress Tracking) ====================
+
+export class MediaStatusResponseDto {
+  @ApiProperty({ example: '15209337-61c8-4a67-9f71-990475f394a4' })
+  id: string;
+
+  @ApiProperty({ example: 'My Podcast Episode' })
+  title: string;
+
+  @ApiProperty({
+    enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
+    example: 'PROCESSING',
+  })
+  status: string;
+
+  @ApiProperty({
+    description: 'Progress from 0.0 to 1.0',
+    example: 0.65,
+  })
+  progress: number;
+
+  @ApiProperty({
+    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
+    example: 'TRANSCRIBE',
+  })
+  processingMode: string;
+
+  @ApiProperty({ example: 'en', nullable: true })
+  sourceLanguage: string | null;
+
+  @ApiProperty({ example: 120, description: 'Duration in seconds' })
+  durationSeconds: number;
+
+  @ApiProperty({
+    description: 'Human-readable error (only when status=FAILED)',
+    example: null,
+    nullable: true,
+  })
+  failReason: string | null;
+
+  @ApiProperty({ example: 'LOCAL', enum: ['LOCAL', 'YOUTUBE'] })
+  originType: string;
+
+  @ApiProperty({
+    description: 'S3 key of the final transcript/subtitle output',
+    nullable: true,
+  })
+  transcriptS3Key: string | null;
+
+  @ApiProperty({ nullable: true })
+  subtitleS3Key: string | null;
+
+  @ApiProperty()
+  createdAt: Date;
+}
+
+// ==================== Media Library List ====================
+
+export class MediaListItemDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  title: string;
+
+  @ApiProperty({
+    enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
+  })
+  status: string;
+
+  @ApiProperty()
+  progress: number;
+
+  @ApiProperty({ enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'] })
+  processingMode: string;
+
+  @ApiProperty({ enum: ['LOCAL', 'YOUTUBE'] })
+  originType: string;
+
+  @ApiProperty({ nullable: true })
+  originUrl: string | null;
+
+  @ApiProperty()
+  durationSeconds: number;
+
+  @ApiProperty()
+  createdAt: Date;
 }

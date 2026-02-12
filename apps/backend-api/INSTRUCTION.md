@@ -21,7 +21,7 @@
     ├── app.module.ts
     └── main.ts
     ```
--   **Package Management:** Use pnpm for package management.
+-   **Package Management:** Use `pnpm` for package management.
 
 ## 2. Coding Standards
 

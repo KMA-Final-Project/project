@@ -1,4 +1,12 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Param,
+  Body,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -16,6 +24,8 @@ import {
   PresignedUrlResponseDto,
   ConfirmUploadResponseDto,
   SubmitYoutubeResponseDto,
+  MediaStatusResponseDto,
+  MediaListItemDto,
 } from './dto';
 
 @ApiTags('Media')
@@ -23,6 +33,8 @@ import {
 @Controller('media')
 export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
+
+  // ==================== Upload & Submit ====================
 
   /**
    * Step 1 of local upload flow.
@@ -95,5 +107,45 @@ export class MediaController {
     @Body() dto: SubmitYoutubeDto,
   ): Promise<SubmitYoutubeResponseDto> {
     return this.mediaService.submitYoutube(user.id, dto);
+  }
+
+  // ==================== Status & Library ====================
+
+  /**
+   * Get the processing status of a single media item.
+   * Used by clients for polling progress (e.g., every 2-3 seconds).
+   */
+  @Get(':id/status')
+  @ApiOperation({
+    summary: 'Get media processing status',
+    description:
+      'Returns current status, progress (0.0-1.0), detected language, ' +
+      'and result S3 keys when complete. Poll this endpoint for live updates.',
+  })
+  @ApiResponse({ status: 200, type: MediaStatusResponseDto })
+  @ApiResponse({ status: 400, type: ErrorResponseDto })
+  async getMediaStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<MediaStatusResponseDto> {
+    return this.mediaService.getMediaStatus(user.id, id);
+  }
+
+  /**
+   * List all media items for the current user.
+   * Returns newest first, excludes soft-deleted items.
+   */
+  @Get()
+  @ApiOperation({
+    summary: 'List user media library',
+    description:
+      'Returns all non-deleted media items for the authenticated user, ' +
+      'ordered by creation date (newest first).',
+  })
+  @ApiResponse({ status: 200, type: [MediaListItemDto] })
+  async getUserMediaList(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<MediaListItemDto[]> {
+    return this.mediaService.getUserMediaList(user.id);
   }
 }
