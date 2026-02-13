@@ -3,6 +3,8 @@
         "ai-engine",
         "backend-api",
         "infra",
-        "pipeline"
+        "pipeline",
+        "docs",
+        "apps"
     ]
 }
