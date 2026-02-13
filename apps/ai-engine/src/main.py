@@ -223,7 +223,7 @@ def run_transcribe_pipeline(
 ) -> list[dict]:
     """
     TRANSCRIBE mode: VAD → Alignment → Phonemes (no translation, no LLM).
-    Fast path — suitable for real-time subtitle preview.
+    Streams chunks to MinIO during alignment for real-time mobile UX.
     """
     logger.info("📝 Running TRANSCRIBE pipeline (no translation)")
 
@@ -248,19 +248,39 @@ def run_transcribe_pipeline(
         update_media_status(media_id, progress=1.0)
         return []
 
-    # Step 4: Smart Alignment (Transcription + Phonemes)
+    # Step 4: Smart Alignment with streaming chunk uploads
     update_media_status(media_id, progress=0.25)
-    sentences = pipeline.aligner.process(clean_audio_path, segments, profile=profile)
+    chunk_index = [0]  # Mutable counter for closure
+    source_lang_detected = [False]
 
-    # Detect source language from first sentence
-    if sentences:
+    def on_chunk(batch: list, total_so_far: int):
+        """Upload each batch of sentences to MinIO as they're transcribed."""
+        batch_data = [s.model_dump() for s in batch]
+        minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
+        chunk_index[0] += 1
+
+        # Detect source language from first batch
+        if not source_lang_detected[0] and batch:
+            first_lang = _detect_source_language(batch)
+            update_media_status(media_id, source_language=first_lang)
+            source_lang_detected[0] = True
+
+        # Progress: scale 0.25-0.85 based on sentences produced
+        progress = min(0.85, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.60)
+        update_media_status(media_id, progress=progress)
+        logger.info(f"📤 Streamed chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
+
+    sentences = pipeline.aligner.process(
+        clean_audio_path, segments, profile=profile,
+        on_chunk=on_chunk, chunk_size=CHUNK_SIZE,
+    )
+
+    # Detect language if not yet detected (e.g. very few sentences)
+    if sentences and not source_lang_detected[0]:
         first_lang = _detect_source_language(sentences)
         update_media_status(media_id, source_language=first_lang, progress=0.85)
 
-    # Upload streaming chunks
     result_data = [s.model_dump() for s in sentences]
-    _upload_chunks(minio_client, media_id, result_data)
-
     update_media_status(media_id, progress=0.95)
     return result_data
 
@@ -273,7 +293,7 @@ def run_transcribe_translate_pipeline(
 ) -> list[dict]:
     """
     TRANSCRIBE_TRANSLATE mode: Full pipeline with translation.
-    VAD → Alignment → Semantic Merge → Translation → Phonemes.
+    VAD → Alignment (streaming preview) → Semantic Merge → Translation → Final upload.
     """
     logger.info("🌐 Running TRANSCRIBE_TRANSLATE pipeline (full bilingual)")
 
@@ -298,9 +318,23 @@ def run_transcribe_translate_pipeline(
         update_media_status(media_id, progress=1.0)
         return []
 
-    # Step 4: Smart Alignment
+    # Step 4: Smart Alignment with streaming preview chunks
     update_media_status(media_id, progress=0.25)
-    sentences = pipeline.aligner.process(clean_audio_path, segments, profile=profile)
+    chunk_index = [0]
+
+    def on_chunk(batch: list, total_so_far: int):
+        """Upload transcription-only preview chunks during alignment."""
+        batch_data = [s.model_dump() for s in batch]
+        minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
+        chunk_index[0] += 1
+        progress = min(0.40, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.15)
+        update_media_status(media_id, progress=progress)
+        logger.info(f"📤 Preview chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
+
+    sentences = pipeline.aligner.process(
+        clean_audio_path, segments, profile=profile,
+        on_chunk=on_chunk, chunk_size=CHUNK_SIZE,
+    )
 
     # Detect source language
     source_lang = _detect_source_language(sentences) if sentences else "en"
@@ -333,7 +367,7 @@ def run_transcribe_translate_pipeline(
         for d in segments_data:
             d["translation"] = "[Translation Error]"
 
-    # Upload streaming chunks
+    # Final upload: overwrite preview chunks with translated results
     _upload_chunks(minio_client, media_id, segments_data)
 
     update_media_status(media_id, progress=0.95)

@@ -12,7 +12,7 @@ import torch
 import numpy as np
 import librosa
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Callable
 import re # moved up for reuse
 
 # Phonetics
@@ -59,9 +59,22 @@ class SmartAligner:
             )
             logger.success(f"Faster-Whisper Model ({model_size}) loaded successfully.")
 
-    def process(self, file_path: Path | str, segments: List[VADSegment], profile: str = "standard") -> List[Sentence]:
+    def process(
+        self,
+        file_path: Path | str,
+        segments: List[VADSegment],
+        profile: str = "standard",
+        on_chunk: Callable[[List[Sentence], int], None] | None = None,
+        chunk_size: int = 20,
+    ) -> List[Sentence]:
         """
         Transcribe audio with Dynamic Anchor Strategy and Advanced Prompting.
+
+        Args:
+            on_chunk: Optional callback fired every `chunk_size` sentences.
+                      Signature: on_chunk(batch: List[Sentence], total_so_far: int)
+                      Enables streaming uploads while transcription continues.
+            chunk_size: Number of sentences to accumulate before firing on_chunk.
         """
         path = Path(file_path)
         if not path.exists():
@@ -73,12 +86,23 @@ class SmartAligner:
         audio_full, sr = librosa.load(str(path), sr=16000)
         
         sentences: List[Sentence] = []
+        pending_chunk: List[Sentence] = []  # Buffer for streaming
         previous_text_context = "" 
         
         # Pillar 1: Anchor Language State
         anchor_language: str | None = None
         
         logger.debug(f"Processing {len(segments)} VAD segments...")
+        
+        def _flush_if_ready():
+            """Flush pending sentences to callback if we have enough."""
+            nonlocal pending_chunk
+            if on_chunk and len(pending_chunk) >= chunk_size:
+                # Flush full chunks
+                while len(pending_chunk) >= chunk_size:
+                    batch = pending_chunk[:chunk_size]
+                    pending_chunk = pending_chunk[chunk_size:]
+                    on_chunk(batch, len(sentences))
         
         for i, seg in enumerate(segments):
             logger.debug(f"--- Segment {i+1}: {seg.start:.2f}s -> {seg.end:.2f}s ---")
@@ -93,9 +117,7 @@ class SmartAligner:
             prompt = self._construct_prompt(profile, previous_text_context)
             
             # --- Pillar 1: Language Strategy ---
-            # Determine language for this segment
-            # If Anchor is set, use it. Else Auto-detect.
-            current_lang = anchor_language # None if not set
+            current_lang = anchor_language  # None if not set
             
             transcription_result = self._transcribe_segment(
                 audio_segment, prompt, language=current_lang
@@ -103,27 +125,17 @@ class SmartAligner:
             
             # Logic: Anchor Detection & Fallback
             if anchor_language is None:
-                # Attempt to set Anchor
-                # Criteria: High Confidence (> -0.5)
-                # Note: Whisper 'avg_logprob' is negative. Closer to 0 is better.
                 best_segment = transcription_result["best_segment"]
                 if best_segment and best_segment.avg_logprob > -0.5:
                     anchor_language = transcription_result["info"].language
                     logger.success(f"⚓ Anchor Language Set: {anchor_language} (Conf: {best_segment.avg_logprob:.2f})")
             else:
-                # We used Anchor. Check if Fallback needed.
-                # Criteria: Low Confidence (< -0.8) OR High Compression (> 2.4)
                 best_segment = transcription_result["best_segment"]
                 if best_segment and (best_segment.avg_logprob < -0.8 or best_segment.compression_ratio > 2.4):
                     logger.warning(f"⚠️ Low confidence with Anchor ({best_segment.avg_logprob:.2f}). Retrying with Auto-Detect...")
-                    
-                    # Retry with Auto-Detect
                     fallback_result = self._transcribe_segment(
                          audio_segment, prompt, language=None
                     )
-                    
-                    # Compare? Usually just trust the Auto result if it's better?
-                    # Honest Fallback: Usage of Auto result is safer here.
                     transcription_result = fallback_result
             
             # Extract Results
@@ -131,22 +143,24 @@ class SmartAligner:
             
             # --- Pillar 3 & 4: Post-Processing ---
             for sent in res_sentences:
-                # CJK Splitting
                 self._split_cjk_words(sent)
-                
-                # Silence Splitting (Returns list of sentences)
                 split_sents = self._apply_silence_splitting(sent)
                 
-                # Update Context (Use the last text)
                 if split_sents:
                     previous_text_context += " " + split_sents[-1].text
-                    
-                    # --- Pillar 5 (NEW): Phonetic Transliteration ---
-                    # Uses the detected language for this segment
                     detected_lang = transcription_result["info"].language
                     self._add_phonemes(split_sents, detected_lang)
                     
                 sentences.extend(split_sents)
+                pending_chunk.extend(split_sents)
+            
+            # Check if we should flush a chunk
+            _flush_if_ready()
+
+        # Flush any remaining sentences
+        if on_chunk and pending_chunk:
+            on_chunk(pending_chunk, len(sentences))
+            pending_chunk = []
 
         logger.success(f"Alignment Complete. Generated {len(sentences)} sentences.")
         return sentences
