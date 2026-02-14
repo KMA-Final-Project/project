@@ -22,6 +22,7 @@ from loguru import logger
 from src.config import settings
 from src.minio_client import MinioClient
 from src.core.pipeline import PipelineOrchestrator
+from src.utils.hardware_profiler import HardwareProfiler
 
 # ============================================================================
 # Constants
@@ -160,11 +161,14 @@ async def process_job(job, token):
     # Initialize clients
     minio_client = MinioClient()
     pipeline = PipelineOrchestrator()
+    profiler = HardwareProfiler(interval=2.0)
 
     # Create temp working directory
     work_dir = Path(tempfile.mkdtemp(prefix=f"bilingual-ai-{media_id[:8]}-"))
 
     try:
+        # Start hardware profiling
+        profiler.start(job_id=str(job.id), media_id=media_id)
         # 1. Download audio from MinIO
         ext = Path(audio_s3_key).suffix or ".mp3"
         local_audio = work_dir / f"input{ext}"
@@ -207,6 +211,8 @@ async def process_job(job, token):
         raise  # Re-raise so BullMQ marks the job as failed
 
     finally:
+        # Stop profiler (writes report even on failure)
+        profiler.stop()
         # Clean up temp directory
         shutil.rmtree(work_dir, ignore_errors=True)
 
