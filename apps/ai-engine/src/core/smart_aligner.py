@@ -20,7 +20,7 @@ import pypinyin
 import eng_to_ipa
 
 from loguru import logger
-from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel, BatchedInferencePipeline
 
 from src.config import settings
 from src.schemas import VADSegment, Sentence, Word
@@ -29,9 +29,24 @@ from src.schemas import VADSegment, Sentence, Word
 class SmartAligner:
     """
     Singleton class for transcription and alignment.
+
+    Supports dual-model architecture:
+      - Turbo model (large-v3-turbo): fast, for EN/VI and common languages
+      - Full model  (large-v3):       accurate, for CJK languages
+
+    Model loading is controlled by WORKER_MODEL_MODE:
+      - "auto"       → both models loaded (~8 GB VRAM)
+      - "turbo_only" → only turbo loaded  (~3 GB VRAM)
+      - "full_only"  → only full loaded   (~5 GB VRAM)
     """
     _instance = None
-    _model: WhisperModel | None = None
+    _initialized: bool = False
+
+    # Model slots — filled based on WORKER_MODEL_MODE
+    _model_turbo: WhisperModel | None = None
+    _model_full: WhisperModel | None = None
+    _batched_turbo: BatchedInferencePipeline | None = None
+    _batched_full: BatchedInferencePipeline | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -39,25 +54,74 @@ class SmartAligner:
         return cls._instance
 
     def __init__(self):
-        if self._model is None:
-            # --- Model Selection ---
-            # [Option 1] large-v3: Best Accuracy, Multi-lingual (Default)
-            model_size = "large-v3"
-            
-            # [Option 2] large-v3-turbo: Faster, Optimized for Vi/Long Audio
-            # model_size = "deepdml/faster-whisper-large-v3-turbo-ct2"
+        if self._initialized:
+            return
+        self._initialized = True
 
-            logger.info(f"Loading Faster-Whisper Model: {model_size} (Device: {settings.DEVICE})")
-            
-            # Compute type: float16 for GPU, int8/float32 for CPU
-            compute_type = "float16" if settings.DEVICE == "cuda" else "int8"
-            
-            self._model = WhisperModel(
-                model_size,
-                device=settings.DEVICE,
-                compute_type=compute_type
+        mode = settings.WORKER_MODEL_MODE.lower()
+        compute_type = settings.whisper_compute_type
+
+        if mode in ("auto", "turbo_only"):
+            self._model_turbo = self._load_model(
+                settings.WHISPER_MODEL_TURBO, compute_type, "turbo"
             )
-            logger.success(f"Faster-Whisper Model ({model_size}) loaded successfully.")
+            self._batched_turbo = BatchedInferencePipeline(model=self._model_turbo)
+
+        if mode in ("auto", "full_only"):
+            self._model_full = self._load_model(
+                settings.WHISPER_MODEL_FULL, compute_type, "full"
+            )
+            self._batched_full = BatchedInferencePipeline(model=self._model_full)
+
+        logger.success(
+            f"SmartAligner ready | mode={mode} | "
+            f"turbo={'✅' if self._model_turbo else '—'} | "
+            f"full={'✅' if self._model_full else '—'}"
+        )
+
+    @staticmethod
+    def _load_model(model_name: str, compute_type: str, label: str) -> WhisperModel:
+        """Load a single WhisperModel onto the configured device."""
+        logger.info(f"Loading {label} model: {model_name} ({compute_type}, {settings.DEVICE})")
+        model = WhisperModel(
+            model_name,
+            device=settings.DEVICE,
+            compute_type=compute_type,
+        )
+        logger.success(f"✅ {label} model loaded: {model_name}")
+        return model
+
+    def _select_model(self, language: str | None) -> WhisperModel:
+        """
+        Pick the right model for the detected/anchor language.
+
+        CJK languages → full model (if loaded)
+        Everything else → turbo model (if loaded)
+        If only one model is loaded, always use that one.
+        """
+        need_full = language in settings.WHISPER_CJK_LANGUAGES
+
+        if need_full and self._model_full:
+            return self._model_full
+        if self._model_turbo:
+            return self._model_turbo
+        if self._model_full:
+            return self._model_full
+
+        raise RuntimeError("No Whisper model loaded — check WORKER_MODEL_MODE")
+
+    def _select_batched(self, language: str | None) -> BatchedInferencePipeline:
+        """Pick the batched pipeline matching _select_model logic."""
+        need_full = language in settings.WHISPER_CJK_LANGUAGES
+
+        if need_full and self._batched_full:
+            return self._batched_full
+        if self._batched_turbo:
+            return self._batched_turbo
+        if self._batched_full:
+            return self._batched_full
+
+        raise RuntimeError("No batched pipeline available — check WORKER_MODEL_MODE")
 
     def process(
         self,
@@ -118,9 +182,10 @@ class SmartAligner:
             
             # --- Pillar 1: Language Strategy ---
             current_lang = anchor_language  # None if not set
+            batched = self._select_batched(current_lang)
             
             transcription_result = self._transcribe_segment(
-                audio_segment, prompt, language=current_lang
+                batched, audio_segment, prompt, language=current_lang
             )
             
             # Logic: Anchor Detection & Fallback
@@ -128,13 +193,17 @@ class SmartAligner:
                 best_segment = transcription_result["best_segment"]
                 if best_segment and best_segment.avg_logprob > -0.5:
                     anchor_language = transcription_result["info"].language
-                    logger.success(f"⚓ Anchor Language Set: {anchor_language} (Conf: {best_segment.avg_logprob:.2f})")
+                    selected = "full" if anchor_language in settings.WHISPER_CJK_LANGUAGES else "turbo"
+                    logger.success(
+                        f"⚓ Anchor Language Set: {anchor_language} "
+                        f"(Conf: {best_segment.avg_logprob:.2f}) → using {selected} model"
+                    )
             else:
                 best_segment = transcription_result["best_segment"]
                 if best_segment and (best_segment.avg_logprob < -0.8 or best_segment.compression_ratio > 2.4):
                     logger.warning(f"⚠️ Low confidence with Anchor ({best_segment.avg_logprob:.2f}). Retrying with Auto-Detect...")
                     fallback_result = self._transcribe_segment(
-                         audio_segment, prompt, language=None
+                         batched, audio_segment, prompt, language=None
                     )
                     transcription_result = fallback_result
             
@@ -165,21 +234,19 @@ class SmartAligner:
         logger.success(f"Alignment Complete. Generated {len(sentences)} sentences.")
         return sentences
 
-    def _transcribe_segment(self, audio, prompt, language):
-        """Helper to run transcription and return generator + info."""
-        gen, info = self._model.transcribe(
+    def _transcribe_segment(self, batched: BatchedInferencePipeline, audio, prompt, language):
+        """Run transcription using the batched pipeline for throughput."""
+        gen, info = batched.transcribe(
             audio,
-            beam_size=5,
+            batch_size=settings.batch_size,
+            beam_size=settings.whisper_beam_size,
             word_timestamps=True,
             condition_on_previous_text=False,
             initial_prompt=prompt,
-            language=language
+            language=language,
+            vad_filter=False,  # We already ran Silero VAD upstream
         )
         segments = list(gen)
-        # Find best segment for confidence stats (usually the longest or first?)
-        # Whisper might return multiple segments for one audio chunk?
-        # We take the one with best logprob or average?
-        # Usually for short VAD segments, there is 1 Whisper segment.
         best = max(segments, key=lambda s: s.avg_logprob) if segments else None
         
         return {"segments": segments, "info": info, "best_segment": best}
