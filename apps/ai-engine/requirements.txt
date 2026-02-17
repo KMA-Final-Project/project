@@ -64,6 +64,12 @@ minio>=7.2.0
 # PostgreSQL adapter (for direct DB status updates from AI Engine)
 psycopg2-binary>=2.9.9
 
+# --- Hardware Profiling ---
+# GPU monitoring (official NVIDIA Management Library — provides `import pynvml`)
+nvidia-ml-py>=12.0.0
+# CPU/RAM monitoring
+psutil>=5.9.0
+
 # --- Development Utilities ---
 # Type checking and linting (Optional but recommended)
 types-requests

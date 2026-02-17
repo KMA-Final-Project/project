@@ -27,6 +27,31 @@ class Settings(BaseSettings):
     # --- AI Performance Mode ---
     AI_PERF_MODE: AIProfile = Field(default=AIProfile.MEDIUM, description="Performance profile")
 
+    # --- Whisper Model Configuration ---
+    # Turbo model: faster, used for well-resourced languages (EN, VI, FR, etc.)
+    WHISPER_MODEL_TURBO: str = Field(
+        default="large-v3-turbo",
+        description="Fast model for common languages"
+    )
+    # Full model: highest accuracy, used for CJK and complex languages
+    WHISPER_MODEL_FULL: str = Field(
+        default="large-v3",
+        description="Accuracy model for CJK languages"
+    )
+    # Languages that require the full model
+    WHISPER_CJK_LANGUAGES: list[str] = Field(
+        default=["zh", "ja", "ko"],
+        description="Languages routed to the full model"
+    )
+    # Worker model mode: controls which models are loaded into VRAM
+    #   auto       → load both models (single instance, ~8 GB VRAM)
+    #   turbo_only → load only turbo (~3 GB VRAM, for EN/VI worker)
+    #   full_only  → load only full  (~5 GB VRAM, for CJK worker)
+    WORKER_MODEL_MODE: str = Field(
+        default="auto",
+        description="auto | turbo_only | full_only"
+    )
+
     # --- Redis (BullMQ) ---
     REDIS_HOST: str = Field(default="localhost")
     REDIS_PORT: int = Field(default=6379)
