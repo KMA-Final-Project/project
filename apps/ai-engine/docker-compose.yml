@@ -1,0 +1,117 @@
+# ============================================================
+# AI Engine — Docker Compose
+#
+# Scaling:
+#   1 instance (default):   docker compose up
+#   2 instances:            docker compose up --scale ai-engine=2
+#   Turbo + Full split:     use profiles (see below)
+#
+# Profiles:
+#   docker compose --profile turbo up    → turbo_only mode
+#   docker compose --profile full up     → full_only mode
+#   docker compose --profile auto up     → auto (both models)
+# ============================================================
+
+name: bilingual-ai
+
+services:
+
+  # ── Default instance (WORKER_MODEL_MODE from .env) ─────────
+  ai-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bilingual-ai-engine:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    env_file:
+      - .env
+    environment:
+      # Override localhost → host.docker.internal so the container
+      # can reach Redis/MinIO/PostgreSQL running on the host machine
+      REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      # Required on Linux engines — Docker Desktop sets this automatically
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ai_outputs:/app/outputs
+      - ai_temp:/app/temp
+      # Mount Whisper model cache so models are not re-downloaded on restart
+      - whisper_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    profiles:
+      - auto
+
+  # ── Turbo-only worker (~3 GB VRAM) ─────────────────────────
+  # Processes EN/VI/FR/... jobs fast using large-v3-turbo
+  ai-engine-turbo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bilingual-ai-engine:latest
+    container_name: bilingual-ai-turbo
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    env_file:
+      - .env
+    environment:
+      WORKER_MODEL_MODE: turbo_only
+      REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ai_outputs:/app/outputs
+      - ai_temp:/app/temp
+      - whisper_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    profiles:
+      - turbo
+
+  # ── Full-model worker (~5 GB VRAM) ─────────────────────────
+  # Processes CN/JA/KO jobs accurately using large-v3
+  ai-engine-full:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bilingual-ai-engine:latest
+    container_name: bilingual-ai-full
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    env_file:
+      - .env
+    environment:
+      WORKER_MODEL_MODE: full_only
+      REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ai_outputs:/app/outputs
+      - ai_temp:/app/temp
+      - whisper_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  ai_outputs:
+  ai_temp:
+  # Persistent Hugging Face cache — avoids re-downloading Whisper models on container restart
+  whisper_cache:
