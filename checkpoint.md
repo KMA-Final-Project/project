@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-02-13
+> **Last Updated:** 2026-02-22
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -59,27 +59,30 @@ bilingual-subtitle-system/
 │   │   │   └── clean-test-env.ts   # Flush queues + MinIO + DB media items
 │   │   └── package.json            # Scripts: start:dev, worker:dev, clean:env, pgen, pmigrate:dev
 │   │
-│   ├── ai-engine/               # Python 3.12 (CUDA) — AI Processing Worker
+│   ├── ai-engine/               # Python 3.11/3.12 (CUDA) — AI Processing Worker
 │   │   ├── src/
 │   │   │   ├── main.py              # BullMQ consumer entry point (ai-processing queue)
-│   │   │   ├── config.py            # Settings: AI_PERF_MODE, Redis, MinIO, Database connections
+│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, Redis, MinIO, DB
 │   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/results)
 │   │   │   ├── schemas.py           # Pydantic: VADSegment, Word, Sentence, SegmentType
 │   │   │   ├── core/
 │   │   │   │   ├── pipeline.py           # PipelineOrchestrator (7-step E2E flow)
 │   │   │   │   ├── audio_inspector.py    # AudioInspector (multi-segment AST: music vs standard)
 │   │   │   │   ├── vad_manager.py        # VADManager (Silero VAD + greedy merge)
-│   │   │   │   ├── smart_aligner.py      # SmartAligner (Faster-Whisper, Karaoke, streaming chunks)
+│   │   │   │   ├── smart_aligner.py      # SmartAligner (dual-model, batched inference, streaming chunks)
 │   │   │   │   ├── semantic_merger.py    # SemanticMerger (LLM-based line grouping + homophone fix)
 │   │   │   │   ├── translator_engine.py  # TranslatorEngine (2-pass: Analyze→Correct→Translate)
 │   │   │   │   ├── llm_provider.py       # LLMProvider (Ollama — qwen2.5:7b-instruct)
 │   │   │   │   └── prompts.py            # System prompts for LLM tasks
 │   │   │   ├── utils/
 │   │   │   │   ├── audio_processor.py    # AudioProcessor (FFmpeg → 16kHz WAV mono)
-│   │   │   │   └── vocal_isolator.py     # VocalIsolator (BS-Roformer / MDX ONNX)
+│   │   │   │   ├── vocal_isolator.py     # VocalIsolator (BS-Roformer / MDX ONNX)
+│   │   │   │   └── hardware_profiler.py  # HardwareProfiler (background CPU/RAM/GPU sampler)
 │   │   │   └── scripts/                  # Test/debug scripts
-│   │   ├── requirements.txt              # 25+ deps (faster-whisper, bullmq, minio, psycopg2, etc.)
-│   │   └── venv/                         # Python virtual environment
+│   │   ├── requirements.txt              # 25+ deps (faster-whisper, bullmq, minio, psycopg2, pynvml, etc.)
+│   │   ├── Dockerfile                    # CUDA 12.1 + cuDNN 8 image
+│   │   ├── docker-compose.yml            # Profile-based scaling (auto/turbo/full)
+│   │   └── venv/                         # Python virtual environment (local dev)
 │   │
 │   ├── mobile-app/             # ❌ NOT YET CREATED (planned: React Native / Expo)
 │   └── test-media/             # Test audio/video files for pipeline testing
@@ -219,14 +222,51 @@ bilingual-subtitle-system/
 
 **Key Design Decisions:**
 - **Singleton Pattern:** `SmartAligner` and `VADManager` use `__new__` singleton to keep GPU models loaded
+- **Dual Model Architecture:** `large-v3-turbo` for EN/VI/common languages, `large-v3` for CJK (zh/ja/ko)
+- **WORKER_MODEL_MODE:** `auto` (both models, ~8 GB VRAM) | `turbo_only` (~3 GB) | `full_only` (~5 GB) — set via `.env`
+- **Batched Inference:** `BatchedInferencePipeline` wraps each model; `batch_size` driven by `AI_PERF_MODE` (LOW=1, MEDIUM=4, HIGH=8)
+- **Model Routing:** First segment detects anchor language → routes subsequent segments to correct model; logs which model was selected
 - **Performance Profiles:** LOW/MEDIUM/HIGH → controls `compute_type`, `beam_size`, `batch_size`
 - **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, correction, and translation
 - **Multi-Segment Inspector:** Samples 3 positions (10%, 50%, 90%) with weighted voting to prevent music intro bias
 - **Graceful Fallback:** All steps catch exceptions and fall back (e.g., vocal isolation fails → use original audio)
+- **Hardware Profiler:** `HardwareProfiler` runs as background thread per job — writes CPU/RAM/GPU stats to `outputs/profiles/` as `.txt` + `.csv`
+
+**Competing Consumers (Horizontal Scaling):**
+- Each `main.py` instance performs a blocking pop (`BRPOPLPUSH`) on Redis — whichever instance pops first gets the job
+- Redis atomic operations + BullMQ per-job locks guarantee exactly-once delivery
+- Multiple instances can run on same machine with different `WORKER_MODEL_MODE` for GPU memory splitting
 
 ---
 
-## 7. End-to-End Flow (Production)
+## 6b. AI Engine — Docker Deployment
+
+| File | Purpose |
+|------|---------|
+| `apps/ai-engine/Dockerfile` | CUDA 12.1 + cuDNN 8 image; installs PyTorch + all pip deps |
+| `apps/ai-engine/docker-compose.yml` | Profile-based scaling with NVIDIA GPU reservation |
+
+**Running Docker instances:**
+
+```bash
+# Build image
+docker compose build
+
+# Single instance — auto mode (both models, ~8 GB VRAM)
+docker compose --profile auto up
+
+# Scale to N identical instances (all share same GPU)
+docker compose --profile auto up --scale ai-engine=N
+
+# Dual-worker split (turbo ~3 GB + full ~5 GB = ~8 GB total)
+docker compose --profile turbo --profile full up
+```
+
+**Key Docker details:**
+- `REDIS_HOST` + `MINIO_ENDPOINT` automatically overridden to `host.docker.internal` so containers reach host services
+- Whisper model cache mounted as `whisper_cache` volume — models downloaded once, reused across restarts
+- `WORKER_MODEL_MODE` set per service in compose file (overrides `.env`)
+- All `outputs/` and `temp/` are Docker volumes (persistent across container restarts)
 
 ```mermaid
 graph TD
@@ -292,7 +332,11 @@ interface AiProcessingJobPayload {
 | Start API (dev)            | `pnpm start:dev`                        | `apps/backend-api` |
 | Start Worker (dev)         | `pnpm worker:dev`                       | `apps/backend-api` |
 | Start all infra            | `pnpm start:local`                      | `apps/backend-api` |
-| Start AI Engine            | `python -m src.main`                    | `apps/ai-engine` (venv) |
+| Start AI Engine (dev)      | `python -m src.main`                    | `apps/ai-engine` (venv) |
+| Start AI Engine (Docker)   | `docker compose --profile auto up`      | `apps/ai-engine` |
+| Scale N AI Engine instances| `docker compose --profile auto up --scale ai-engine=N` | `apps/ai-engine` |
+| Dual-worker split          | `docker compose --profile turbo --profile full up` | `apps/ai-engine` |
+| Build AI Engine image      | `docker compose build`                  | `apps/ai-engine` |
 | Generate Prisma Client     | `pnpm pgen`                             | `apps/backend-api` |
 | Run migration              | `pnpm pmigrate:dev <name>`              | `apps/backend-api` |
 | Seed database              | `npx tsx prisma/seed.ts`                | `apps/backend-api` |
@@ -305,12 +349,13 @@ interface AiProcessingJobPayload {
 ## 11. Priority TODO (Next Steps)
 
 1. **🟡 Mobile App:** Create React Native (Expo) project in `apps/mobile-app/`
-2. **🟡 Client Status Updates:** SSE or polling endpoint for real-time job progress on mobile
-3. **🟡 Subtitle Player:** Bilingual player with Karaoke word-highlight effect
-4. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
-5. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
-6. **🟢 VAD Performance:** Investigate VAD processing time on long music files
-7. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
+2. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`. Requires separate BullMQ queues or job priority tagging.
+3. **🟡 Client Status Updates:** SSE or polling endpoint for real-time job progress on mobile
+4. **🟡 Subtitle Player:** Bilingual player with Karaoke word-highlight effect
+5. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
+6. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
+7. **🟢 VAD Performance:** Investigate VAD processing time on long music files
+8. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
 
 ---
 
@@ -319,9 +364,9 @@ interface AiProcessingJobPayload {
 | Layer         | Technology                                                 |
 |---------------|-------------------------------------------------------------|
 | **Backend**   | NestJS v11, TypeScript, Prisma 7, BullMQ, ioredis, Passport JWT |
-| **AI Engine** | Python 3.12, CUDA, Faster-Whisper, Silero VAD, BullMQ (Python), MinIO SDK, psycopg2, Ollama (qwen2.5:7b), stable-ts |
+| **AI Engine** | Python 3.11, CUDA 12.1, Faster-Whisper (large-v3 + large-v3-turbo), Silero VAD, BatchedInferencePipeline, BullMQ (Python), MinIO SDK, psycopg2, Ollama (qwen2.5:7b), nvidia-ml-py, psutil |
 | **Database**  | PostgreSQL 16                                               |
 | **Queue**     | Redis 7 + BullMQ (two queues: `transcription`, `ai-processing`) |
 | **Storage**   | MinIO (S3-compatible) + Cloudflare Tunnel                   |
 | **Mobile**    | React Native (Expo) — planned                               |
-| **Infra**     | Docker Compose (per-service), local dev                     |
+| **Infra**     | Docker Compose (per-service + AI Engine with NVIDIA GPU support) |
