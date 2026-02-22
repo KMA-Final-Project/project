@@ -234,7 +234,7 @@ bilingual-subtitle-system/
 
 **Competing Consumers (Horizontal Scaling):**
 - Each `main.py` instance performs a blocking pop (`BRPOPLPUSH`) on Redis — whichever instance pops first gets the job
-- Redis atomic operations + BullMQ per-job locks guarantee exactly-once delivery
+- Redis atomic operations + BullMQ per-job locks provide at-least-once delivery and reduce duplicates; keep workers idempotent
 - Multiple instances can run on same machine with different `WORKER_MODEL_MODE` for GPU memory splitting
 
 ---

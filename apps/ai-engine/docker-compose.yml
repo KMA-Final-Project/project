@@ -36,6 +36,9 @@ services:
       # can reach Redis/MinIO/PostgreSQL running on the host machine
       REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      # Required on Linux engines — Docker Desktop sets this automatically
+      - "host.docker.internal:host-gateway"
     volumes:
       - ai_outputs:/app/outputs
       - ai_temp:/app/temp
@@ -66,6 +69,8 @@ services:
       WORKER_MODEL_MODE: turbo_only
       REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ai_outputs:/app/outputs
       - ai_temp:/app/temp
@@ -95,6 +100,8 @@ services:
       WORKER_MODEL_MODE: full_only
       REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ai_outputs:/app/outputs
       - ai_temp:/app/temp
