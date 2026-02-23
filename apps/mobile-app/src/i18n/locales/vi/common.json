@@ -1,0 +1,35 @@
+{
+  "app": {
+    "name": "Kapter"
+  },
+  "theme": {
+    "light": "Sáng",
+    "dark": "Tối",
+    "system": "Hệ thống"
+  },
+  "language": {
+    "en": "English",
+    "vi": "Tiếng Việt",
+    "label": "Ngôn ngữ"
+  },
+  "common": {
+    "settings": "Cài đặt",
+    "cancel": "Hủy",
+    "confirm": "Xác nhận",
+    "save": "Lưu",
+    "back": "Quay lại",
+    "next": "Tiếp",
+    "done": "Xong",
+    "loading": "Đang tải...",
+    "error": "Đã xảy ra lỗi",
+    "retry": "Thử lại"
+  },
+  "demo": {
+    "title": "Chào mừng đến với {{appName}}",
+    "subtitle": "Trợ lý phụ đề song ngữ của bạn",
+    "themeSection": "Giao diện",
+    "languageSection": "Ngôn ngữ",
+    "currentTheme": "Giao diện hiện tại: {{theme}}",
+    "currentLanguage": "Ngôn ngữ hiện tại: {{language}}"
+  }
+}

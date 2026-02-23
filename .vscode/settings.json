@@ -5,6 +5,7 @@
         "infra",
         "pipeline",
         "docs",
-        "apps"
+        "apps",
+        "mobile-app"
     ]
 }

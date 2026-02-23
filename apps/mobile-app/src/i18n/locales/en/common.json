@@ -1,0 +1,35 @@
+{
+  "app": {
+    "name": "Kapter"
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "language": {
+    "en": "English",
+    "vi": "Tiếng Việt",
+    "label": "Language"
+  },
+  "common": {
+    "settings": "Settings",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry"
+  },
+  "demo": {
+    "title": "Welcome to {{appName}}",
+    "subtitle": "Your bilingual subtitle companion",
+    "themeSection": "Appearance",
+    "languageSection": "Language",
+    "currentTheme": "Current theme: {{theme}}",
+    "currentLanguage": "Current language: {{language}}"
+  }
+}
