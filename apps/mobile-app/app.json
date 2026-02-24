@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile-app",
-    "slug": "mobile-app",
+    "name": "kapter",
+    "slug": "kapter",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -35,11 +35,21 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-localization",
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8fa9d590-c98c-4c19-87d3-b54c142975b4"
+      }
+    },
+    "owner": "sondoannam202"
   }
 }

@@ -1,11 +1,12 @@
 {
-    "conventionalCommits.scopes": [
-        "ai-engine",
-        "backend-api",
-        "infra",
-        "pipeline",
-        "docs",
-        "apps",
-        "mobile-app"
-    ]
+  "conventionalCommits.scopes": [
+    "ai-engine",
+    "backend-api",
+    "infra",
+    "pipeline",
+    "docs",
+    "apps",
+    "mobile-app"
+  ],
+  "java.configuration.updateBuildConfiguration": "interactive"
 }
