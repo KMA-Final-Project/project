@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-02-22
+> **Last Updated:** 2026-02-25
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -84,7 +84,32 @@ bilingual-subtitle-system/
 │   │   ├── docker-compose.yml            # Profile-based scaling (auto/turbo/full)
 │   │   └── venv/                         # Python virtual environment (local dev)
 │   │
-│   ├── mobile-app/             # ❌ NOT YET CREATED (planned: React Native / Expo)
+│   ├── mobile-app/             # 🟡 IN PROGRESS — React Native / Expo 54 (stable)
+│   │   ├── src/
+│   │   │   ├── entry.ts              # Custom entry: init Unistyles + i18n before routing
+│   │   │   ├── app/                  # Expo Router pages
+│   │   │   │   ├── _layout.tsx       # Root layout (headerShown: false, auto StatusBar)
+│   │   │   │   └── index.tsx         # Demo screen (theme/language toggles, color palette)
+│   │   │   ├── theme/
+│   │   │   │   ├── tokens.ts         # Design tokens: brand colors, palette, typography, spacing, radii
+│   │   │   │   ├── light.ts          # Light theme + AppTheme interface
+│   │   │   │   ├── dark.ts           # Dark theme (same shape, dark-adjusted colors)
+│   │   │   │   ├── unistyles.ts      # Unistyles config (adaptiveThemes, breakpoints)
+│   │   │   │   └── index.ts
+│   │   │   ├── i18n/
+│   │   │   │   ├── i18n.ts           # i18next init with expo-localization device detection
+│   │   │   │   ├── i18next.d.ts      # Type-safe translation keys
+│   │   │   │   ├── index.ts
+│   │   │   │   └── locales/
+│   │   │   │       ├── en/common.json  # English translations
+│   │   │   │       └── vi/common.json  # Vietnamese translations
+│   │   │   └── hooks/
+│   │   │       ├── useThemePreference.ts   # system/light/dark + AsyncStorage persistence
+│   │   │       ├── useLanguagePreference.ts # en/vi + AsyncStorage persistence
+│   │   │       └── index.ts
+│   │   ├── babel.config.js           # Babel config (babel-preset-expo)
+│   │   ├── app.json                  # Expo config (orientation, icons, plugins)
+│   │   └── package.json              # See tech stack below
 │   └── test-media/             # Test audio/video files for pipeline testing
 │
 ├── infra/                      # Docker Compose per service
@@ -318,10 +343,46 @@ interface AiProcessingJobPayload {
 
 ---
 
-## 9. Mobile App — NOT STARTED
-- Directory `apps/mobile-app/` does **not exist** yet
-- Planned: React Native (Expo)
-- Intended features: Audio extraction, presigned upload, media library, bilingual player with Karaoke effect
+## 9. Mobile App — IN PROGRESS
+
+**Brand Name:** Kapter *(wordplay: "capture" + "chapter")*
+
+### ✅ Phase 1: UI/UX Foundations — DONE
+
+**Tech Stack:**
+| Layer | Technology | Version |
+|-------|-----------|--------|
+| Framework | Expo (stable) | 54.0.33 |
+| Navigation | expo-router | ~6.0.23 |
+| Language | React Native | 0.81.5 |
+| Styling | react-native-unistyles | ^3.0.24 |
+| i18n | i18next + react-i18next + expo-localization | ^25 / ^16 / ^17 |
+| Persistence | @react-native-async-storage/async-storage | ^2.2.0 |
+| Animations | react-native-reanimated | ~4.1.6 |
+| Icons | @expo/vector-icons | ^15.0.2 |
+
+**What was built:**
+- **Theme system:** Design tokens (brand blue `#208AEF`, palette, typography, spacing, radii) → light/dark themes → adaptive to system preference via `UnistylesRuntime`
+- **Dark mode:** System auto-detect + manual override (`useThemePreference` hook), persisted via AsyncStorage
+- **i18n:** Vietnamese (default) + English, device locale detection, type-safe translation keys (`i18next.d.ts`), persisted via AsyncStorage (`useLanguagePreference` hook)
+- **Custom entry point:** `src/entry.ts` — initializes Unistyles + i18n before expo-router loads any component
+- **Demo screen:** Theme toggle (system/light/dark) + language toggle (en/vi) + color palette preview
+
+### ⚠️ Known Issues & Workarounds
+
+**react-native-unistyles — Windows CMake path-length error:**
+- `react-native-unistyles` v3 uses native C++ modules (CMake build). On Windows, CMake has a hard limit on path lengths.
+- **Symptom:** `expo run:android` fails with CMake errors deep in `node_modules`.
+- **Workaround:** Clone/move the project to a directory with a **shorter absolute path** (e.g., `C:\kapter\` instead of `C:\Users\...\KMA\billingual_project\`).
+- **Cannot test via Expo Go** — requires a development build (`expo run:android` / `expo-dev-client`).
+
+### 🔲 Phase 2: Next Steps (Mobile)
+- First real screen: Splash / Onboarding
+- Auth screens (Login, Register, Verify OTP)
+- Main navigation structure (Tab + Stack)
+- Media upload flow (audio extraction client-side → presigned URL → confirm)
+- Status polling screen (progress bar for AI processing)
+- Bilingual subtitle player with Karaoke word-highlight effect
 
 ---
 
@@ -348,14 +409,15 @@ interface AiProcessingJobPayload {
 
 ## 11. Priority TODO (Next Steps)
 
-1. **🟡 Mobile App:** Create React Native (Expo) project in `apps/mobile-app/`
-2. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`. Requires separate BullMQ queues or job priority tagging.
-3. **🟡 Client Status Updates:** SSE or polling endpoint for real-time job progress on mobile
-4. **🟡 Subtitle Player:** Bilingual player with Karaoke word-highlight effect
-5. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
-6. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
-7. **🟢 VAD Performance:** Investigate VAD processing time on long music files
-8. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
+1. **🟡 Mobile App — Auth Screens:** Login, Register, Verify OTP screens connecting to backend `/auth` endpoints
+2. **🟡 Mobile App — Navigation Structure:** Tab bar + Stack navigator for main app sections
+3. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`. Requires separate BullMQ queues or job priority tagging.
+4. **🟡 Client Status Updates:** SSE or polling endpoint for real-time job progress on mobile
+5. **🟡 Subtitle Player:** Bilingual player with Karaoke word-highlight effect
+6. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
+7. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
+8. **🟢 VAD Performance:** Investigate VAD processing time on long music files
+9. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
 
 ---
 
@@ -368,5 +430,5 @@ interface AiProcessingJobPayload {
 | **Database**  | PostgreSQL 16                                               |
 | **Queue**     | Redis 7 + BullMQ (two queues: `transcription`, `ai-processing`) |
 | **Storage**   | MinIO (S3-compatible) + Cloudflare Tunnel                   |
-| **Mobile**    | React Native (Expo) — planned                               |
+| **Mobile**    | React Native 0.81.5, Expo 54 (stable), expo-router, react-native-unistyles, i18next |
 | **Infra**     | Docker Compose (per-service + AI Engine with NVIDIA GPU support) |
