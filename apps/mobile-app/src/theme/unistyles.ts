@@ -41,4 +41,5 @@ StyleSheet.configure({
   },
 });
 
-export { AppTheme, lightTheme, darkTheme, breakpoints };
+export type { AppTheme };
+export { lightTheme, darkTheme, breakpoints };

@@ -18,8 +18,10 @@ export function useThemePreference() {
 
   // Load stored preference on mount
   useEffect(() => {
+    let isMounted = true;
     AsyncStorage.getItem(THEME_STORAGE_KEY)
       .then((stored) => {
+        if (!isMounted) return;
         if (stored === "light" || stored === "dark" || stored === "system") {
           setPreference(stored);
           if (stored === "system") {
@@ -28,12 +30,20 @@ export function useThemePreference() {
             UnistylesRuntime.setAdaptiveThemes(false);
             UnistylesRuntime.setTheme(stored);
           }
+        } else {
+          UnistylesRuntime.setAdaptiveThemes(true);
         }
       })
       .catch(() => {
         // Silent fail — use system default
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const setThemePreference = useCallback(async (mode: ThemePreference) => {

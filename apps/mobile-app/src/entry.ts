@@ -5,5 +5,5 @@
  * BEFORE expo-router loads any component.
  */
 import "./i18n/i18n";
-import "expo-router/entry";
 import "./theme/unistyles";
+import "expo-router/entry";
