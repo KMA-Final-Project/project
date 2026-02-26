@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-02-25
+> **Last Updated:** 2026-02-26
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -11,12 +11,14 @@
 **Goal:** Build a SaaS platform that generates bilingual subtitles (Source + Target + Phonetic/Pinyin) with word-level ("Karaoke") timestamps for videos/audio — aimed at enhancing language learning experiences.
 
 **Core Philosophy:** "Client-side Optimization & Async Processing"
+
 - Mobile App handles audio extraction client-side to save server bandwidth.
 - Backend is a lightweight API Gateway + Job Producer.
 - NestJS Worker validates and prepares media (I/O-bound), then dispatches to AI Engine.
 - AI Engine is an independent Python BullMQ Worker for heavy GPU processing.
 
 **Architecture:** Two-Queue Pipeline
+
 ```
 Client → API → [transcription queue] → NestJS Worker (validate) → [ai-processing queue] → AI Engine (GPU)
 ```
@@ -87,9 +89,35 @@ bilingual-subtitle-system/
 │   ├── mobile-app/             # 🟡 IN PROGRESS — React Native / Expo 54 (stable)
 │   │   ├── src/
 │   │   │   ├── entry.ts              # Custom entry: init Unistyles + i18n before routing
-│   │   │   ├── app/                  # Expo Router pages
-│   │   │   │   ├── _layout.tsx       # Root layout (headerShown: false, auto StatusBar)
-│   │   │   │   └── index.tsx         # Demo screen (theme/language toggles, color palette)
+│   │   │   ├── app/                  # Expo Router pages (auth-guarded route groups)
+│   │   │   │   ├── _layout.tsx       # Root auth guard (hydrate session, redirect to /(auth) or /(app))
+│   │   │   │   ├── (auth)/
+│   │   │   │   │   ├── _layout.tsx   # Auth group layout
+│   │   │   │   │   ├── index.tsx     # Segmented Login/Register screen
+│   │   │   │   │   └── verify-otp.tsx# OTP verify + resend countdown
+│   │   │   │   └── (app)/
+│   │   │   │       ├── _layout.tsx   # App group layout
+│   │   │   │       └── index.tsx     # Temporary home/demo screen + logout
+│   │   │   ├── components/
+│   │   │   │   ├── auth/             # LoginForm, RegisterForm
+│   │   │   │   ├── TextInput.tsx
+│   │   │   │   ├── Button.tsx
+│   │   │   │   ├── SegmentedControl.tsx
+│   │   │   │   ├── OtpInput.tsx
+│   │   │   │   └── KeyboardAvoidingWrapper.tsx
+│   │   │   ├── services/
+│   │   │   │   ├── api.ts            # Axios instance + refresh interceptor + platform URL normalization
+│   │   │   │   ├── token-storage.ts  # expo-secure-store token persistence
+│   │   │   │   └── auth/index.ts     # authApi wrapper
+│   │   │   ├── stores/
+│   │   │   │   └── auth.store.ts     # Zustand auth state + hydrate/login/register/verify/logout
+│   │   │   ├── constants/
+│   │   │   │   ├── endpoint.ts       # /auth endpoint constants
+│   │   │   │   └── routes.ts         # /(auth), /(app) route constants
+│   │   │   ├── validations/
+│   │   │   │   └── auth.ts           # zod login/register/otp schemas (PASSWORD_REGEX aligned)
+│   │   │   ├── types/
+│   │   │   │   └── auth.ts           # Auth DTO types
 │   │   │   ├── theme/
 │   │   │   │   ├── tokens.ts         # Design tokens: brand colors, palette, typography, spacing, radii
 │   │   │   │   ├── light.ts          # Light theme + AppTheme interface
@@ -101,14 +129,16 @@ bilingual-subtitle-system/
 │   │   │   │   ├── i18next.d.ts      # Type-safe translation keys
 │   │   │   │   ├── index.ts
 │   │   │   │   └── locales/
-│   │   │   │       ├── en/common.json  # English translations
-│   │   │   │       └── vi/common.json  # Vietnamese translations
+│   │   │   │       ├── en/common.json  # English translations (+ auth namespace)
+│   │   │   │       └── vi/common.json  # Vietnamese translations (+ auth namespace)
 │   │   │   └── hooks/
 │   │   │       ├── useThemePreference.ts   # system/light/dark + AsyncStorage persistence
 │   │   │       ├── useLanguagePreference.ts # en/vi + AsyncStorage persistence
 │   │   │       └── index.ts
 │   │   ├── babel.config.js           # Babel config (babel-preset-expo)
 │   │   ├── app.json                  # Expo config (orientation, icons, plugins)
+│   │   ├── expo-env.d.ts             # Expo env typings
+│   │   ├── .env                      # EXPO_PUBLIC_API_URL
 │   │   └── package.json              # See tech stack below
 │   └── test-media/             # Test audio/video files for pipeline testing
 │
@@ -129,11 +159,11 @@ bilingual-subtitle-system/
 
 ## 3. Infrastructure Details
 
-| Service    | Container              | Image              | Port(s)     | Config                                             |
-|------------|------------------------|---------------------|-------------|-----------------------------------------------------|
-| PostgreSQL | `bilingual-postgres`   | `postgres:16-alpine`| 5432        | env vars (`POSTGRES_USER/PASSWORD/DB`)              |
-| Redis      | `bilingual-redis`      | `redis:7-alpine`    | 6379        | password, `maxmemory 256mb`, `allkeys-lru`, AOF     |
-| MinIO      | `bilingual-minio`      | `minio/minio:latest`| 9000, 9001  | Cloudflare Tunnel, buckets `raw`+`processed` auto-created |
+| Service    | Container            | Image                | Port(s)    | Config                                                    |
+| ---------- | -------------------- | -------------------- | ---------- | --------------------------------------------------------- |
+| PostgreSQL | `bilingual-postgres` | `postgres:16-alpine` | 5432       | env vars (`POSTGRES_USER/PASSWORD/DB`)                    |
+| Redis      | `bilingual-redis`    | `redis:7-alpine`     | 6379       | password, `maxmemory 256mb`, `allkeys-lru`, AOF           |
+| MinIO      | `bilingual-minio`    | `minio/minio:latest` | 9000, 9001 | Cloudflare Tunnel, buckets `raw`+`processed` auto-created |
 
 - **Queues:** BullMQ on Redis. Two queues:
   - `transcription` — NestJS Worker (validation + I/O)
@@ -148,20 +178,21 @@ bilingual-subtitle-system/
 
 **12 Models, 5 Migrations Applied (latest: `add_processing_fields`):**
 
-| Model             | Purpose                                       | Key Fields / Notes                                           |
-|--------------------|-----------------------------------------------|--------------------------------------------------------------|
-| `User`             | Core user with subscription tracking          | `email`, `passwordHash`, `role`, `quotaUsageCurrentMonth`, `currentSubscriptionId` |
-| `SubscriptionPlan` | Product definition (FREE, BASIC, PRO)         | `code`, `name`, `features` (JSON), `tierLevel`, `isActive`   |
-| `PlanVariant`      | Pricing/limits per plan                       | `price`, `billingCycleType`, `maxDurationPerFile`, `monthlyQuotaSeconds` |
-| `Subscription`     | User↔Plan binding with price/quota SNAPSHOT   | `priceSnapshot`, `monthlyQuotaSecondsSnapshot` (immutable)   |
-| `UsageHistory`     | Monthly usage audit trail                     | `cycleStartDate`, `totalSecondsUsed`, `quotaLimitAtThatTime` |
-| `MediaItem`        | Media library entry                           | `originType`, `audioS3Key`, `subtitleS3Key`, `status` (QUEUED→VALIDATING→PROCESSING→COMPLETED/FAILED), `processingMode` (TRANSCRIBE/TRANSCRIBE_TRANSLATE), `progress`, `failReason`, `transcriptS3Key`, `sourceLanguage`, `countedInQuota`, soft delete |
-| `Vocabulary`       | Global word dictionary                        | `word` (unique), `meaning`, `pronunciation`, `lookupCount`   |
-| `UserVocabulary`   | Per-user saved words                          | Links `User` ↔ `Vocabulary` ↔ `MediaItem` (context)         |
-| `Otp`              | OTP for registration & forgot password        | `email`, `code`, `type` (REGISTER/FORGOT_PASSWORD), `expiresAt` |
-| `RefreshToken`     | JWT refresh tokens with rotation              | `token` (unique), `deviceInfo`, `ip`, `expiresAt`, cascade delete |
+| Model              | Purpose                                     | Key Fields / Notes                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `User`             | Core user with subscription tracking        | `email`, `passwordHash`, `role`, `quotaUsageCurrentMonth`, `currentSubscriptionId`                                                                                                                                                                      |
+| `SubscriptionPlan` | Product definition (FREE, BASIC, PRO)       | `code`, `name`, `features` (JSON), `tierLevel`, `isActive`                                                                                                                                                                                              |
+| `PlanVariant`      | Pricing/limits per plan                     | `price`, `billingCycleType`, `maxDurationPerFile`, `monthlyQuotaSeconds`                                                                                                                                                                                |
+| `Subscription`     | User↔Plan binding with price/quota SNAPSHOT | `priceSnapshot`, `monthlyQuotaSecondsSnapshot` (immutable)                                                                                                                                                                                              |
+| `UsageHistory`     | Monthly usage audit trail                   | `cycleStartDate`, `totalSecondsUsed`, `quotaLimitAtThatTime`                                                                                                                                                                                            |
+| `MediaItem`        | Media library entry                         | `originType`, `audioS3Key`, `subtitleS3Key`, `status` (QUEUED→VALIDATING→PROCESSING→COMPLETED/FAILED), `processingMode` (TRANSCRIBE/TRANSCRIBE_TRANSLATE), `progress`, `failReason`, `transcriptS3Key`, `sourceLanguage`, `countedInQuota`, soft delete |
+| `Vocabulary`       | Global word dictionary                      | `word` (unique), `meaning`, `pronunciation`, `lookupCount`                                                                                                                                                                                              |
+| `UserVocabulary`   | Per-user saved words                        | Links `User` ↔ `Vocabulary` ↔ `MediaItem` (context)                                                                                                                                                                                                     |
+| `Otp`              | OTP for registration & forgot password      | `email`, `code`, `type` (REGISTER/FORGOT_PASSWORD), `expiresAt`                                                                                                                                                                                         |
+| `RefreshToken`     | JWT refresh tokens with rotation            | `token` (unique), `deviceInfo`, `ip`, `expiresAt`, cascade delete                                                                                                                                                                                       |
 
 **Enums Added:**
+
 - `ProcessingMode`: `TRANSCRIBE` | `TRANSCRIBE_TRANSLATE`
 - `MediaStatus`: `QUEUED` | `VALIDATING` | `PROCESSING` | `COMPLETED` | `FAILED`
 
@@ -172,18 +203,21 @@ bilingual-subtitle-system/
 ## 5. Backend API — Module Status
 
 ### ✅ Authentication (`/auth`) — DONE
+
 - **Strategy:** "Verify-First" — registration data cached in Redis, user created in DB only after OTP verification
 - **Endpoints:** `POST /auth/register`, `POST /auth/verify`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`
 - **Security:** JWT-based, global `JwtAuthGuard`, `@Public()` decorator for open routes, rate limiting via `@Throttle()`
 - **Token Flow:** Access token (short-lived JWT) + Refresh token (UUID wrapped in signed JWT, stored in DB, rotated on refresh)
 
 ### ✅ Admin — Subscription Management (`/admin`) — DONE
+
 - **CRUD** for `SubscriptionPlan` and `PlanVariant`
-- **Guards:** `RolesGuard` + `@Roles(ADMIN)` 
+- **Guards:** `RolesGuard` + `@Roles(ADMIN)`
 - **Smart Delete:** Soft-deactivation; checks for active subscribers before delete
 - **Variant Versioning:** If variant has subscribers and price/limits change → new variant version created
 
 ### ✅ Media Library (`/media`) — DONE (Full Production Flow)
+
 - **Endpoints:**
   - `POST /media/presigned-url` — Generate presigned PUT URL (optimistic quota check)
   - `POST /media/confirm-upload` — Verify file in MinIO → create `MediaItem` → dispatch BullMQ job
@@ -194,6 +228,7 @@ bilingual-subtitle-system/
 - **Processing Modes:** `TRANSCRIBE` (fast, no translation) and `TRANSCRIBE_TRANSLATE` (full bilingual)
 
 ### ✅ Worker — Validation Pipeline (`MediaProcessor`) — DONE
+
 - Standalone NestJS app: `NestFactory.createApplicationContext(WorkerModule)`
 - Consumes from `transcription` queue, produces to `ai-processing` queue
 - **YouTube flow:** `yt-dlp` metadata fetch → duration check → audio download → MinIO upload
@@ -203,12 +238,14 @@ bilingual-subtitle-system/
 - Scripts: `pnpm worker:dev` (watch mode), `pnpm worker` (production)
 
 ### ✅ Supporting Modules — DONE
+
 - **MinioService:** Presigned URLs, object verification, download, upload, URL domain replacement
 - **RedisService:** ioredis wrapper for caching (registration data, etc.)
 - **MailService:** nodemailer + handlebars templates for OTP emails
 - **OtpService:** Generate & verify OTPs (REGISTER, FORGOT_PASSWORD types)
 - **UserSubscriptionService:** Auto-assign FREE_TIER on registration
 - **QueueService:** BullMQ producer, typed `TranscriptionJobPayload` + `AiProcessingJobPayload`
+- **CORS:** `main.ts` now includes `OPTIONS` and explicit preflight headers (`Origin`, `X-Requested-With`) for frontend compatibility
 
 ---
 
@@ -220,18 +257,19 @@ bilingual-subtitle-system/
 
 **7-Step Pipeline (`PipelineOrchestrator`):**
 
-| Step | Class                | Description                                        | Status |
-|------|----------------------|----------------------------------------------------|--------|
-| 1    | `AudioProcessor`     | Convert input to 16kHz WAV mono (FFmpeg)            | ✅ Done |
-| 2    | `AudioInspector`     | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote) | ✅ Done |
-| 3    | `VADManager`         | Silero VAD → speech segments → greedy merge (5-15s targets) | ✅ Done |
-| 3b   | `VocalIsolator`      | Separate vocals for music (BS-Roformer / MDX ONNX)  | ✅ Done |
-| 4    | `SmartAligner`       | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **streaming chunk callback** | ✅ Done |
-| 5    | `SemanticMerger`     | LLM-based line grouping + homophone correction (safe version: preserves char count) | ✅ Done |
-| 6    | `TranslatorEngine`   | 2-pass: Analyze context→Correct ASR→Translate (via LLMProvider/Ollama qwen2.5:7b) | ✅ Done |
-| 7    | Export               | Upload final JSON to MinIO `processed` bucket       | ✅ Done |
+| Step | Class              | Description                                                                                       | Status  |
+| ---- | ------------------ | ------------------------------------------------------------------------------------------------- | ------- |
+| 1    | `AudioProcessor`   | Convert input to 16kHz WAV mono (FFmpeg)                                                          | ✅ Done |
+| 2    | `AudioInspector`   | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                          | ✅ Done |
+| 3    | `VADManager`       | Silero VAD → speech segments → greedy merge (5-15s targets)                                       | ✅ Done |
+| 3b   | `VocalIsolator`    | Separate vocals for music (BS-Roformer / MDX ONNX)                                                | ✅ Done |
+| 4    | `SmartAligner`     | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **streaming chunk callback** | ✅ Done |
+| 5    | `SemanticMerger`   | LLM-based line grouping + homophone correction (safe version: preserves char count)               | ✅ Done |
+| 6    | `TranslatorEngine` | 2-pass: Analyze context→Correct ASR→Translate (via LLMProvider/Ollama qwen2.5:7b)                 | ✅ Done |
+| 7    | Export             | Upload final JSON to MinIO `processed` bucket                                                     | ✅ Done |
 
 **BullMQ Consumer (`main.py`):**
+
 - Listens on `ai-processing` queue with prefix `bilingual`
 - Lock duration: 10 minutes (prevents stale-lock retries for long audio)
 - Stalled interval: 5 minutes
@@ -240,12 +278,14 @@ bilingual-subtitle-system/
 - MinIO integration: `minio_client.py` handles download/upload of audio and subtitle data
 
 **Streaming Chunk Uploads:**
+
 - `SmartAligner.process()` accepts `on_chunk(batch, total_so_far)` callback
 - Flushes every 20 sentences during alignment — client sees partial results in real-time
 - TRANSCRIBE mode: chunks are final
 - TRANSCRIBE_TRANSLATE mode: preview chunks during alignment → overwritten with translated results
 
 **Key Design Decisions:**
+
 - **Singleton Pattern:** `SmartAligner` and `VADManager` use `__new__` singleton to keep GPU models loaded
 - **Dual Model Architecture:** `large-v3-turbo` for EN/VI/common languages, `large-v3` for CJK (zh/ja/ko)
 - **WORKER_MODEL_MODE:** `auto` (both models, ~8 GB VRAM) | `turbo_only` (~3 GB) | `full_only` (~5 GB) — set via `.env`
@@ -258,6 +298,7 @@ bilingual-subtitle-system/
 - **Hardware Profiler:** `HardwareProfiler` runs as background thread per job — writes CPU/RAM/GPU stats to `outputs/profiles/` as `.txt` + `.csv`
 
 **Competing Consumers (Horizontal Scaling):**
+
 - Each `main.py` instance performs a blocking pop (`BRPOPLPUSH`) on Redis — whichever instance pops first gets the job
 - Redis atomic operations + BullMQ per-job locks provide at-least-once delivery and reduce duplicates; keep workers idempotent
 - Multiple instances can run on same machine with different `WORKER_MODEL_MODE` for GPU memory splitting
@@ -266,10 +307,10 @@ bilingual-subtitle-system/
 
 ## 6b. AI Engine — Docker Deployment
 
-| File | Purpose |
-|------|---------|
-| `apps/ai-engine/Dockerfile` | CUDA 12.1 + cuDNN 8 image; installs PyTorch + all pip deps |
-| `apps/ai-engine/docker-compose.yml` | Profile-based scaling with NVIDIA GPU reservation |
+| File                                | Purpose                                                    |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `apps/ai-engine/Dockerfile`         | CUDA 12.1 + cuDNN 8 image; installs PyTorch + all pip deps |
+| `apps/ai-engine/docker-compose.yml` | Profile-based scaling with NVIDIA GPU reservation          |
 
 **Running Docker instances:**
 
@@ -288,6 +329,7 @@ docker compose --profile turbo --profile full up
 ```
 
 **Key Docker details:**
+
 - `REDIS_HOST` + `MINIO_ENDPOINT` automatically overridden to `host.docker.internal` so containers reach host services
 - Whisper model cache mounted as `whisper_cache` volume — models downloaded once, reused across restarts
 - `WORKER_MODEL_MODE` set per service in compose file (overrides `.env`)
@@ -299,13 +341,13 @@ graph TD
     B -->|Create MediaItem| C[PostgreSQL]
     B -->|Dispatch job| D["transcription queue (Redis)"]
     D -->|Consume| E[NestJS Worker]
-    
+
     E -->|YouTube: yt-dlp| F[Download audio]
     E -->|Local: download| G[MinIO raw bucket]
     E -->|Validate: ffprobe, duration, quota| H{Valid?}
     H -->|No| I["FAILED (permanent)"]
     H -->|Yes| J["ai-processing queue (Redis)"]
-    
+
     J -->|Consume| K[AI Engine Python]
     K -->|Download audio| G
     K -->|Process: VAD→Align→Translate| L[GPU Processing]
@@ -319,23 +361,25 @@ graph TD
 ## 8. Job Payload Contracts (Redis)
 
 ### Queue 1: `transcription` (API → NestJS Worker)
+
 ```typescript
 interface TranscriptionJobPayload {
   mediaId: string;
-  type: 'LOCAL' | 'YOUTUBE';
-  filePath?: string;        // S3 key (LOCAL uploads)
-  url?: string;             // YouTube URL
+  type: "LOCAL" | "YOUTUBE";
+  filePath?: string; // S3 key (LOCAL uploads)
+  url?: string; // YouTube URL
   userId: string;
-  processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+  processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
 }
 ```
 
 ### Queue 2: `ai-processing` (NestJS Worker → AI Engine)
+
 ```typescript
 interface AiProcessingJobPayload {
   mediaId: string;
-  audioS3Key: string;       // Validated audio in MinIO
-  processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+  audioS3Key: string; // Validated audio in MinIO
+  processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
   durationSeconds: number;
   userId: string;
 }
@@ -345,7 +389,7 @@ interface AiProcessingJobPayload {
 
 ## 9. Mobile App — IN PROGRESS
 
-**Brand Name:** Kapter *(wordplay: "capture" + "chapter")*
+**Brand Name:** Kapter _(wordplay: "capture" + "chapter")_
 
 ### ✅ Phase 1: UI/UX Foundations — DONE
 
@@ -362,58 +406,77 @@ interface AiProcessingJobPayload {
 | Icons | @expo/vector-icons | ^15.0.2 |
 
 **What was built:**
+
 - **Theme system:** Design tokens (brand blue `#208AEF`, palette, typography, spacing, radii) → light/dark themes → adaptive to system preference via `UnistylesRuntime`
 - **Dark mode:** System auto-detect + manual override (`useThemePreference` hook), persisted via AsyncStorage
 - **i18n:** Vietnamese (default) + English, device locale detection, type-safe translation keys (`i18next.d.ts`), persisted via AsyncStorage (`useLanguagePreference` hook)
 - **Custom entry point:** `src/entry.ts` — initializes Unistyles + i18n before expo-router loads any component
 - **Demo screen:** Theme toggle (system/light/dark) + language toggle (en/vi) + color palette preview
 
+### ✅ Phase 2: Auth Flow + Route Guard — DONE
+
+**What was built:**
+
+- **Auth state:** Zustand store (`auth.store.ts`) with `hydrate`, `login`, `register`, `verifyOtp`, `logout`
+- **Secure tokens:** `expo-secure-store` wrapper (`token-storage.ts`) for access/refresh token persistence
+- **API layer:** Axios instance with request auth header injection + 401 refresh interceptor + queueing while refresh is in-flight
+- **Endpoint constants:** centralized `/auth/*` routes in `constants/endpoint.ts`
+- **Cross-platform API URL handling:** mobile API base URL normalization for emulator loopback (`localhost`/`127.0.0.1`/`[::1]` → `10.0.2.2` on Android)
+- **Validation:** zod schemas for login/register/otp, including backend-aligned `PASSWORD_REGEX`
+- **Auth UI:**
+  - Login/Register segmented screen (`/(auth)/index.tsx`)
+  - Verify OTP screen with resend countdown (`/(auth)/verify-otp.tsx`)
+  - Reusable UI components (`TextInput`, `Button`, `SegmentedControl`, `OtpInput`, `KeyboardAvoidingWrapper`)
+- **Navigation guard:** root layout hydrates auth and redirects between `/(auth)` and `/(app)` groups
+- **i18n auth strings:** English/Vietnamese translations for auth labels/errors/logout
+
 ### ⚠️ Known Issues & Workarounds
 
 **react-native-unistyles — Windows CMake path-length error:**
+
 - `react-native-unistyles` v3 uses native C++ modules (CMake build). On Windows, CMake has a hard limit on path lengths.
 - **Symptom:** `expo run:android` fails with CMake errors deep in `node_modules`.
 - **Workaround:** Clone/move the project to a directory with a **shorter absolute path** (e.g., `C:\kapter\` instead of `C:\Users\...\KMA\billingual_project\`).
 - **Cannot test via Expo Go** — requires a development build (`expo run:android` / `expo-dev-client`).
 
-### 🔲 Phase 2: Next Steps (Mobile)
-- First real screen: Splash / Onboarding
-- Auth screens (Login, Register, Verify OTP)
-- Main navigation structure (Tab + Stack)
+### 🔲 Phase 3: Next Steps (Mobile)
+
+- First real app shell: replace demo `/(app)/index.tsx` with production tabs/screens
 - Media upload flow (audio extraction client-side → presigned URL → confirm)
-- Status polling screen (progress bar for AI processing)
+- Processing status screen (polling/SSE progress)
 - Bilingual subtitle player with Karaoke word-highlight effect
+- Forgot-password and social login (future, optional)
 
 ---
 
 ## 10. Development Commands
 
-| Action                     | Command                                | Location         |
-|----------------------------|-----------------------------------------|------------------|
-| Start API (dev)            | `pnpm start:dev`                        | `apps/backend-api` |
-| Start Worker (dev)         | `pnpm worker:dev`                       | `apps/backend-api` |
-| Start all infra            | `pnpm start:local`                      | `apps/backend-api` |
-| Start AI Engine (dev)      | `python -m src.main`                    | `apps/ai-engine` (venv) |
-| Start AI Engine (Docker)   | `docker compose --profile auto up`      | `apps/ai-engine` |
-| Scale N AI Engine instances| `docker compose --profile auto up --scale ai-engine=N` | `apps/ai-engine` |
-| Dual-worker split          | `docker compose --profile turbo --profile full up` | `apps/ai-engine` |
-| Build AI Engine image      | `docker compose build`                  | `apps/ai-engine` |
-| Generate Prisma Client     | `pnpm pgen`                             | `apps/backend-api` |
-| Run migration              | `pnpm pmigrate:dev <name>`              | `apps/backend-api` |
-| Seed database              | `npx tsx prisma/seed.ts`                | `apps/backend-api` |
-| Clean test environment     | `pnpm clean:env`                        | `apps/backend-api` |
-| Run AI pipeline (standalone)| `python -m src.scripts.test_pipeline`   | `apps/ai-engine` (venv) |
-| Start infra (individual)   | `docker-compose up -d`                  | `infra/{service}` |
+| Action                       | Command                                                | Location                |
+| ---------------------------- | ------------------------------------------------------ | ----------------------- |
+| Start API (dev)              | `pnpm start:dev`                                       | `apps/backend-api`      |
+| Start Worker (dev)           | `pnpm worker:dev`                                      | `apps/backend-api`      |
+| Start all infra              | `pnpm start:local`                                     | `apps/backend-api`      |
+| Start AI Engine (dev)        | `python -m src.main`                                   | `apps/ai-engine` (venv) |
+| Start AI Engine (Docker)     | `docker compose --profile auto up`                     | `apps/ai-engine`        |
+| Scale N AI Engine instances  | `docker compose --profile auto up --scale ai-engine=N` | `apps/ai-engine`        |
+| Dual-worker split            | `docker compose --profile turbo --profile full up`     | `apps/ai-engine`        |
+| Build AI Engine image        | `docker compose build`                                 | `apps/ai-engine`        |
+| Generate Prisma Client       | `pnpm pgen`                                            | `apps/backend-api`      |
+| Run migration                | `pnpm pmigrate:dev <name>`                             | `apps/backend-api`      |
+| Seed database                | `npx tsx prisma/seed.ts`                               | `apps/backend-api`      |
+| Clean test environment       | `pnpm clean:env`                                       | `apps/backend-api`      |
+| Run AI pipeline (standalone) | `python -m src.scripts.test_pipeline`                  | `apps/ai-engine` (venv) |
+| Start infra (individual)     | `docker-compose up -d`                                 | `infra/{service}`       |
 
 ---
 
 ## 11. Priority TODO (Next Steps)
 
-1. **🟡 Mobile App — Auth Screens:** Login, Register, Verify OTP screens connecting to backend `/auth` endpoints
-2. **🟡 Mobile App — Navigation Structure:** Tab bar + Stack navigator for main app sections
-3. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`. Requires separate BullMQ queues or job priority tagging.
-4. **🟡 Client Status Updates:** SSE or polling endpoint for real-time job progress on mobile
-5. **🟡 Subtitle Player:** Bilingual player with Karaoke word-highlight effect
+1. **🟡 Mobile App — App Shell:** Implement production tab/stack structure to replace demo home screen
+2. **🟡 Mobile App — Media Submit Flow:** Local extraction + presigned upload + `/media/confirm-upload` integration
+3. **🟡 Mobile App — Processing UX:** Status polling/SSE UI for queued/processing/completed states
+4. **🟡 Mobile App — Subtitle Player:** Bilingual playback + Karaoke word-highlight effect
+5. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`
 6. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
 7. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
 8. **🟢 VAD Performance:** Investigate VAD processing time on long music files
@@ -423,12 +486,12 @@ interface AiProcessingJobPayload {
 
 ## 12. Tech Stack Summary
 
-| Layer         | Technology                                                 |
-|---------------|-------------------------------------------------------------|
-| **Backend**   | NestJS v11, TypeScript, Prisma 7, BullMQ, ioredis, Passport JWT |
+| Layer         | Technology                                                                                                                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backend**   | NestJS v11, TypeScript, Prisma 7, BullMQ, ioredis, Passport JWT                                                                                                                           |
 | **AI Engine** | Python 3.11, CUDA 12.1, Faster-Whisper (large-v3 + large-v3-turbo), Silero VAD, BatchedInferencePipeline, BullMQ (Python), MinIO SDK, psycopg2, Ollama (qwen2.5:7b), nvidia-ml-py, psutil |
-| **Database**  | PostgreSQL 16                                               |
-| **Queue**     | Redis 7 + BullMQ (two queues: `transcription`, `ai-processing`) |
-| **Storage**   | MinIO (S3-compatible) + Cloudflare Tunnel                   |
-| **Mobile**    | React Native 0.81.5, Expo 54 (stable), expo-router, react-native-unistyles, i18next |
-| **Infra**     | Docker Compose (per-service + AI Engine with NVIDIA GPU support) |
+| **Database**  | PostgreSQL 16                                                                                                                                                                             |
+| **Queue**     | Redis 7 + BullMQ (two queues: `transcription`, `ai-processing`)                                                                                                                           |
+| **Storage**   | MinIO (S3-compatible) + Cloudflare Tunnel                                                                                                                                                 |
+| **Mobile**    | React Native 0.81.5, Expo 54 (stable), expo-router, react-native-unistyles, i18next                                                                                                       |
+| **Infra**     | Docker Compose (per-service + AI Engine with NVIDIA GPU support)                                                                                                                          |

@@ -1,21 +1,51 @@
 /**
  * Root Layout — Kapter
  *
- * Entry layout for expo-router.
+ * Auth guard: redirects to (auth) when unauthenticated.
  * Themes and i18n are already initialized via entry.ts.
  */
-import { Stack } from "expo-router";
+import { useEffect } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useAuthStore } from "@/stores/auth.store";
+import { ROUTES } from "../constants/routes";
 
 export default function RootLayout() {
+  const router = useRouter();
+  const segments = useSegments();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isHydrated = useAuthStore((s) => s.isHydrated);
+  const hydrate = useAuthStore((s) => s.hydrate);
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    const inAuthGroup = segments[0] === "(auth)";
+
+    if (!isAuthenticated && !inAuthGroup) {
+      router.replace(ROUTES.AUTH);
+    } else if (isAuthenticated && inAuthGroup) {
+      router.replace(ROUTES.HOME);
+    }
+  }, [isHydrated, isAuthenticated, segments, router]);
+
+  if (!isHydrated) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
   return (
     <>
       <StatusBar style="auto" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      />
+      <Slot />
     </>
   );
 }

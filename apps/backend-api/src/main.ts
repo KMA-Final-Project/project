@@ -13,6 +13,15 @@ async function bootstrap() {
     exclude: ['/'],
   });
 
+  // Enable CORS for all origins (you can customize this for production)
+  app.enableCors({
+    origin: '*',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders:
+      'Content-Type, Accept, Authorization, Origin, X-Requested-With',
+    allowCredentials: true,
+  });
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
@@ -37,4 +46,4 @@ async function bootstrap() {
   console.log(`Application is running on: ${await app.getUrl()}`);
   console.log(`Swagger docs available at: ${await app.getUrl()}/api/docs`);
 }
-bootstrap();
+void bootstrap();

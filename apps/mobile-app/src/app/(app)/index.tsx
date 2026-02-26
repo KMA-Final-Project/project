@@ -10,11 +10,14 @@ import { useTranslation } from "react-i18next";
 import { useThemePreference, useLanguagePreference } from "@/hooks";
 import type { ThemePreference } from "@/hooks";
 import type { SupportedLanguage } from "@/i18n";
+import { Button } from "@/components";
+import { useAuthStore } from "@/stores/auth.store";
 
 export default function Index() {
   const { t } = useTranslation();
   const { preference, setThemePreference } = useThemePreference();
   const { currentLanguage, setLanguage } = useLanguagePreference();
+  const logout = useAuthStore((s) => s.logout);
 
   const themeOptions: { key: ThemePreference; label: string }[] = [
     { key: "system", label: t("theme.system") },
@@ -128,6 +131,9 @@ export default function Index() {
             </View>
           </View>
         </View>
+
+        {/* Logout button */}
+        <Button title={t("auth.logout.title")} onPress={logout} />
       </View>
     </ScrollView>
   );
