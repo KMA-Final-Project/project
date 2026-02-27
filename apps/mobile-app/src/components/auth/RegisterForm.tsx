@@ -13,7 +13,6 @@ export function RegisterForm() {
   const { t } = useTranslation();
   const router = useRouter();
   const register = useAuthStore((s) => s.register);
-  const setPendingEmail = useAuthStore((s) => s.setPendingEmail);
   const [submitting, setSubmitting] = useState(false);
 
   const { control, handleSubmit } = useForm<RegisterFormData>({
@@ -34,7 +33,7 @@ export function RegisterForm() {
         email: data.email,
         password: data.password,
       });
-      setPendingEmail(data.email);
+
       router.push("/(auth)/verify-otp");
     } catch (err: any) {
       const msg = err?.response?.data?.message || t("auth.errors.generic");

@@ -63,7 +63,8 @@
       "invalidOtp": "Invalid or expired code",
       "emailExists": "An account with this email already exists",
       "wrongCredentials": "Incorrect email or password",
-      "generic": "Something went wrong. Please try again."
+      "generic": "Something went wrong. Please try again.",
+      "resendFailed": "Failed to resend code. Please try again later."
     }
   },
   "demo": {

@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { OtpInput, Button, KeyboardAvoidingWrapper } from "@/components";
 import { useAuthStore } from "@/stores/auth.store";
+import { authApi } from "@/services/auth";
 
 const RESEND_COOLDOWN = 60;
 
@@ -36,7 +37,7 @@ export default function VerifyOtpScreen() {
       await verifyOtp({ email: pendingEmail, otp });
       router.replace("/");
     } catch (err: any) {
-      const msg = err?.response?.data?.message || t("auth.errors.invalidOtp");
+      const msg = err?.response?.data?.message || t("auth.errors.resendFailed");
       Alert.alert(t("common.error"), msg);
     } finally {
       setSubmitting(false);
@@ -46,14 +47,11 @@ export default function VerifyOtpScreen() {
   const handleResend = useCallback(async () => {
     if (!pendingEmail || cooldown > 0) return;
     try {
-      const { authApi } = await import("@/services");
-      await authApi.register({
-        email: pendingEmail,
-        password: "resend-trigger",
-        fullName: "",
-      });
-    } catch {
-      // ignore — backend will resend OTP for existing pending registration
+      await authApi.resendOtp(pendingEmail);
+      setCooldown(RESEND_COOLDOWN);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || t("auth.errors.resendFailed");
+      Alert.alert(t("common.error"), msg);
     }
     setCooldown(RESEND_COOLDOWN);
   }, [pendingEmail, cooldown]);

@@ -64,13 +64,34 @@ function processQueue(error: unknown, token: string | null) {
   failedQueue = [];
 }
 
+type AuthInvalidatedHandler = () => void | Promise<void>;
+let onAuthInvalidated: AuthInvalidatedHandler | null = null;
+
+export function setAuthInvalidatedHandler(
+  handler: AuthInvalidatedHandler | null,
+) {
+  onAuthInvalidated = handler;
+
+  return () => {
+    if (onAuthInvalidated === handler) {
+      onAuthInvalidated = null;
+    }
+  };
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const originalRequest = error.config;
 
     if (error.response?.status !== 401 || originalRequest._retry) {
-      console.log("error: ", error);
+      if (__DEV__) {
+        console.warn("API request failed", {
+          status: error.response?.status,
+          method: originalRequest?.method,
+          url: originalRequest?.url,
+        });
+      }
       return Promise.reject(error);
     }
 
@@ -106,6 +127,17 @@ api.interceptors.response.use(
     } catch (refreshError) {
       processQueue(refreshError, null);
       await clearTokens();
+
+      if (onAuthInvalidated) {
+        try {
+          await Promise.resolve(onAuthInvalidated());
+        } catch (invalidationError) {
+          if (__DEV__) {
+            console.warn("Auth invalidation handler failed", invalidationError);
+          }
+        }
+      }
+
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

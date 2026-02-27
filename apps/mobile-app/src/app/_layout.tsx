@@ -9,6 +9,7 @@ import { ActivityIndicator, View } from "react-native";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useAuthStore } from "@/stores/auth.store";
+import { setAuthInvalidatedHandler } from "@/services";
 import { ROUTES } from "../constants/routes";
 
 export default function RootLayout() {
@@ -17,10 +18,19 @@ export default function RootLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isHydrated = useAuthStore((s) => s.isHydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
+  const invalidate = useAuthStore((s) => s.invalidate);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    const unsubscribe = setAuthInvalidatedHandler(async () => {
+      invalidate();
+    });
+
+    return unsubscribe;
+  }, [invalidate]);
 
   useEffect(() => {
     if (!isHydrated) return;

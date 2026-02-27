@@ -48,7 +48,7 @@
       "subtitle": "Chúng tôi đã gửi mã tới {{email}}",
       "submit": "Xác minh",
       "resend": "Gửi lại mã",
-      "resendIn": "Gửi lại sau {{seconds}}s"
+      "resendIn": "Gửi lại sau {{seconds}} giây"
     },
     "logout": {
       "title": "Đăng xuất",
@@ -63,7 +63,8 @@
       "invalidOtp": "Mã không hợp lệ hoặc đã hết hạn",
       "emailExists": "Tài khoản với email này đã tồn tại",
       "wrongCredentials": "Email hoặc mật khẩu không đúng",
-      "generic": "Đã xảy ra lỗi. Vui lòng thử lại."
+      "generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
+      "resendFailed": "Không thể gửi lại mã. Vui lòng thử lại sau."
     }
   },
   "demo": {

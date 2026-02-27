@@ -14,12 +14,30 @@ async function bootstrap() {
   });
 
   // Enable CORS for all origins (you can customize this for production)
+  const corsOriginDelegate = (
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: boolean) => void,
+  ): void => {
+    const allowedOrigins =
+      configService
+        .get<string>('CORS_ALLOWED_ORIGINS')
+        ?.split(',')
+        .map((o) => o.trim()) ?? [];
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Not allowed by CORS'), false);
+  };
+
   app.enableCors({
-    origin: '*',
+    origin: corsOriginDelegate,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders:
       'Content-Type, Accept, Authorization, Origin, X-Requested-With',
-    allowCredentials: true,
+    credentials: true,
   });
 
   // Global validation pipe
@@ -46,4 +64,8 @@ async function bootstrap() {
   console.log(`Application is running on: ${await app.getUrl()}`);
   console.log(`Swagger docs available at: ${await app.getUrl()}/api/docs`);
 }
-void bootstrap();
+
+bootstrap().catch((error) => {
+  console.error('Failed to bootstrap application', error);
+  process.exit(1);
+});

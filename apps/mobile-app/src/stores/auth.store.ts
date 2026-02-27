@@ -21,6 +21,7 @@ interface AuthActions {
   login: (payload: LoginPayload) => Promise<void>;
   verifyOtp: (payload: VerifyOtpPayload) => Promise<void>;
   logout: () => Promise<void>;
+  invalidate: () => void;
   hydrate: () => Promise<void>;
   setPendingEmail: (email: string | null) => void;
 }
@@ -84,6 +85,15 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
         pendingEmail: null,
       });
     }
+  },
+
+  invalidate: () => {
+    set({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      pendingEmail: null,
+    });
   },
 
   hydrate: async () => {

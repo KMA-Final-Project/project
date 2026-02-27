@@ -25,7 +25,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
       {
         name: 'default',
         ttl: 60 * 1000, // 1 minute
-        limit: 10, // 60 requests per minute
+        limit: 10,
       },
     ]),
 

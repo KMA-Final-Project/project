@@ -1,5 +1,5 @@
 import { ENDPOINTS } from "@/constants/endpoint";
-import { api } from "@/services";
+import { api } from "@/services/api";
 import {
   RegisterPayload,
   LoginPayload,
@@ -13,6 +13,11 @@ import {
 export const authApi = {
   register: (payload: RegisterPayload) =>
     api.post<MessageResponse>(ENDPOINTS.REGISTER, payload).then((r) => r.data),
+
+  resendOtp: (email: string) =>
+    api
+      .post<MessageResponse>(ENDPOINTS.RESEND_OTP, { email })
+      .then((r) => r.data),
 
   login: (payload: LoginPayload) =>
     api.post<AuthResponse>(ENDPOINTS.LOGIN, payload).then((r) => r.data),
