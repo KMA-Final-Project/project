@@ -1,9 +1,11 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import {
   Injectable,
   ConflictException,
   BadRequestException,
   UnauthorizedException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -20,6 +22,7 @@ import {
   UserProfileDto,
   TokensDto,
 } from './dto';
+import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
 import { AUTH_ERRORS } from 'src/common/constants/error-messages';
 import { OtpType } from 'prisma/generated/client';
 import { ConfigService } from '@nestjs/config';
@@ -48,6 +51,7 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<{ message: string }> {
     // Normalize email
     const email = dto.email.toLowerCase().trim();
+    const cacheKey = this.getRegistrationCacheKey(email);
 
     // Check if email already exists in database
     const existingUser = await this.prisma.user.findUnique({
@@ -61,11 +65,13 @@ export class AuthService {
     // Hash password
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
+    // Existing pending registration means this is a retry/update flow.
+    const hadPendingRegistration = await this.redis.exists(cacheKey);
+
     // Generate OTP via OtpService (for audit trail)
     const otp = await this.otpService.createOtp(email, OtpType.REGISTER);
 
     // Cache registration data in Redis
-    const cacheKey = `reg:${email}`;
     const cacheData: CachedRegistration = {
       email,
       passwordHash,
@@ -81,8 +87,52 @@ export class AuthService {
     await this.mail.sendOtp(email, otp, OtpType.REGISTER);
 
     return {
+      message: hadPendingRegistration
+        ? 'Registration updated. Verification code resent to your email. Please verify within 10 minutes.'
+        : 'Verification code sent to your email. Please verify within 10 minutes.',
+    };
+  }
+
+  /**
+   * Resend registration OTP using cached registration payload.
+   * This refreshes Redis TTL so users can continue registration after reconnect/reopen.
+   */
+  async resendRegistrationOtp(
+    dto: ResendRegistrationOtpDto,
+    ip?: string,
+  ): Promise<{ message: string }> {
+    const email = dto.email.toLowerCase().trim();
+
+    // Do not allow resend for already-registered accounts.
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    if (existingUser) {
+      throw new ConflictException(AUTH_ERRORS.USER_EMAIL_EXISTS);
+    }
+
+    const cacheKey = this.getRegistrationCacheKey(email);
+    const cached = await this.redis.getJson<CachedRegistration>(cacheKey);
+    if (!cached) {
+      throw new BadRequestException(AUTH_ERRORS.REGISTRATION_EXPIRED);
+    }
+
+    await this.enforceResendRateLimits(email, ip);
+
+    // Generate new OTP and send email.
+    const otp = await this.otpService.createOtp(email, OtpType.REGISTER);
+    await this.mail.sendOtp(email, otp, OtpType.REGISTER);
+
+    // Refresh registration TTL to keep pending registration alive.
+    await this.redis.setJson(
+      cacheKey,
+      cached,
+      this.configService.getOrThrow<number>('REGISTRATION_TTL_SECONDS'),
+    );
+
+    return {
       message:
-        'Verification code sent to your email. Please verify within 10 minutes.',
+        'Verification code resent to your email. Please verify within 10 minutes.',
     };
   }
 
@@ -109,7 +159,7 @@ export class AuthService {
     }
 
     // Get cached registration data
-    const cacheKey = `reg:${email}`;
+    const cacheKey = this.getRegistrationCacheKey(email);
     const cached = await this.redis.getJson<CachedRegistration>(cacheKey);
 
     if (!cached) {
@@ -162,6 +212,15 @@ export class AuthService {
     });
 
     if (!user) {
+      const hasPendingRegistration = await this.redis.exists(
+        this.getRegistrationCacheKey(email),
+      );
+      if (hasPendingRegistration) {
+        await this.resendRegistrationOtp({ email }, ip);
+        throw new BadRequestException(
+          AUTH_ERRORS.REGISTRATION_PENDING_VERIFICATION,
+        );
+      }
       throw new UnauthorizedException(AUTH_ERRORS.WRONG_CREDENTIALS);
     }
 
@@ -320,5 +379,63 @@ export class AuthService {
       fullName: user.fullName,
       emailVerified: user.emailVerified,
     };
+  }
+
+  private getRegistrationCacheKey(email: string): string {
+    return `reg:${email}`;
+  }
+
+  private async enforceResendRateLimits(email: string, ip?: string) {
+    const ttlSeconds = this.configService.getOrThrow<number>(
+      'REGISTRATION_TTL_SECONDS',
+    );
+    const cooldownSeconds = Number(
+      this.configService.get<string>('REGISTRATION_RESEND_COOLDOWN_SECONDS') ??
+        30,
+    );
+    const maxPerTtl = Number(
+      this.configService.get<string>('REGISTRATION_RESEND_MAX_PER_TTL') ?? 5,
+    );
+    const maxPerIp = Number(
+      this.configService.get<string>('REGISTRATION_RESEND_MAX_PER_IP') ?? 10,
+    );
+
+    const cooldownKey = `reg:resend:cooldown:${email}`;
+    const inCooldown = await this.redis.exists(cooldownKey);
+    if (inCooldown) {
+      throw new HttpException(
+        `${AUTH_ERRORS.OTP_RESEND_COOLDOWN}`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const countKey = `reg:resend:count:${email}`;
+    const count = await this.redis.incr(countKey);
+    if (count === 1) {
+      await this.redis.expire(countKey, ttlSeconds);
+    }
+    if (count > maxPerTtl) {
+      throw new HttpException(
+        `${AUTH_ERRORS.OTP_RESEND_LIMIT_REACHED}`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (ip) {
+      const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
+      const ipCountKey = `reg:resend:ip:${email}:${ipHash}`;
+      const ipCount = await this.redis.incr(ipCountKey);
+      if (ipCount === 1) {
+        await this.redis.expire(ipCountKey, ttlSeconds);
+      }
+      if (ipCount > maxPerIp) {
+        throw new HttpException(
+          `${AUTH_ERRORS.OTP_RESEND_LIMIT_REACHED}`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
+    await this.redis.set(cooldownKey, '1', cooldownSeconds);
   }
 }

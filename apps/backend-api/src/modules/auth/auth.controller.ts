@@ -24,6 +24,7 @@ import {
   MessageResponseDto,
   TokensDto,
 } from './dto';
+import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
 import { Public } from '../../common/decorators';
 
 @ApiTags('auth')
@@ -41,6 +42,31 @@ export class AuthController {
   @ApiResponse({ status: 429, description: 'Too many requests' })
   async register(@Body() dto: RegisterDto): Promise<MessageResponseDto> {
     return this.authService.register(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('resend-registration-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend registration OTP using cached registration session',
+  })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: 'Registration session expired. Register again.',
+  })
+  @ApiResponse({ status: 409, description: 'Email already registered' })
+  @ApiResponse({
+    status: 429,
+    description: 'Resend cooldown/rate limit reached',
+  })
+  async resendRegistrationOtp(
+    @Body() dto: ResendRegistrationOtpDto,
+    @Req() req: Request,
+  ): Promise<MessageResponseDto> {
+    const ip = this.getClientIp(req);
+    return this.authService.resendRegistrationOtp(dto, ip);
   }
 
   @Public()
@@ -66,6 +92,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, type: AuthResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: 'Registration pending verification (OTP not completed)',
+  })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   async login(

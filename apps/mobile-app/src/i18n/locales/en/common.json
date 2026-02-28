@@ -24,6 +24,49 @@
     "error": "Something went wrong",
     "retry": "Retry"
   },
+  "auth": {
+    "tagline": "Your bilingual subtitle companion",
+    "tabs": {
+      "login": "Sign In",
+      "register": "Sign Up"
+    },
+    "login": {
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign In",
+      "forgotPassword": "Forgot password?"
+    },
+    "register": {
+      "fullName": "Full Name",
+      "email": "Email",
+      "password": "Password",
+      "confirmPassword": "Confirm Password",
+      "submit": "Create Account"
+    },
+    "verify": {
+      "title": "Verify your email",
+      "subtitle": "We sent a code to {{email}}",
+      "submit": "Verify",
+      "resend": "Resend code",
+      "resendIn": "Resend in {{seconds}}s"
+    },
+    "logout": {
+      "title": "Logout",
+      "alert": "Are you sure you want to logout?"
+    },
+    "errors": {
+      "invalidEmail": "Enter a valid email address",
+      "passwordTooWeak": "Password must include uppercase, lowercase, number, and special character",
+      "passwordMin": "Password must be at least 8 characters",
+      "passwordMismatch": "Passwords don't match",
+      "fullNameRequired": "Full name is required",
+      "invalidOtp": "Invalid or expired code",
+      "emailExists": "An account with this email already exists",
+      "wrongCredentials": "Incorrect email or password",
+      "generic": "Something went wrong. Please try again.",
+      "resendFailed": "Failed to resend code. Please try again later."
+    }
+  },
   "demo": {
     "title": "Welcome to {{appName}}",
     "subtitle": "Your bilingual subtitle companion",

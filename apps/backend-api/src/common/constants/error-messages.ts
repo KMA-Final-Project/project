@@ -5,7 +5,12 @@
 
 export const AUTH_ERRORS = {
   USER_EMAIL_EXISTS: 'Email already registered',
+  REGISTRATION_PENDING_VERIFICATION:
+    'Registration pending verification. Please verify OTP sent to your email.',
   OTP_INVALID: 'Invalid or expired OTP',
+  OTP_RESEND_COOLDOWN:
+    'Please wait before requesting another verification code.',
+  OTP_RESEND_LIMIT_REACHED: 'Too many resend attempts. Please try again later.',
   WRONG_CREDENTIALS: 'Incorrect email or password',
   REGISTRATION_EXPIRED: 'Registration session expired. Please register again.',
   REFRESH_TOKEN_INVALID: 'Invalid or expired refresh token',

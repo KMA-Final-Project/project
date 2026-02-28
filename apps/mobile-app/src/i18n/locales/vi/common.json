@@ -24,6 +24,49 @@
     "error": "Đã xảy ra lỗi",
     "retry": "Thử lại"
   },
+  "auth": {
+    "tagline": "Trợ lý phụ đề song ngữ của bạn",
+    "tabs": {
+      "login": "Đăng nhập",
+      "register": "Đăng ký"
+    },
+    "login": {
+      "email": "Email",
+      "password": "Mật khẩu",
+      "submit": "Đăng nhập",
+      "forgotPassword": "Quên mật khẩu?"
+    },
+    "register": {
+      "fullName": "Họ và tên",
+      "email": "Email",
+      "password": "Mật khẩu",
+      "confirmPassword": "Xác nhận mật khẩu",
+      "submit": "Tạo tài khoản"
+    },
+    "verify": {
+      "title": "Xác minh email",
+      "subtitle": "Chúng tôi đã gửi mã tới {{email}}",
+      "submit": "Xác minh",
+      "resend": "Gửi lại mã",
+      "resendIn": "Gửi lại sau {{seconds}} giây"
+    },
+    "logout": {
+      "title": "Đăng xuất",
+      "alert": "Bạn có chắc muốn đăng xuất không?"
+    },
+    "errors": {
+      "invalidEmail": "Nhập địa chỉ email hợp lệ",
+      "passwordTooWeak": "Mật khẩu phải có chữ hoa, chữ thường, số và ký tự đặc biệt",
+      "passwordMin": "Mật khẩu tối thiểu 8 ký tự",
+      "passwordMismatch": "Mật khẩu không khớp",
+      "fullNameRequired": "Vui lòng nhập họ và tên",
+      "invalidOtp": "Mã không hợp lệ hoặc đã hết hạn",
+      "emailExists": "Tài khoản với email này đã tồn tại",
+      "wrongCredentials": "Email hoặc mật khẩu không đúng",
+      "generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
+      "resendFailed": "Không thể gửi lại mã. Vui lòng thử lại sau."
+    }
+  },
   "demo": {
     "title": "Chào mừng đến với {{appName}}",
     "subtitle": "Trợ lý phụ đề song ngữ của bạn",
