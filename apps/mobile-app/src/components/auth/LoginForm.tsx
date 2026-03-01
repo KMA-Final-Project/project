@@ -7,6 +7,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { TextInput, Button } from "@/components";
 import { loginSchema, type LoginFormData } from "@/validations/auth";
 import { useAuthStore } from "@/stores/auth.store";
+import { extractApiError } from "@/utils/api-error";
 
 export function LoginForm() {
   const { t } = useTranslation();
@@ -22,9 +23,8 @@ export function LoginForm() {
     setSubmitting(true);
     try {
       await login(data);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message || t("auth.errors.wrongCredentials");
+    } catch (err) {
+      const msg = extractApiError(err);
       Alert.alert(t("common.error"), msg);
     } finally {
       setSubmitting(false);

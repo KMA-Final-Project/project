@@ -8,6 +8,8 @@ import { StyleSheet } from "react-native-unistyles";
 import { TextInput, Button } from "@/components";
 import { registerSchema, type RegisterFormData } from "@/validations/auth";
 import { useAuthStore } from "@/stores/auth.store";
+import { extractApiError } from "@/utils/api-error";
+import { ROUTES } from "@/constants/routes";
 
 export function RegisterForm() {
   const { t } = useTranslation();
@@ -34,9 +36,9 @@ export function RegisterForm() {
         password: data.password,
       });
 
-      router.push("/(auth)/verify-otp");
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || t("auth.errors.generic");
+      router.push(ROUTES.VERIFY_OTP);
+    } catch (err) {
+      const msg = extractApiError(err);
       Alert.alert(t("common.error"), msg);
     } finally {
       setSubmitting(false);

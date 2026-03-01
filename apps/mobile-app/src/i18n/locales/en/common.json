@@ -24,6 +24,23 @@
     "error": "Something went wrong",
     "retry": "Retry"
   },
+  "apiErrors": {
+    "emailAlreadyRegistered": "An account with this email already exists",
+    "registrationPendingVerification": "Registration not complete. Please verify your email.",
+    "otpInvalid": "The verification code is invalid or has expired.",
+    "otpResendCooldown": "Please wait before requesting another code.",
+    "otpResendLimitReached": "Too many resend attempts. Try again later.",
+    "wrongCredentials": "Incorrect email or password",
+    "registrationExpired": "Registration session expired. Please register again.",
+    "refreshTokenInvalid": "Session expired. Please log in again.",
+    "unauthorized": "Authentication required. Please log in.",
+    "userNotFound": "User account not found.",
+    "passwordTooWeak": "Password must include uppercase, lowercase, number, and special character",
+    "defaultPlanUnavailable": "System configuration error: default plan unavailable. Please contact support.",
+    "quotaExceeded": "Monthly quota exceeded. Please upgrade your plan.",
+    "fileNotFound": "Uploaded file not found. Please try uploading again.",
+    "invalidYoutubeUrl": "Please provide a valid YouTube URL."
+  },
   "auth": {
     "tagline": "Your bilingual subtitle companion",
     "tabs": {
@@ -56,23 +73,13 @@
     },
     "errors": {
       "invalidEmail": "Enter a valid email address",
-      "passwordTooWeak": "Password must include uppercase, lowercase, number, and special character",
       "passwordMin": "Password must be at least 8 characters",
       "passwordMismatch": "Passwords don't match",
       "fullNameRequired": "Full name is required",
       "invalidOtp": "Invalid or expired code",
-      "emailExists": "An account with this email already exists",
-      "wrongCredentials": "Incorrect email or password",
       "generic": "Something went wrong. Please try again.",
       "resendFailed": "Failed to resend code. Please try again later."
     }
-  },
-  "demo": {
-    "title": "Welcome to {{appName}}",
-    "subtitle": "Your bilingual subtitle companion",
-    "themeSection": "Appearance",
-    "languageSection": "Language",
-    "currentTheme": "Current theme: {{theme}}",
-    "currentLanguage": "Current language: {{language}}"
   }
 }
+

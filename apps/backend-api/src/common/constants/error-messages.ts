@@ -4,35 +4,46 @@
  */
 
 export const AUTH_ERRORS = {
-  USER_EMAIL_EXISTS: 'Email already registered',
-  REGISTRATION_PENDING_VERIFICATION:
-    'Registration pending verification. Please verify OTP sent to your email.',
-  OTP_INVALID: 'Invalid or expired OTP',
-  OTP_RESEND_COOLDOWN:
-    'Please wait before requesting another verification code.',
-  OTP_RESEND_LIMIT_REACHED: 'Too many resend attempts. Please try again later.',
-  WRONG_CREDENTIALS: 'Incorrect email or password',
-  REGISTRATION_EXPIRED: 'Registration session expired. Please register again.',
-  REFRESH_TOKEN_INVALID: 'Invalid or expired refresh token',
-  UNAUTHORIZED: 'Authentication required',
-  USER_NOT_FOUND: 'User not found',
-  PASSWORD_INVALID:
-    'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character',
+  // Email already registered
+  USER_EMAIL_EXISTS: 'emailAlreadyRegistered',
+  // Registration pending verification. Please verify OTP sent to your email.
+  REGISTRATION_PENDING_VERIFICATION: 'registrationPendingVerification',
+  // Invalid or expired OTP
+  OTP_INVALID: 'otpInvalid',
+  // Please wait before requesting another verification code.
+  OTP_RESEND_COOLDOWN: 'otpResendCooldown',
+  // Too many resend attempts. Please try again later.
+  OTP_RESEND_LIMIT_REACHED: 'otpResendLimitReached',
+  // Incorrect email or password
+  WRONG_CREDENTIALS: 'wrongCredentials',
+  // Registration session expired. Please register again.
+  REGISTRATION_EXPIRED: 'registrationExpired',
+  // Invalid or expired refresh token
+  REFRESH_TOKEN_INVALID: 'refreshTokenInvalid',
+  // Authentication required
+  UNAUTHORIZED: 'unauthorized',
+  // User not found
+  USER_NOT_FOUND: 'userNotFound',
+  // Password must be at least 8 characters long and contain at least one uppercase letter...
+  PASSWORD_INVALID: 'passwordTooWeak',
 } as const;
 
 export type AuthErrorKey = keyof typeof AUTH_ERRORS;
 
 export const SUBSCRIPTION_ERRORS = {
-  DEFAULT_PLAN_UNAVAILABLE:
-    'System configuration error: default plan unavailable. Please contact support.',
+  // System configuration error: default plan unavailable. Please contact support.
+  DEFAULT_PLAN_UNAVAILABLE: 'defaultPlanUnavailable',
 } as const;
 
 export type SubscriptionErrorKey = keyof typeof SUBSCRIPTION_ERRORS;
 
 export const MEDIA_ERRORS = {
-  QUOTA_EXCEEDED: 'Monthly quota exceeded. Please upgrade your plan.',
-  FILE_NOT_FOUND: 'Uploaded file not found. Please try uploading again.',
-  INVALID_YOUTUBE_URL: 'Please provide a valid YouTube URL.',
+  // Monthly quota exceeded. Please upgrade your plan.
+  QUOTA_EXCEEDED: 'quotaExceeded',
+  // Uploaded file not found. Please try uploading again.
+  FILE_NOT_FOUND: 'fileNotFound',
+  // Please provide a valid YouTube URL.
+  INVALID_YOUTUBE_URL: 'invalidYoutubeUrl',
 } as const;
 
 export type MediaErrorKey = keyof typeof MEDIA_ERRORS;

@@ -82,7 +82,7 @@ export class AuthController {
     @Req() req: Request,
   ): Promise<AuthResponseDto> {
     const ip = this.getClientIp(req);
-    const deviceInfo = req.headers['user-agent'];
+    const deviceInfo = this.getDeviceInfo(req);
     return this.authService.verifyRegistration(dto, ip, deviceInfo);
   }
 
@@ -103,7 +103,7 @@ export class AuthController {
     @Req() req: Request,
   ): Promise<AuthResponseDto> {
     const ip = this.getClientIp(req);
-    const deviceInfo = req.headers['user-agent'];
+    const deviceInfo = this.getDeviceInfo(req);
     return this.authService.login(dto, ip, deviceInfo);
   }
 
@@ -120,7 +120,7 @@ export class AuthController {
     @Req() req: Request,
   ): Promise<TokensDto> {
     const ip = this.getClientIp(req);
-    const deviceInfo = req.headers['user-agent'];
+    const deviceInfo = this.getDeviceInfo(req);
     return this.authService.refreshTokens(dto.refreshToken, ip, deviceInfo);
   }
 
@@ -140,5 +140,11 @@ export class AuthController {
       return forwarded.split(',')[0].trim();
     }
     return req.ip;
+  }
+
+  private getDeviceInfo(req: Request): string | undefined {
+    const customDevice = req.headers['x-device-info'];
+    if (typeof customDevice === 'string') return customDevice;
+    return req.headers['user-agent'];
   }
 }

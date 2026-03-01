@@ -4,6 +4,8 @@ import { getTokens, setTokens, clearTokens } from "./token-storage";
 import { Tokens } from "@/types/auth";
 import { ENDPOINTS } from "@/constants/endpoint";
 
+import * as Device from "expo-device";
+
 const DEFAULT_API_BASE_URL =
   Platform.OS === "android"
     ? "http://10.0.2.2:3000/api"
@@ -42,11 +44,22 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Create a stable device identifier string
+const deviceInfo = `${Platform.OS}-${Device.osVersion}; ${Device.modelName || "Unknown"} (${Device.designName || ""})`;
+
 api.interceptors.request.use(async (config) => {
   const tokens = await getTokens();
+
   if (tokens?.accessToken) {
     config.headers.Authorization = `Bearer ${tokens.accessToken}`;
   }
+
+  // Attach correct device info
+  if (config.headers) {
+    config.headers["User-Agent"] = deviceInfo;
+    config.headers["X-Device-Info"] = deviceInfo;
+  }
+
   return config;
 });
 

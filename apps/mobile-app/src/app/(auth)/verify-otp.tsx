@@ -8,6 +8,9 @@ import { OtpInput, Button, KeyboardAvoidingWrapper } from "@/components";
 import { useAuthStore } from "@/stores/auth.store";
 import { authApi } from "@/services/auth";
 
+import { extractApiError } from "@/utils/api-error";
+import { ROUTES } from "@/constants/routes";
+
 const RESEND_COOLDOWN = 60;
 
 export default function VerifyOtpScreen() {
@@ -18,17 +21,33 @@ export default function VerifyOtpScreen() {
 
   const pendingEmail = useAuthStore((s) => s.pendingEmail);
   const verifyOtp = useAuthStore((s) => s.verifyOtp);
+  const otpCooldownUntil = useAuthStore((s) => s.otpCooldownUntil);
+  const setOtpCooldownUntil = useAuthStore((s) => s.setOtpCooldownUntil);
 
   const [otp, setOtp] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [cooldown, setCooldown] = useState(RESEND_COOLDOWN);
 
-  // Countdown timer for resend
+  const calculateRemaining = useCallback(() => {
+    if (!otpCooldownUntil) return 0;
+    return Math.max(0, Math.ceil((otpCooldownUntil - Date.now()) / 1000));
+  }, [otpCooldownUntil]);
+
+  const [cooldown, setCooldown] = useState(calculateRemaining());
+
+  // Initialize cooldown if none exists
   useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [cooldown]);
+    if (otpCooldownUntil === null && pendingEmail) {
+      setOtpCooldownUntil(Date.now() + RESEND_COOLDOWN * 1000);
+    }
+  }, [otpCooldownUntil, pendingEmail, setOtpCooldownUntil]);
+
+  // Interval for countdown
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCooldown(calculateRemaining());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [calculateRemaining]);
 
   const handleVerify = useCallback(async () => {
     if (!pendingEmail || otp.length < 6) return;
@@ -36,8 +55,8 @@ export default function VerifyOtpScreen() {
     try {
       await verifyOtp({ email: pendingEmail, otp });
       router.replace("/");
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || t("auth.errors.resendFailed");
+    } catch (err) {
+      const msg = extractApiError(err);
       Alert.alert(t("common.error"), msg);
     } finally {
       setSubmitting(false);
@@ -48,17 +67,16 @@ export default function VerifyOtpScreen() {
     if (!pendingEmail || cooldown > 0) return;
     try {
       await authApi.resendOtp(pendingEmail);
-      setCooldown(RESEND_COOLDOWN);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || t("auth.errors.resendFailed");
+      setOtpCooldownUntil(Date.now() + RESEND_COOLDOWN * 1000);
+    } catch (err) {
+      const msg = extractApiError(err);
       Alert.alert(t("common.error"), msg);
     }
-    setCooldown(RESEND_COOLDOWN);
-  }, [pendingEmail, cooldown]);
+  }, [pendingEmail, cooldown, setOtpCooldownUntil]);
 
   // If no pending email, go back
   useEffect(() => {
-    if (!pendingEmail) router.replace("/(auth)");
+    if (!pendingEmail) router.replace(ROUTES.AUTH);
   }, [pendingEmail, router]);
 
   return (

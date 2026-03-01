@@ -24,6 +24,31 @@
     "error": "Đã xảy ra lỗi",
     "retry": "Thử lại"
   },
+  "apiErrors": {
+    "emailAlreadyRegistered": "Tài khoản với email này đã tồn tại",
+    "registrationPendingVerification": "Đăng ký chưa hoàn tất. Vui lòng xác thực email.",
+    "otpInvalid": "Mã xác thực không hợp lệ hoặc đã hết hạn.",
+    "otpResendCooldown": "Vui lòng chờ trước khi yêu cầu mã mới.",
+    "otpResendLimitReached": "Gửi lại quá nhiều lần. Vui lòng thử lại sau.",
+    "wrongCredentials": "Email hoặc mật khẩu không đúng",
+    "registrationExpired": "Phiên đăng ký đã hết hạn. Vui lòng đăng ký lại.",
+    "refreshTokenInvalid": "Phiên làm việc hết hạn. Vui lòng đăng nhập lại.",
+    "unauthorized": "Yêu cầu xác thực. Vui lòng đăng nhập.",
+    "userNotFound": "Không tìm thấy tài khoản người dùng.",
+    "passwordTooWeak": "Mật khẩu phải có chữ hoa, chữ thường, số và ký tự đặc biệt",
+    "defaultPlanUnavailable": "Lỗi cấu hình hệ thống: gói mặc định không khả dụng. Vui lòng liên hệ hỗ trợ.",
+    "quotaExceeded": "Đã vượt quá giới hạn hàng tháng. Vui lòng nâng cấp gói của bạn.",
+    "fileNotFound": "Không tìm thấy tệp đã tải lên. Vui lòng thử tải lên lại.",
+    "invalidYoutubeUrl": "Vui lòng cung cấp một URL YouTube hợp lệ."
+  },
+  "demo": {
+    "title": "Chào mừng đến với {{appName}}",
+    "subtitle": "Trợ lý phụ đề song ngữ của bạn",
+    "themeSection": "Giao diện",
+    "languageSection": "Ngôn ngữ",
+    "currentTheme": "Giao diện hiện tại: {{theme}}",
+    "currentLanguage": "Ngôn ngữ hiện tại: {{language}}"
+  },
   "auth": {
     "tagline": "Trợ lý phụ đề song ngữ của bạn",
     "tabs": {
@@ -56,23 +81,12 @@
     },
     "errors": {
       "invalidEmail": "Nhập địa chỉ email hợp lệ",
-      "passwordTooWeak": "Mật khẩu phải có chữ hoa, chữ thường, số và ký tự đặc biệt",
       "passwordMin": "Mật khẩu tối thiểu 8 ký tự",
       "passwordMismatch": "Mật khẩu không khớp",
       "fullNameRequired": "Vui lòng nhập họ và tên",
       "invalidOtp": "Mã không hợp lệ hoặc đã hết hạn",
-      "emailExists": "Tài khoản với email này đã tồn tại",
-      "wrongCredentials": "Email hoặc mật khẩu không đúng",
       "generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
       "resendFailed": "Không thể gửi lại mã. Vui lòng thử lại sau."
     }
-  },
-  "demo": {
-    "title": "Chào mừng đến với {{appName}}",
-    "subtitle": "Trợ lý phụ đề song ngữ của bạn",
-    "themeSection": "Giao diện",
-    "languageSection": "Ngôn ngữ",
-    "currentTheme": "Giao diện hiện tại: {{theme}}",
-    "currentLanguage": "Ngôn ngữ hiện tại: {{language}}"
   }
 }

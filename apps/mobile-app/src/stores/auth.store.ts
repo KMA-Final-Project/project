@@ -14,6 +14,7 @@ interface AuthState {
   isLoading: boolean;
   isHydrated: boolean;
   pendingEmail: string | null;
+  otpCooldownUntil: number | null;
 }
 
 interface AuthActions {
@@ -24,6 +25,7 @@ interface AuthActions {
   invalidate: () => void;
   hydrate: () => Promise<void>;
   setPendingEmail: (email: string | null) => void;
+  setOtpCooldownUntil: (timestamp: number | null) => void;
 }
 
 export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
@@ -32,6 +34,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   isLoading: false,
   isHydrated: false,
   pendingEmail: null,
+  otpCooldownUntil: null,
 
   register: async (payload) => {
     set({ isLoading: true });
@@ -114,4 +117,5 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   },
 
   setPendingEmail: (email) => set({ pendingEmail: email }),
+  setOtpCooldownUntil: (timestamp) => set({ otpCooldownUntil: timestamp }),
 }));
