@@ -80,6 +80,57 @@
       "generic": "Something went wrong. Please try again.",
       "resendFailed": "Failed to resend code. Please try again later."
     }
+  },
+  "library": {
+    "title": "My Library",
+    "searchPlaceholder": "Search...",
+    "filters": {
+      "all": "All",
+      "processing": "Processing",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "empty": "No media found"
+  },
+  "upload": {
+    "tab": "New Upload",
+    "title": "Add New Media",
+    "subtitle": "Choose your source to generate bilingual subtitles",
+    "fromDevice": "From Device",
+    "fromDeviceDesc": "Select audio or video from your gallery",
+    "fromYoutube": "From YouTube",
+    "fromYoutubeDesc": "Paste a YouTube video link",
+    "supportedFormats": "Supported formats: MP3, MP4, WAV, M4A",
+    "modalTitle": "YouTube Video",
+    "pastePlaceholder": "https://youtube.com/...",
+    "pasteClipboard": "Paste from clipboard"
+  },
+  "processing": {
+    "title": "Processing",
+    "status": {
+      "queued": "Queued",
+      "validating": "Validating...",
+      "processing": "Generating subtitles...",
+      "completed": "Subtitles Ready!",
+      "failed": "Processing failed"
+    },
+    "steps": {
+      "audioProcess": "Audio Processing",
+      "analysis": "Audio Analysis",
+      "vad": "Voice Detection",
+      "transcribe": "Transcription",
+      "grouping": "Line Grouping",
+      "translate": "Translation",
+      "export": "Export"
+    },
+    "runBackground": "Run in Background",
+    "openPlayer": "Open Player"
+  },
+  "player": {
+    "audioMode": "Audio Mode",
+    "videoMode": "Video Mode",
+    "speed": "Speed"
   }
 }
+
 

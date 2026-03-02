@@ -9,6 +9,7 @@ import {
   lineHeights,
   spacing,
   radii,
+  player,
 } from "./tokens";
 import type { AppTheme } from "./light";
 
@@ -61,6 +62,15 @@ export const darkTheme: AppTheme = {
     tabBarInactive: palette.gray600,
     tabBarActive: brand.primaryLight,
     statusBar: palette.gray950,
+
+    player: {
+      gradientStart: player.gradientStart,
+      gradientEnd: player.gradientEnd,
+      karaokeHighlight: player.karaokeHighlight,
+      phoneticText: player.phoneticText,
+      translationText: player.translationText,
+      activeSentenceBg: player.activeSentenceBg,
+    },
   },
 
   typography: {

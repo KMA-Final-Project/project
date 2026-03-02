@@ -88,5 +88,56 @@
       "generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
       "resendFailed": "Không thể gửi lại mã. Vui lòng thử lại sau."
     }
+  },
+  "library": {
+    "title": "Thư viện",
+    "searchPlaceholder": "Tìm kiếm...",
+    "filters": {
+      "all": "Tất cả",
+      "processing": "Đang xử lý",
+      "completed": "Hoàn tất",
+      "failed": "Lỗi"
+    },
+    "empty": "Chưa có tài liệu nào"
+  },
+  "upload": {
+    "tab": "Tải lên",
+    "title": "Thêm mới",
+    "subtitle": "Chọn nguồn để tạo phụ đề song ngữ",
+    "fromDevice": "Từ thiết bị",
+    "fromDeviceDesc": "Chọn âm thanh/video từ thư viện",
+    "fromYoutube": "Từ YouTube",
+    "fromYoutubeDesc": "Dán đường dẫn video",
+    "supportedFormats": "Hỗ trợ: MP3, MP4, WAV, M4A",
+    "modalTitle": "Đường dẫn YouTube",
+    "pastePlaceholder": "https://youtube.com/...",
+    "pasteClipboard": "Dán từ bộ nhớ tạm"
+  },
+  "processing": {
+    "title": "Đang xử lý",
+    "status": {
+      "queued": "Đang chờ",
+      "validating": "Đang kiểm tra...",
+      "processing": "Đang tạo phụ đề...",
+      "completed": "Đã xong!",
+      "failed": "Xử lý thất bại"
+    },
+    "steps": {
+      "audioProcess": "Xử lý âm thanh",
+      "analysis": "Phân tích nội dung",
+      "vad": "Tách giọng nói",
+      "transcribe": "Transcription (Nhận diện)",
+      "grouping": "Gộp câu",
+      "translate": "Dịch thuật",
+      "export": "Xuất file"
+    },
+    "runBackground": "Chạy ngầm",
+    "openPlayer": "Mở trình phát"
+  },
+  "player": {
+    "audioMode": "Chế độ Âm thanh",
+    "videoMode": "Chế độ Video",
+    "speed": "Tốc độ"
   }
 }
+

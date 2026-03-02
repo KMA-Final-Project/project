@@ -9,6 +9,7 @@ import {
   lineHeights,
   spacing,
   radii,
+  player,
 } from "./tokens";
 
 // ─── Theme Shape (shared by light & dark) ───────────────────────
@@ -54,6 +55,15 @@ export interface AppTheme {
     tabBarInactive: string;
     tabBarActive: string;
     statusBar: string;
+
+    player: {
+      gradientStart: string;
+      gradientEnd: string;
+      karaokeHighlight: string;
+      phoneticText: string;
+      translationText: string;
+      activeSentenceBg: string;
+    };
   };
 
   typography: {
@@ -111,6 +121,16 @@ export const lightTheme: AppTheme = {
     tabBarInactive: palette.gray400,
     tabBarActive: brand.primary,
     statusBar: palette.white,
+
+    player: {
+      // In light mode, player background is white-to-gray gradient to preserve the immersive feel
+      gradientStart: palette.white,
+      gradientEnd: palette.gray50,
+      karaokeHighlight: brand.primary,
+      phoneticText: palette.gray500,
+      translationText: brand.secondary,
+      activeSentenceBg: player.activeSentenceBg, // works in light mode too due to alpha
+    },
   },
 
   typography: {
