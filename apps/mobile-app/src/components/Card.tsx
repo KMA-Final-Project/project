@@ -38,6 +38,9 @@ export function Card({
     return (
       <AnimatedPressable
         onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={rest.accessibilityLabel}
+        accessibilityState={{ disabled: false }}
         onPressIn={() => {
           scale.value = withTiming(0.98, { duration: 120 });
         }}

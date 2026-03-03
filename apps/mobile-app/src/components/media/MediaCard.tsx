@@ -20,9 +20,10 @@ interface MediaCardProps {
 export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
   const { theme } = useUnistyles();
   const formatDuration = (seconds?: number | null) => {
-    if (!seconds) return "--:--";
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
+    if (seconds == null || seconds < 0) return "--:--";
+    const totalSeconds = Math.floor(seconds);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 

@@ -24,6 +24,7 @@ interface IconButtonProps {
   disabled?: boolean;
   /** Optional hit-slop padding in px (default 8) */
   hitSlop?: number;
+  accessibilityLabel?: string;
 }
 
 export function IconButton({
@@ -33,6 +34,7 @@ export function IconButton({
   onPress,
   disabled,
   hitSlop = 8,
+  accessibilityLabel,
 }: IconButtonProps) {
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({
@@ -44,6 +46,9 @@ export function IconButton({
     <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: !!disabled }}
       onPressIn={() => {
         scale.value = withTiming(0.88, { duration: 100 });
       }}

@@ -36,7 +36,7 @@
 
 ### 3.2. State Management (Zustand)
 -   Use **Zustand** for global state requirements (e.g., authentication session, user preferences).
--   Avoid redundant Redux styling boilerplate. Keep stores small, concise, and domain-specific.
+-   Avoid redundant Redux-style boilerplate. Keep stores small, concise, and domain-specific.
 -   Persist long-lived state (like theme preference, language preference) using `@react-native-async-storage/async-storage`.
 
 ### 3.3. API & Data Fetching (Axios)
@@ -74,6 +74,6 @@
 
 ## 5. Known Issues & Workarounds
 
--   **Windows Build Constraints:** Due to CMake path-length limits affecting the `react-native-unistyles` C++ compilation routines, keep the absolute path of the Kapter mobile project short (e.g., `C:\kapter\`) when running native android builds (`expo run:android`) on Windows. This library restricts the use of standard Expo Go and necessitates a full development build or prebuild scenario.
+-   **Windows Build Constraints:** Due to CMake path-length limits affecting the `react-native-unistyles` C++ compilation routines, keep the absolute path of the Kapter mobile project short (e.g., `C:\kapter\`) when running native Android builds (`expo run:android`) on Windows. This library restricts the use of standard Expo Go and necessitates a full development build or prebuild scenario.
     - **Possible Fix:**
-    Download latest Ninja version on github then add it to the path: `C:\Users\<YourUser>\AppData\Local\Android\Sdk\cmake\<VERSION>\bin\`
+    Download latest Ninja version on Github then add it to the path: `C:\Users\<YourUser>\AppData\Local\Android\Sdk\cmake\<VERSION>\bin\`

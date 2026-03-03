@@ -3,12 +3,13 @@
  *
  * Colored pill badge for MediaItem status values.
  *
- * IMPORTANT: useUnistyles() must be called so this component
- * re-renders when the theme changes at runtime.
+ * We use useUnistyles() to get theme directly and apply colors as
+ * inline styles — this is the correct pattern for dynamic per-status
+ * colors so the component actually re-renders on theme switch.
  */
 import React from "react";
-import { View, Text } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { View, Text, StyleSheet } from "react-native";
+import { useUnistyles } from "react-native-unistyles";
 import type { MediaStatus } from "@/types/media";
 import { useTranslation } from "react-i18next";
 
@@ -18,8 +19,7 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
-  // ← Critical: subscribe to theme changes so the badge re-renders on switch
-  useUnistyles();
+  const { theme } = useUnistyles(); // ← subscribe AND get live theme values
   const { t } = useTranslation();
 
   const STATUS_LABELS: Record<MediaStatus, string> = {
@@ -30,19 +30,31 @@ export function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
     FAILED: t("processing.status.failed"),
   };
 
+  // Map each status to live theme colors (read at render time → re-renders with theme)
+  const colorMap: Record<MediaStatus, { bg: string; fg: string }> = {
+    QUEUED: { bg: theme.colors.warningBg, fg: theme.colors.warning },
+    VALIDATING: { bg: theme.colors.infoBg, fg: theme.colors.info },
+    PROCESSING: { bg: theme.colors.infoBg, fg: theme.colors.info },
+    COMPLETED: { bg: theme.colors.successBg, fg: theme.colors.success },
+    FAILED: { bg: theme.colors.errorBg, fg: theme.colors.error },
+  };
+
+  const { bg, fg } = colorMap[status];
+  const isSmall = size === "sm";
+
   return (
     <View
       style={[
         styles.badge,
-        styles[`badge_${status}`],
-        size === "sm" && styles.badgeSm,
+        isSmall ? styles.badgeSm : styles.badgeMd,
+        { backgroundColor: bg },
       ]}
     >
       <Text
         style={[
           styles.label,
-          styles[`label_${status}`],
-          size === "sm" && styles.labelSm,
+          isSmall ? styles.labelSm : styles.labelMd,
+          { color: fg },
         ]}
       >
         {STATUS_LABELS[status]}
@@ -51,60 +63,28 @@ export function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
   );
 }
 
-const styles = StyleSheet.create((theme) => ({
-  // ── Base badge ──────────────────────────────────────────────────
+// Only layout/dimension styles here — colors are inlined above
+const styles = StyleSheet.create({
   badge: {
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[1],
-    borderRadius: theme.radii.full,
     alignSelf: "flex-start",
+    borderRadius: 999,
   },
-  badgeSm: {
-    paddingHorizontal: theme.spacing[2],
+  badgeMd: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
   },
-
-  // ── Per-status backgrounds ──────────────────────────────────────
-  badge_QUEUED: {
-    backgroundColor: theme.colors.warningBg,
+  badgeSm: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  badge_VALIDATING: {
-    backgroundColor: theme.colors.infoBg,
-  },
-  badge_PROCESSING: {
-    backgroundColor: theme.colors.infoBg,
-  },
-  badge_COMPLETED: {
-    backgroundColor: theme.colors.successBg,
-  },
-  badge_FAILED: {
-    backgroundColor: theme.colors.errorBg,
-  },
-
-  // ── Label base ──────────────────────────────────────────────────
   label: {
-    fontSize: theme.typography.sizes.sm,
-    fontWeight: theme.typography.weights.semibold,
+    fontWeight: "600",
     letterSpacing: 0.2,
   },
+  labelMd: {
+    fontSize: 13,
+  },
   labelSm: {
-    fontSize: theme.typography.sizes.xs,
+    fontSize: 11,
   },
-
-  // ── Per-status label colors ─────────────────────────────────────
-  label_QUEUED: {
-    color: theme.colors.warning,
-  },
-  label_VALIDATING: {
-    color: theme.colors.info,
-  },
-  label_PROCESSING: {
-    color: theme.colors.info,
-  },
-  label_COMPLETED: {
-    color: theme.colors.success,
-  },
-  label_FAILED: {
-    color: theme.colors.error,
-  },
-}));
+});

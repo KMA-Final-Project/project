@@ -4,14 +4,13 @@
  * Animated modal bottom sheet with drag handle, backdrop dimming,
  * and slide-up animation via Reanimated.
  */
-import React, { useEffect } from "react";
+import React, { useEffect, useCallback } from "react";
 import { View, Modal, TouchableWithoutFeedback } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
-  runOnJS,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import {
@@ -33,7 +32,6 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
   const translateY = useSharedValue(SHEET_HEIGHT);
   const backdropOpacity = useSharedValue(0);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (visible) {
       translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
@@ -52,17 +50,27 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
     opacity: backdropOpacity.value,
   }));
 
+  // Wrap onClose in useCallback so gesture worklet captures a stable reference.
+  // Using 'worklet' pragma is the Reanimated v3 replacement for runOnJS ─
+  // calling a JS function directly from the worklet via useCallback.
+  const handleClose = useCallback(() => {
+    "worklet";
+    onClose();
+  }, [onClose]);
+
   const panGesture = Gesture.Pan()
     .onUpdate((e) => {
+      "worklet";
       if (e.translationY > 0) {
         translateY.value = e.translationY;
       }
     })
     .onEnd((e) => {
+      "worklet";
       if (e.translationY > DISMISS_THRESHOLD) {
         translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
         backdropOpacity.value = withTiming(0, { duration: 200 }, () => {
-          runOnJS(onClose)();
+          handleClose();
         });
       } else {
         translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
