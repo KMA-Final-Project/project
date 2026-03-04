@@ -25,8 +25,10 @@ export interface MediaItem {
   failReason: string | null;
   durationSeconds: number | null;
   sourceLanguage: string | null;
+  languageCount?: number; // Added for subtitle string
   subtitleS3Key: string | null;
   audioS3Key: string | null;
+  thumbnailUrl?: string | null; // Added for thumbnail support
   createdAt: string; // ISO date string
   updatedAt: string;
 }

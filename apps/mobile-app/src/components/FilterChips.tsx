@@ -50,12 +50,12 @@ const styles = StyleSheet.create((theme) => ({
     paddingRight: theme.spacing[2],
   },
   chip: {
-    paddingHorizontal: theme.spacing[4],
-    paddingVertical: theme.spacing[2],
-    borderRadius: theme.radii.full,
+    paddingHorizontal: theme.spacing[5],
+    paddingVertical: 10,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.background,
   },
   chipActive: {
     backgroundColor: theme.colors.primary,

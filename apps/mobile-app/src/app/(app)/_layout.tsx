@@ -1,3 +1,4 @@
+import { View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useUnistyles } from "react-native-unistyles";
@@ -39,15 +40,27 @@ export default function AppLayout() {
         name="upload"
         options={{
           title: t("upload.tab"),
-          tabBarIcon: ({ size }) => (
-            // Upload button gets special primary brand color
-            <Ionicons
-              name="add-circle-outline"
-              size={size + 4}
-              color={theme.colors.secondary}
-            />
+          tabBarLabel: () => null, // Hide label
+          tabBarIcon: () => (
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                backgroundColor: theme.colors.primary, // Orange brand color
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: -24, // Lift it up
+                shadowColor: theme.colors.primary,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 5,
+              }}
+            >
+              <Ionicons name="add" size={32} color="#fff" />
+            </View>
           ),
-          tabBarLabelStyle: { color: theme.colors.secondary },
         }}
       />
       <Tabs.Screen

@@ -13,7 +13,8 @@ import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
 
-import { ScreenHeader, SearchBar, FilterChips } from "@/components";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SearchBar, FilterChips } from "@/components";
 import { MediaCard } from "@/components/media/MediaCard";
 import { useMediaStore } from "@/stores/media.store";
 import type { MediaItem } from "@/types/media";
@@ -23,6 +24,7 @@ export default function LibraryScreen() {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const { items, isLoading, fetchLibrary, filter, setFilter } = useMediaStore();
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,7 +85,16 @@ export default function LibraryScreen() {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title={t("library.title")} />
+      {/* Custom Library Header */}
+      <View
+        style={[styles.header, { paddingTop: insets.top + theme.spacing[4] }]}
+      >
+        <Text style={styles.headerTitle}>{t("library.title")}</Text>
+        {/* Placeholder Avatar */}
+        <View style={styles.avatarContainer}>
+          <Text style={styles.avatarText}>S</Text>
+        </View>
+      </View>
 
       <View style={styles.headerControls}>
         <SearchBar
@@ -136,9 +147,36 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     backgroundColor: theme.colors.background,
   },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.spacing[4],
+    paddingBottom: theme.spacing[4],
+    backgroundColor: theme.colors.background,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: theme.colors.text,
+    letterSpacing: -0.5,
+  },
+  avatarContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: theme.colors.textOnPrimary,
+    fontWeight: "bold",
+    fontSize: 16,
+  },
   headerControls: {
     paddingHorizontal: theme.spacing[4],
-    paddingBottom: theme.spacing[3],
+    paddingBottom: theme.spacing[2],
     backgroundColor: theme.colors.background,
     zIndex: 1,
   },

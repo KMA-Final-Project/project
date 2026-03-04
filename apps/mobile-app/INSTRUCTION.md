@@ -77,3 +77,6 @@
 -   **Windows Build Constraints:** Due to CMake path-length limits affecting the `react-native-unistyles` C++ compilation routines, keep the absolute path of the Kapter mobile project short (e.g., `C:\kapter\`) when running native Android builds (`expo run:android`) on Windows. This library restricts the use of standard Expo Go and necessitates a full development build or prebuild scenario.
     - **Possible Fix:**
     Download latest Ninja version on Github then add it to the path: `C:\Users\<YourUser>\AppData\Local\Android\Sdk\cmake\<VERSION>\bin\`
+
+## 6. Stitch Design:
+-   **ProjectId:** 17793727251035058796

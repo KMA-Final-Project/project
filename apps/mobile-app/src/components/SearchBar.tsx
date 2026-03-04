@@ -58,14 +58,12 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radii.xl,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderRadius: theme.radii["lg"],
     paddingHorizontal: theme.spacing[4],
     height: 44,
   },
   containerFocused: {
-    borderColor: theme.colors.borderFocused,
+    // Removed border change on focus since it's borderless now
   },
   icon: {
     marginRight: theme.spacing[2],

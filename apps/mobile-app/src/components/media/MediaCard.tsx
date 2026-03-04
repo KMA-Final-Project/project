@@ -1,15 +1,23 @@
 /**
  * MediaCard — Kapter
  *
- * Displays a single media item in the Library screen.
+ * Displays a single media item matching the Stitch design:
+ *   - Large left thumbnail (rounded rectangle)
+ *   - Right column:
+ *      * Top row: Status Badge (left), 3 dots menu (right)
+ *      * Title
+ *      * Details / Progress info
  */
 import React from "react";
-import { View, Text } from "react-native";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { View, Text, Image, StyleSheet } from "react-native";
+import { useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
-import { Card, StatusBadge, IconButton } from "@/components";
+import { Card, IconButton, StatusBadge } from "@/components";
 import type { MediaItem } from "@/types/media";
 import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
+
+dayjs.extend(relativeTime);
 
 interface MediaCardProps {
   item: MediaItem;
@@ -17,161 +25,248 @@ interface MediaCardProps {
   onOptionsPress?: (item: MediaItem) => void;
 }
 
+function formatDuration(seconds?: number | null) {
+  if (!seconds) return "--:--";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
   const { theme } = useUnistyles();
-  const formatDuration = (seconds?: number | null) => {
-    if (seconds == null || seconds < 0) return "--:--";
-    const totalSeconds = Math.floor(seconds);
-    const m = Math.floor(totalSeconds / 60);
-    const s = totalSeconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
 
+  // Build subtitle text
+  const subtitleLine = (() => {
+    if (item.status === "COMPLETED") {
+      const parts = [formatDuration(item.durationSeconds)];
+      if (item.languageCount && item.languageCount > 1) {
+        parts.push(`${item.languageCount} languages`);
+      }
+      return parts.join(" • ");
+    }
+    if (item.status === "QUEUED") {
+      const ago = dayjs(item.createdAt).fromNow();
+      return `Added ${ago}`;
+    }
+    if (item.status === "FAILED") {
+      return item.failReason || "File too large (Max 500MB)";
+    }
+    return formatDuration(item.durationSeconds);
+  })();
+
+  const thumbnailUrl = item.thumbnailUrl;
   const isYoutube = item.originType === "YOUTUBE";
+  const isProcessing =
+    item.status === "PROCESSING" || item.status === "VALIDATING";
 
   return (
     <Card onPress={() => onPress(item)} style={styles.card}>
       <View style={styles.row}>
-        {/* Source Icon */}
-        <View
-          style={[
-            styles.iconBox,
-            isYoutube ? styles.youtubeIconBox : styles.localIconBox,
-          ]}
-        >
-          <Ionicons
-            name={isYoutube ? "logo-youtube" : "document-text"}
-            size={24}
-            color={isYoutube ? theme.colors.error : theme.colors.primary}
-          />
-        </View>
-
-        {/* Info */}
-        <View style={styles.infoContainer}>
-          <Text style={styles.title} numberOfLines={1}>
-            {item.title || "Untitled Media"}
-          </Text>
-          <View style={styles.metaRow}>
-            <Text style={styles.metaText}>
-              {formatDuration(item.durationSeconds)}
-            </Text>
-            <View style={styles.dot} />
-            <Text style={styles.metaText}>
-              {dayjs(item.createdAt).format("MMM D, YYYY")}
-            </Text>
-          </View>
-          <View style={styles.statusRow}>
-            <StatusBadge status={item.status} size="sm" />
-            {item.status === "PROCESSING" &&
-              typeof item.progress === "number" && (
-                <Text style={styles.progressText}>{item.progress}%</Text>
-              )}
-          </View>
-        </View>
-
-        {/* Options */}
-        {onOptionsPress && (
-          <View style={styles.optionsContainer}>
-            <IconButton
-              name="ellipsis-vertical"
-              size={20}
-              color={theme.colors.textTertiary}
-              onPress={() => onOptionsPress(item)}
+        {/* Left: Thumbnail shape */}
+        <View style={styles.thumbnailWrapper}>
+          {thumbnailUrl ? (
+            <Image
+              source={{ uri: thumbnailUrl }}
+              style={styles.thumbnail}
+              resizeMode="cover"
             />
-          </View>
-        )}
-      </View>
+          ) : (
+            // Placeholder based on type
+            <View
+              style={[
+                styles.thumbnail,
+                styles.thumbnailPlaceholder,
+                { backgroundColor: theme.colors.surface },
+              ]}
+            >
+              {isProcessing ? (
+                <View style={styles.processingSpinnerPlaceholder} />
+              ) : isYoutube ? (
+                <Ionicons name="play" size={28} color="#fff" />
+              ) : (
+                <Ionicons
+                  name="musical-notes"
+                  size={28}
+                  color={theme.colors.primary}
+                />
+              )}
+            </View>
+          )}
 
-      {/* Progress Bar overlay for processing items */}
-      {(item.status === "QUEUED" ||
-        item.status === "VALIDATING" ||
-        item.status === "PROCESSING") && (
-        <View style={styles.progressBarBg}>
-          <View
-            style={[
-              styles.progressBarFill,
-              { width: `${Math.max(5, item.progress || 5)}%` },
-            ]}
-          />
+          {/* YT Logo absolute overlay if it's Youtube placeholder */}
+          {isYoutube && !thumbnailUrl && !isProcessing && (
+            <View style={styles.youtubeLabel}>
+              <Text style={styles.youtubeText}>YouTube</Text>
+            </View>
+          )}
         </View>
-      )}
+
+        {/* Right: Info Column */}
+        <View style={styles.infoCol}>
+          {/* Top Row: Badge + More actions */}
+          <View style={styles.infoTopRow}>
+            <StatusBadge status={item.status} size="sm" />
+            <View style={styles.moreAction}>
+              <IconButton
+                name="ellipsis-vertical"
+                size={20}
+                color={theme.colors.textTertiary}
+                onPress={() => onOptionsPress?.(item)}
+                hitSlop={8}
+              />
+            </View>
+          </View>
+
+          {/* Title */}
+          <Text
+            style={[styles.title, { color: theme.colors.text }]}
+            numberOfLines={1}
+          >
+            {item.title || "Untitled"}
+          </Text>
+
+          {/* Subtitle / Progress */}
+          {isProcessing ? (
+            <View style={styles.progressContainer}>
+              <Text style={[styles.progressText, { color: theme.colors.info }]}>
+                Generating subtitles... {item.progress}%
+              </Text>
+              <View
+                style={[
+                  styles.progressBg,
+                  { backgroundColor: theme.colors.surface },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.max(4, item.progress || 4)}%`,
+                      backgroundColor: theme.colors.info,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.subtitle,
+                {
+                  color:
+                    item.status === "FAILED"
+                      ? theme.colors.error
+                      : theme.colors.textSecondary,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {subtitleLine}
+            </Text>
+          )}
+        </View>
+      </View>
     </Card>
   );
 }
 
-const styles = StyleSheet.create((theme) => ({
+const styles = StyleSheet.create({
   card: {
-    marginBottom: theme.spacing[3],
-    padding: theme.spacing[3],
+    marginBottom: 12,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
     overflow: "hidden",
+    borderRadius: 16,
   },
   row: {
     flexDirection: "row",
-    alignItems: "center",
+    padding: 16,
+    gap: 16,
   },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: theme.radii.lg,
+
+  // ── Thumbnail ──────────────────────────────────────────────────
+  thumbnailWrapper: {
+    width: 88,
+    height: 88,
+    borderRadius: 14,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "#D3BBAE", // A fallback nice tone
+  },
+  thumbnail: {
+    width: 88,
+    height: 88,
+  },
+  thumbnailPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
-    marginRight: theme.spacing[3],
+    backgroundColor: "transparent",
   },
-  youtubeIconBox: {
-    backgroundColor: theme.colors.errorBg,
+  processingSpinnerPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 4,
+    borderColor: "rgba(255,255,255,0.4)",
+    borderTopColor: "#fff",
   },
-  localIconBox: {
-    backgroundColor: theme.colors.primaryLight + "20", // 20% opacity wrapper
+  youtubeLabel: {
+    position: "absolute",
+    bottom: 4,
+    right: 4,
+    backgroundColor: "#fff",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  infoContainer: {
+  youtubeText: {
+    color: "#E24F4F",
+    fontSize: 9,
+    fontWeight: "bold",
+  },
+
+  // ── Info Column ────────────────────────────────────────────────
+  infoCol: {
     flex: 1,
-    justifyContent: "center",
+    paddingVertical: 2, // Slight indent to optically center with icon
   },
-  title: {
-    fontSize: theme.typography.sizes.base,
-    fontWeight: theme.typography.weights.semibold,
-    color: theme.colors.text,
-    marginBottom: 2,
-  },
-  metaRow: {
+  infoTopRow: {
     flexDirection: "row",
-    alignItems: "center",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     marginBottom: 6,
   },
-  metaText: {
-    fontSize: theme.typography.sizes.xs,
-    color: theme.colors.textTertiary,
+  moreAction: {
+    marginRight: -8, // pull to edges of card
+    marginTop: -4,
   },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: theme.colors.textTertiary,
-    marginHorizontal: 6,
+  title: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 4,
+    letterSpacing: 0.1,
   },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  subtitle: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+
+  // ── Progress ───────────────────────────────────────────────────
+  progressContainer: {
+    marginTop: 2,
   },
   progressText: {
-    fontSize: theme.typography.sizes.xs,
-    color: theme.colors.primary,
-    marginLeft: theme.spacing[2],
-    fontWeight: theme.typography.weights.medium,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6,
   },
-  optionsContainer: {
-    paddingLeft: theme.spacing[2],
+  progressBg: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
   },
-  progressBarBg: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: theme.colors.surface,
-  },
-  progressBarFill: {
+  progressFill: {
     height: "100%",
-    backgroundColor: theme.colors.primary,
+    borderRadius: 3,
   },
-}));
+});
