@@ -11,4 +11,9 @@ export { ProgressRing } from "./ProgressRing";
 export { BottomSheet } from "./BottomSheet";
 export { ScreenHeader } from "./ScreenHeader";
 export { SearchBar } from "./SearchBar";
-export { FilterChips } from "./FilterChips";
+export * from "./FilterChips";
+
+// Media
+export * from "./media/MediaCard";
+export * from "./media/UploadSheet";
+export * from "./media/YouTubeModal";

@@ -96,6 +96,7 @@
     "tab": "New Upload",
     "title": "Add New Media",
     "subtitle": "Choose your source to generate bilingual subtitles",
+    "youtubeVideo": "Youtube Video",
     "fromDevice": "From Device",
     "fromDeviceDesc": "Select audio or video from your gallery",
     "fromYoutube": "From YouTube",

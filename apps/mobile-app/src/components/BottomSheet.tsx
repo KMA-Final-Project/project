@@ -9,8 +9,9 @@ import { View, Modal, TouchableWithoutFeedback } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   withTiming,
+  Easing,
+  runOnJS,
 } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import {
@@ -34,7 +35,10 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
 
   useEffect(() => {
     if (visible) {
-      translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
+      translateY.value = withTiming(0, {
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+      });
       backdropOpacity.value = withTiming(1, { duration: 250 });
     } else {
       translateY.value = withTiming(SHEET_HEIGHT, { duration: 220 });
@@ -50,12 +54,19 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
     opacity: backdropOpacity.value,
   }));
 
-  // Wrap onClose in useCallback so gesture worklet captures a stable reference.
-  // Using 'worklet' pragma is the Reanimated v3 replacement for runOnJS ─
-  // calling a JS function directly from the worklet via useCallback.
+  // Animate the sheet out, then call onClose on JS thread when done
+  const closeWithAnimation = useCallback(() => {
+    translateY.value = withTiming(SHEET_HEIGHT, { duration: 220 });
+    backdropOpacity.value = withTiming(0, { duration: 200 }, (finished) => {
+      "worklet";
+      if (finished) runOnJS(onClose)();
+    });
+  }, [onClose, translateY, backdropOpacity]);
+
+  // Legacy worklet handle (used inside gesture worklets)
   const handleClose = useCallback(() => {
     "worklet";
-    onClose();
+    runOnJS(onClose)();
   }, [onClose]);
 
   const panGesture = Gesture.Pan()
@@ -73,7 +84,25 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
           handleClose();
         });
       } else {
-        translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
+        translateY.value = withTiming(0, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
+      }
+    })
+    .onEnd((e) => {
+      "worklet";
+      if (e.translationY > DISMISS_THRESHOLD) {
+        translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
+        backdropOpacity.value = withTiming(0, { duration: 200 }, (finished) => {
+          "worklet";
+          if (finished) handleClose();
+        });
+      } else {
+        translateY.value = withTiming(0, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
       }
     });
 
@@ -82,11 +111,11 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
       transparent
       visible={visible}
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={closeWithAnimation}
     >
       <GestureHandlerRootView style={styles.root}>
         {/* Backdrop */}
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={closeWithAnimation}>
           <Animated.View style={[styles.backdrop, backdropStyle]} />
         </TouchableWithoutFeedback>
 

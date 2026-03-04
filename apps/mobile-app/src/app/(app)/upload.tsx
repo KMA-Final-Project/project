@@ -1,19 +1,97 @@
 /**
- * Upload Tab (Placeholder) — Kapter
+ * Upload Tab — Kapter
  *
- * This screen acts as a trigger button in the Tab bar.
- * In a real flow, intercepting the tab press to show a BottomSheet
- * without navigating is better, but this serves as a fallback/mount point
- * for the Upload BottomSheet to live on.
+ * This screen mounts the Upload Sheet within a BottomSheet.
+ * When the sheet is closed, it navigates back to the library.
  */
-import React from "react";
-import { View, Text } from "react-native";
+import React, { useState } from "react";
+import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { useRouter } from "expo-router";
+import * as DocumentPicker from "expo-document-picker";
+import { BottomSheet, UploadSheet, YouTubeModal } from "@/components";
 
 export default function UploadTab() {
+  const router = useRouter();
+
+  // By default when this tab is mounted, the sheet is open
+  const [sheetVisible, setSheetVisible] = useState(true);
+  const [ytVisible, setYtVisible] = useState(false);
+
+  const handleCloseSheet = () => {
+    setSheetVisible(false);
+    // Give time for animation to finish before jumping back
+    setTimeout(() => {
+      router.replace("/");
+    }, 200);
+  };
+
+  const handleSelectYouTube = () => {
+    setSheetVisible(false);
+    // Wait for sheet to close before opening modal
+    setTimeout(() => {
+      setYtVisible(true);
+    }, 200);
+  };
+
+  const handleSelectDevice = async () => {
+    setSheetVisible(false);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["audio/*", "video/*"], // MP3, MP4, WAV, M4A, WebM (as per design)
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) {
+        // User cancelled picker, just go back to library
+        setTimeout(() => {
+          router.replace("/");
+        }, 200);
+        return;
+      }
+
+      const file = result.assets[0];
+      console.log(
+        "Selected file from device:",
+        file.name,
+        file.mimeType,
+        file.size,
+      );
+
+      // TODO: Phase 3 - Actually upload file to presigned URL
+      router.replace("/");
+    } catch (error) {
+      console.error("Failed to pick document:", error);
+      router.replace("/");
+    }
+  };
+
+  const handleCloseYT = () => {
+    setYtVisible(false);
+    router.replace("/");
+  };
+
+  const handleSubmitYT = async (url: string) => {
+    console.log("Submitting YT url:", url);
+    // TODO: Phase 3 API Integration
+    setYtVisible(false);
+    router.replace("/");
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Upload Modal Trigger</Text>
+      <BottomSheet visible={sheetVisible} onClose={handleCloseSheet}>
+        <UploadSheet
+          onSelectDevice={handleSelectDevice}
+          onSelectYouTube={handleSelectYouTube}
+        />
+      </BottomSheet>
+
+      <YouTubeModal
+        visible={ytVisible}
+        onClose={handleCloseYT}
+        onSubmit={handleSubmitYT}
+      />
     </View>
   );
 }
@@ -21,12 +99,6 @@ export default function UploadTab() {
 const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
     backgroundColor: theme.colors.background,
-  },
-  text: {
-    color: theme.colors.textSecondary,
-    fontSize: theme.typography.sizes.base,
   },
 }));

@@ -11,6 +11,9 @@ import { StatusBar } from "expo-status-bar";
 import { useAuthStore } from "@/stores/auth.store";
 import { setAuthInvalidatedHandler } from "@/services";
 import { ROUTES } from "../constants/routes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient();
 
 export default function RootLayout() {
   const router = useRouter();
@@ -53,9 +56,9 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <StatusBar style="auto" />
       <Slot />
-    </>
+    </QueryClientProvider>
   );
 }
