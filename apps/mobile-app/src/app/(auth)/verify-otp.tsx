@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { OtpInput, Button, KeyboardAvoidingWrapper } from "@/components";
 import { useAuthStore } from "@/stores/auth.store";
-import { authApi } from "@/services/auth";
+import { authApi } from "@/services/auth.services";
 
 import { extractApiError } from "@/utils/api-error";
 import { ROUTES } from "@/constants/routes";

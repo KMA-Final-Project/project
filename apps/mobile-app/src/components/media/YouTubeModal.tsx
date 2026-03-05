@@ -37,18 +37,20 @@ interface YouTubeModalProps {
   visible: boolean;
   onClose: () => void;
   onSubmit: (url: string) => Promise<void>;
+  loading?: boolean;
 }
 
 export function YouTubeModal({
   visible,
   onClose,
   onSubmit,
+  loading = false,
 }: YouTubeModalProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const debouncedUrl = useDebounce(url, 500); // 500ms debounce
-  const [loading, setLoading] = useState(false);
+  // loading state now derived from props
   const [error, setError] = useState<string | null>(null);
 
   const videoId = extractYouTubeId(debouncedUrl);
@@ -101,7 +103,6 @@ export function YouTubeModal({
       setError("Invalid YouTube URL");
       return;
     }
-    setLoading(true);
     setError(null);
     try {
       await onSubmit(url.trim());
@@ -109,8 +110,6 @@ export function YouTubeModal({
       onClose();
     } catch (e: any) {
       setError(e?.message ?? "An error occurred");
-    } finally {
-      setLoading(false);
     }
   };
 

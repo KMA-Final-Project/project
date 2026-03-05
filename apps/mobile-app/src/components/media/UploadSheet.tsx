@@ -18,11 +18,13 @@ import { useTranslation } from "react-i18next";
 interface UploadSheetProps {
   onSelectDevice: () => void;
   onSelectYouTube: () => void;
+  disabled?: boolean;
 }
 
 export function UploadSheet({
   onSelectDevice,
   onSelectYouTube,
+  disabled = false,
 }: UploadSheetProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
@@ -46,10 +48,11 @@ export function UploadSheet({
             {
               backgroundColor: theme.colors.card,
               borderColor: theme.colors.border,
-              opacity: pressed ? 0.7 : 1,
+              opacity: pressed || disabled ? 0.7 : 1,
             },
           ]}
           onPress={onSelectDevice}
+          disabled={disabled}
         >
           <View
             style={[
@@ -89,10 +92,11 @@ export function UploadSheet({
             {
               backgroundColor: theme.colors.card,
               borderColor: theme.colors.border,
-              opacity: pressed ? 0.7 : 1,
+              opacity: pressed || disabled ? 0.7 : 1,
             },
           ]}
           onPress={onSelectYouTube}
+          disabled={disabled}
         >
           <View
             style={[

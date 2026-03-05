@@ -8,8 +8,8 @@ export const ENDPOINTS = {
 
   // Media
   MEDIA_LIST: "/media",
-  MEDIA_PRESIGNED_URL: "/media/upload/presign",
-  MEDIA_CONFIRM_UPLOAD: "/media/upload/confirm",
+  MEDIA_PRESIGNED_URL: "/media/presigned-url",
+  MEDIA_CONFIRM_UPLOAD: "/media/confirm-upload",
   MEDIA_SUBMIT_YOUTUBE: "/media/youtube",
   MEDIA_STATUS: (id: string) => `/media/${id}/status`,
   MEDIA_DETAIL: (id: string) => `/media/${id}`,

@@ -225,7 +225,7 @@ bilingual-subtitle-system/
   - `GET /media/:id/status` — Poll processing progress (progress %, status, failReason)
   - `GET /media` — User's media library listing
 - **Quota Logic:** Aggregates `durationSeconds` of `MediaItem` for current month, checks against subscription snapshot
-- **Processing Modes:** `TRANSCRIBE` (fast, no translation) and `TRANSCRIBE_TRANSLATE` (full bilingual)
+- **Processing Modes:** Both `TRANSCRIBE` and `TRANSCRIBE_TRANSLATE` are supported, but in the mobile app, `TRANSCRIBE_TRANSLATE` is hardcoded for all API calls as bilingual rendering is the core value proposition.
 
 ### ✅ Worker — Validation Pipeline (`MediaProcessor`) — DONE
 
@@ -439,10 +439,14 @@ interface AiProcessingJobPayload {
 - **Workaround:** Clone/move the project to a directory with a **shorter absolute path** (e.g., `C:\kapter\` instead of `C:\Users\...\KMA\billingual_project\`).
 - **Cannot test via Expo Go** — requires a development build (`expo run:android` / `expo-dev-client`).
 
-### 🔲 Phase 3: Next Steps (Mobile)
+### ✅ Phase 3: Upload Flow (Media Pipeline Integration) — DONE
 
-- First real app shell: replace demo `/(app)/index.tsx` with production tabs/screens
-- Media upload flow (audio extraction client-side → presigned URL → confirm)
+- Extracted local upload (presigned URL PUT → Confirm)
+- Added YouTube modal ingestion
+- Wired TanStack Query for caching and auto-polling
+- Fixed TypeScript differences with the backend APIs
+
+### 🔲 Phase 4: Processing Status
 - Processing status screen (polling/SSE progress)
 - Bilingual subtitle player with Karaoke word-highlight effect
 - Forgot-password and social login (future, optional)

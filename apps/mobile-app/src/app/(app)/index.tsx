@@ -1,7 +1,7 @@
 /**
  * Media Library (Home Tab) — Kapter
  */
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SearchBar, FilterChips } from "@/components";
 import { MediaCard } from "@/components/media/MediaCard";
 import { useMediaStore } from "@/stores/media.store";
+import { useMediaList } from "@/hooks/useMedia";
 import type { MediaItem } from "@/types/media";
 import { ROUTES } from "@/constants/routes";
 
@@ -26,18 +27,13 @@ export default function LibraryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { items, isLoading, fetchLibrary, filter, setFilter } = useMediaStore();
+  const { filter, setFilter } = useMediaStore();
   const [searchQuery, setSearchQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchLibrary();
-  }, [fetchLibrary]);
+  const { data: items = [], isLoading, isFetching, refetch } = useMediaList();
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchLibrary();
-    setRefreshing(false);
+    await refetch();
   };
 
   const handleMediaPress = (item: MediaItem) => {
@@ -92,7 +88,7 @@ export default function LibraryScreen() {
         <Text style={styles.headerTitle}>{t("library.title")}</Text>
         {/* Placeholder Avatar */}
         <View style={styles.avatarContainer}>
-          <Text style={styles.avatarText}>S</Text>
+          <Text style={styles.avatarText}>A</Text>
         </View>
       </View>
 
@@ -123,7 +119,7 @@ export default function LibraryScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={isFetching && !isLoading}
               onRefresh={onRefresh}
               tintColor={theme.colors.primary}
             />

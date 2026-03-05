@@ -4,6 +4,7 @@
  * Axios wrappers for REST endpoints related to media.
  */
 import { api } from "@/services/api";
+import { ENDPOINTS } from "@/constants/endpoint";
 import type {
   MediaItem,
   PresignedUrlRequest,
@@ -14,48 +15,38 @@ import type {
 } from "@/types/media";
 
 export const mediaService = {
-  /**
-   * Fetch all media items for the current user
-   */
+  /** Fetch all media items for the current user */
   async getLibrary(): Promise<MediaItem[]> {
-    const res = await api.get<MediaItem[]>("/media");
+    const res = await api.get<MediaItem[]>(ENDPOINTS.MEDIA_LIST);
     return res.data;
   },
 
-  /**
-   * Get realtime status of a specific processing media job
-   */
+  /** Get realtime status of a specific processing media job */
   async getStatus(id: string): Promise<MediaStatusResponse> {
-    const res = await api.get<MediaStatusResponse>(`/media/${id}/status`);
+    const res = await api.get<MediaStatusResponse>(ENDPOINTS.MEDIA_STATUS(id));
     return res.data;
   },
 
-  /**
-   * Request an S3/MinIO presigned URL to upload audio directly
-   */
+  /** Request a presigned PUT URL to upload audio directly to MinIO */
   async getPresignedUrl(
     data: PresignedUrlRequest,
   ): Promise<PresignedUrlResponse> {
     const res = await api.post<PresignedUrlResponse>(
-      "/media/presigned-url",
+      ENDPOINTS.MEDIA_PRESIGNED_URL,
       data,
     );
     return res.data;
   },
 
-  /**
-   * Confirm the local audio was successfully uploaded and trigger processing
-   */
+  /** Confirm the audio was uploaded and trigger background processing */
   async confirmUpload(data: ConfirmUploadRequest): Promise<MediaItem> {
-    const res = await api.post<MediaItem>("/media/confirm-upload", data);
+    const res = await api.post<MediaItem>(ENDPOINTS.MEDIA_CONFIRM_UPLOAD, data);
     return res.data;
   },
 
-  /**
-   * Submit a YouTube URL for downloading and processing
-   */
+  /** Submit a YouTube URL for downloading and processing */
   async submitYouTube(data: SubmitYouTubeRequest): Promise<MediaItem> {
-    const res = await api.post<MediaItem>("/media/youtube", data);
+    const res = await api.post<MediaItem>(ENDPOINTS.MEDIA_SUBMIT_YOUTUBE, data);
     return res.data;
   },
 };

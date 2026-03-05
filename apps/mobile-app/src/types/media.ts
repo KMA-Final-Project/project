@@ -38,7 +38,8 @@ export interface MediaItem {
 export interface PresignedUrlRequest {
   fileName: string;
   mimeType: string;
-  fileSizeBytes: number;
+  /** Backend field name is `fileSize` (not fileSizeBytes) */
+  fileSize: number;
 }
 
 export interface PresignedUrlResponse {
@@ -48,14 +49,18 @@ export interface PresignedUrlResponse {
 }
 
 export interface ConfirmUploadRequest {
-  s3Key: string;
-  fileName: string;
-  mimeType: string;
-  fileSizeBytes: number;
+  /** User-visible title (worker auto-extracts if omitted for YouTube) */
+  title: string;
+  /** S3 object key returned from presigned-url step */
+  objectKey: string;
+  processingMode?: ProcessingMode;
 }
 
 export interface SubmitYouTubeRequest {
   url: string;
+  /** Optional title — worker auto-extracts via yt-dlp if omitted */
+  title?: string;
+  processingMode?: ProcessingMode;
 }
 
 export interface MediaStatusResponse {
