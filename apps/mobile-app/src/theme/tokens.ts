@@ -15,6 +15,22 @@ export const brand = {
   secondaryDark: "#D04F20",
 } as const;
 
+// ─── Player / Immersive Colors ───────────────────────────────────
+export const player = {
+  /** Dark navy gradient start for audio player background */
+  gradientStart: "#0F172A",
+  /** Slightly lighter dark-blue gradient end */
+  gradientEnd: "#1E293B",
+  /** Active word karaoke highlight — same as brand primary */
+  karaokeHighlight: "#208AEF",
+  /** Phonetic / IPA text color in dark player */
+  phoneticText: "#93C5FD",
+  /** Translation text in dark player — warm orange */
+  translationText: "#FF9060",
+  /** Active sentence overlay tint for video split-view */
+  activeSentenceBg: "rgba(32, 138, 239, 0.12)",
+} as const;
+
 // ─── Palette ────────────────────────────────────────────────────
 export const palette = {
   // Neutrals

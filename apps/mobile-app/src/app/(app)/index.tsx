@@ -1,251 +1,197 @@
 /**
- * Demo Home Screen — Kapter
- *
- * Demonstrates theming (light/dark/system) and i18n (en/vi) switching.
- * This is a temporary verification screen — will be replaced with actual app screens.
+ * Media Library (Home Tab) — Kapter
  */
-import { View, Text, Pressable, ScrollView } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import React, { useState, useMemo } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+} from "react-native";
+import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import { useThemePreference, useLanguagePreference } from "@/hooks";
-import type { ThemePreference } from "@/hooks";
-import type { SupportedLanguage } from "@/i18n";
-import { Button } from "@/components";
-import { useAuthStore } from "@/stores/auth.store";
+import { useRouter } from "expo-router";
 
-export default function Index() {
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SearchBar, FilterChips } from "@/components";
+import { MediaCard } from "@/components/media/MediaCard";
+import { useMediaStore } from "@/stores/media.store";
+import { useMediaList } from "@/hooks/useMedia";
+import type { MediaItem } from "@/types/media";
+import { ROUTES } from "@/constants/routes";
+
+export default function LibraryScreen() {
   const { t } = useTranslation();
-  const { preference, setThemePreference } = useThemePreference();
-  const { currentLanguage, setLanguage } = useLanguagePreference();
-  const logout = useAuthStore((s) => s.logout);
+  const { theme } = useUnistyles();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
 
-  const themeOptions: { key: ThemePreference; label: string }[] = [
-    { key: "system", label: t("theme.system") },
-    { key: "light", label: t("theme.light") },
-    { key: "dark", label: t("theme.dark") },
+  const { filter, setFilter } = useMediaStore();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: items = [], isLoading, isFetching, refetch } = useMediaList();
+
+  const onRefresh = async () => {
+    await refetch();
+  };
+
+  const handleMediaPress = (item: MediaItem) => {
+    if (item.status === "COMPLETED") {
+      router.push({ pathname: ROUTES.PLAYER, params: { id: item.id } } as any);
+    } else if (
+      item.status === "QUEUED" ||
+      item.status === "VALIDATING" ||
+      item.status === "PROCESSING"
+    ) {
+      router.push({
+        pathname: ROUTES.PROCESSING,
+        params: { id: item.id },
+      } as any);
+    }
+  };
+
+  const filterOptions = [
+    { key: "ALL", label: t("library.filters.all") },
+    { key: "PROCESSING", label: t("library.filters.processing") },
+    { key: "COMPLETED", label: t("library.filters.completed") },
+    { key: "FAILED", label: t("library.filters.failed") },
   ];
 
-  const languageOptions: { key: SupportedLanguage; label: string }[] = [
-    { key: "en", label: t("language.en") },
-    { key: "vi", label: t("language.vi") },
-  ];
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      // Apply status filter
+      if (
+        filter === "PROCESSING" &&
+        !["QUEUED", "VALIDATING", "PROCESSING"].includes(item.status)
+      )
+        return false;
+      if (filter === "COMPLETED" && item.status !== "COMPLETED") return false;
+      if (filter === "FAILED" && item.status !== "FAILED") return false;
+
+      // Apply search string
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const title = item.title?.toLowerCase() || "";
+        if (!title.includes(query)) return false;
+      }
+      return true;
+    });
+  }, [items, filter, searchQuery]);
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent}>
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {t("demo.title", { appName: t("app.name") })}
-          </Text>
-          <Text style={styles.subtitle}>{t("demo.subtitle")}</Text>
+    <View style={styles.root}>
+      {/* Custom Library Header */}
+      <View
+        style={[styles.header, { paddingTop: insets.top + theme.spacing[4] }]}
+      >
+        <Text style={styles.headerTitle}>{t("library.title")}</Text>
+        {/* Placeholder Avatar */}
+        <View style={styles.avatarContainer}>
+          <Text style={styles.avatarText}>A</Text>
         </View>
-
-        {/* Theme Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("demo.themeSection")}</Text>
-          <Text style={styles.currentValue}>
-            {t("demo.currentTheme", { theme: preference })}
-          </Text>
-          <View style={styles.buttonGroup}>
-            {themeOptions.map(({ key, label }) => (
-              <Pressable
-                key={key}
-                style={[
-                  styles.button,
-                  preference === key && styles.buttonActive,
-                ]}
-                onPress={() => setThemePreference(key)}
-              >
-                <Text
-                  style={[
-                    styles.buttonText,
-                    preference === key && styles.buttonTextActive,
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        {/* Language Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("demo.languageSection")}</Text>
-          <Text style={styles.currentValue}>
-            {t("demo.currentLanguage", {
-              language: t(`language.${currentLanguage}`),
-            })}
-          </Text>
-          <View style={styles.buttonGroup}>
-            {languageOptions.map(({ key, label }) => (
-              <Pressable
-                key={key}
-                style={[
-                  styles.button,
-                  currentLanguage === key && styles.buttonActive,
-                ]}
-                onPress={() => setLanguage(key)}
-              >
-                <Text
-                  style={[
-                    styles.buttonText,
-                    currentLanguage === key && styles.buttonTextActive,
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        {/* Color Palette Preview */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Color Palette</Text>
-          <View style={styles.colorGrid}>
-            <View style={styles.colorSwatch}>
-              <View style={[styles.colorBox, styles.primaryColor]} />
-              <Text style={styles.colorLabel}>Primary</Text>
-            </View>
-            <View style={styles.colorSwatch}>
-              <View style={[styles.colorBox, styles.secondaryColor]} />
-              <Text style={styles.colorLabel}>Secondary</Text>
-            </View>
-            <View style={styles.colorSwatch}>
-              <View style={[styles.colorBox, styles.successColor]} />
-              <Text style={styles.colorLabel}>Success</Text>
-            </View>
-            <View style={styles.colorSwatch}>
-              <View style={[styles.colorBox, styles.errorColor]} />
-              <Text style={styles.colorLabel}>Error</Text>
-            </View>
-            <View style={styles.colorSwatch}>
-              <View style={[styles.colorBox, styles.warningColor]} />
-              <Text style={styles.colorLabel}>Warning</Text>
-            </View>
-            <View style={styles.colorSwatch}>
-              <View style={[styles.colorBox, styles.infoColor]} />
-              <Text style={styles.colorLabel}>Info</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Logout button */}
-        <Button title={t("auth.logout.title")} onPress={logout} />
       </View>
-    </ScrollView>
+
+      <View style={styles.headerControls}>
+        <SearchBar
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder={t("library.searchPlaceholder")}
+        />
+        <View style={styles.chipWrapper}>
+          <FilterChips
+            options={filterOptions}
+            selected={filter}
+            onSelect={setFilter}
+          />
+        </View>
+      </View>
+
+      {isLoading && items.length === 0 ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={filteredItems}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isFetching && !isLoading}
+              onRefresh={onRefresh}
+              tintColor={theme.colors.primary}
+            />
+          }
+          renderItem={({ item }) => (
+            <MediaCard item={item} onPress={handleMediaPress} />
+          )}
+          ListEmptyComponent={
+            <View style={styles.centerContainer}>
+              <Text style={styles.emptyText}>{t("library.empty")}</Text>
+            </View>
+          }
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  scrollContent: {
-    flexGrow: 1,
-  },
-  container: {
+  root: {
     flex: 1,
     backgroundColor: theme.colors.background,
-    paddingHorizontal: theme.spacing[5],
-    paddingTop: theme.spacing[16],
-    paddingBottom: theme.spacing[10],
   },
   header: {
-    marginBottom: theme.spacing[8],
-    alignItems: "center",
-  },
-  title: {
-    fontSize: theme.typography.sizes["3xl"],
-    fontWeight: theme.typography.weights.bold,
-    color: theme.colors.text,
-    textAlign: "center",
-    marginBottom: theme.spacing[2],
-  },
-  subtitle: {
-    fontSize: theme.typography.sizes.lg,
-    color: theme.colors.textSecondary,
-    textAlign: "center",
-  },
-  section: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radii.xl,
-    padding: theme.spacing[5],
-    marginBottom: theme.spacing[5],
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  sectionTitle: {
-    fontSize: theme.typography.sizes.xl,
-    fontWeight: theme.typography.weights.semibold,
-    color: theme.colors.text,
-    marginBottom: theme.spacing[2],
-  },
-  currentValue: {
-    fontSize: theme.typography.sizes.sm,
-    color: theme.colors.textTertiary,
-    marginBottom: theme.spacing[4],
-  },
-  buttonGroup: {
     flexDirection: "row",
-    gap: theme.spacing[3],
-  },
-  button: {
-    flex: 1,
-    paddingVertical: theme.spacing[3],
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: theme.spacing[4],
-    borderRadius: theme.radii.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    alignItems: "center",
+    paddingBottom: theme.spacing[4],
+    backgroundColor: theme.colors.background,
   },
-  buttonActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  buttonText: {
-    fontSize: theme.typography.sizes.sm,
-    fontWeight: theme.typography.weights.medium,
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "800",
     color: theme.colors.text,
+    letterSpacing: -0.5,
   },
-  buttonTextActive: {
-    color: theme.colors.textOnPrimary,
-  },
-  colorGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing[3],
-  },
-  colorSwatch: {
-    alignItems: "center",
-    width: 72,
-  },
-  colorBox: {
-    width: 48,
-    height: 48,
-    borderRadius: theme.radii.md,
-    marginBottom: theme.spacing[1],
-  },
-  colorLabel: {
-    fontSize: theme.typography.sizes.xs,
-    color: theme.colors.textSecondary,
-  },
-  primaryColor: {
+  avatarContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  secondaryColor: {
-    backgroundColor: theme.colors.secondary,
+  avatarText: {
+    color: theme.colors.textOnPrimary,
+    fontWeight: "bold",
+    fontSize: 16,
   },
-  successColor: {
-    backgroundColor: theme.colors.success,
+  headerControls: {
+    paddingHorizontal: theme.spacing[4],
+    paddingBottom: theme.spacing[2],
+    backgroundColor: theme.colors.background,
+    zIndex: 1,
   },
-  errorColor: {
-    backgroundColor: theme.colors.error,
+  chipWrapper: {
+    marginTop: theme.spacing[3],
   },
-  warningColor: {
-    backgroundColor: theme.colors.warning,
+  listContent: {
+    paddingHorizontal: theme.spacing[4],
+    paddingTop: theme.spacing[2],
+    paddingBottom: theme.spacing[10],
+    flexGrow: 1,
   },
-  infoColor: {
-    backgroundColor: theme.colors.info,
+  centerContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyText: {
+    fontSize: theme.typography.sizes.base,
+    color: theme.colors.textTertiary,
   },
 }));
