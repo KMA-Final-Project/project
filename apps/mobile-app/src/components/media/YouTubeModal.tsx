@@ -16,12 +16,12 @@ import {
   Modal,
   TextInput,
   Pressable,
-  Clipboard,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Image,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -90,7 +90,7 @@ export function YouTubeModal({
 
   const handlePaste = async () => {
     try {
-      const text = await Clipboard.getString();
+      const text = await Clipboard.getStringAsync();
       setUrl(text);
       setError(null);
     } catch {

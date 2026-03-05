@@ -21,7 +21,7 @@ export interface MediaItem {
   originType: MediaOriginType;
   status: MediaStatus;
   processingMode: ProcessingMode;
-  progress: number | null; // 0–100
+  progress: number | null; // 0.0 - 1.0
   failReason: string | null;
   durationSeconds: number | null;
   sourceLanguage: string | null;
@@ -44,8 +44,8 @@ export interface PresignedUrlRequest {
 
 export interface PresignedUrlResponse {
   uploadUrl: string;
-  s3Key: string;
-  expiresAt: string;
+  objectKey: string;
+  expiresIn: string;
 }
 
 export interface ConfirmUploadRequest {
