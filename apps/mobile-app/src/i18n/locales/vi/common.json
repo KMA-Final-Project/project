@@ -114,31 +114,9 @@
     "pastePlaceholder": "https://youtube.com/...",
     "pasteClipboard": "Dán từ bộ nhớ tạm"
   },
-  "processing": {
-    "title": "Đang xử lý",
-    "status": {
-      "queued": "Đang chờ",
-      "validating": "Đang kiểm tra...",
-      "processing": "Đang tạo phụ đề...",
-      "completed": "Đã xong!",
-      "failed": "Xử lý thất bại"
-    },
-    "steps": {
-      "audioProcess": "Xử lý âm thanh",
-      "analysis": "Phân tích nội dung",
-      "vad": "Tách giọng nói",
-      "transcribe": "Transcription (Nhận diện)",
-      "grouping": "Gộp câu",
-      "translate": "Dịch thuật",
-      "export": "Xuất file"
-    },
-    "runBackground": "Chạy ngầm",
-    "openPlayer": "Mở trình phát"
-  },
   "player": {
     "audioMode": "Chế độ Âm thanh",
     "videoMode": "Chế độ Video",
     "speed": "Tốc độ"
   }
 }
-

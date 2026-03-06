@@ -1,0 +1,53 @@
+{
+  "title": "Processing",
+  "status": {
+    "queued": "Waiting to start...",
+    "validating": "Waiting to start...",
+    "processing": "Generating subtitles...",
+    "completed": "Subtitles Ready!",
+    "failed": "Processing failed"
+  },
+  "steps": {
+    "audioProcess": {
+      "label": "Audio Processing",
+      "sublabel": "Extracting audio track"
+    },
+    "analysis": {
+      "label": "Audio Analysis",
+      "sublabel": "Analyzing audio properties"
+    },
+    "vad": {
+      "label": "Voice Detection",
+      "sublabel": "Detecting speech segments"
+    },
+    "transcribe": {
+      "label": "Transcription",
+      "sublabel": "Converting speech to text"
+    },
+    "grouping": {
+      "label": "Line Grouping",
+      "sublabel": "Aligning subtitle segments"
+    },
+    "translate": {
+      "label": "Translation",
+      "sublabel": "Generating bilingual text"
+    },
+    "export": {
+      "label": "Export",
+      "sublabel": "Saving subtitle files"
+    }
+  },
+  "states": {
+    "completed": "Completed",
+    "pending": "Pending"
+  },
+  "progress": "Progress",
+  "eta": "Estimated time remaining: ",
+  "runBackground": "Run in Background",
+  "notificationHint": "You'll be notified when processing is done",
+  "openPlayer": "Open Player",
+  "backLibrary": "Back to Library",
+  "untitled": "Untitled",
+  "originYoutube": "YouTube",
+  "originLocal": "Local File"
+}

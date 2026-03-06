@@ -59,10 +59,14 @@ def update_media_status(
     *,
     status: str | None = None,
     progress: float | None = None,
+    current_step: str | None = None,
+    estimated_time_remaining: int | None = None,
     source_language: str | None = None,
     transcript_s3_key: str | None = None,
     subtitle_s3_key: str | None = None,
     fail_reason: str | None = None,
+    # Sentinel to explicitly NULL out a nullable column
+    clear_step: bool = False,
 ) -> None:
     """
     Update MediaItem directly in PostgreSQL.
@@ -71,6 +75,9 @@ def update_media_status(
     1. The AI Engine runs as a separate Python process
     2. Progress updates need low latency (no HTTP round-trip)
     3. psycopg2 is lightweight and reliable
+
+    Pass clear_step=True to set current_step and estimated_time_remaining to NULL
+    (used when the job finishes or fails).
     """
     if not settings.DATABASE_URL:
         logger.warning("DATABASE_URL not set — skipping DB update")
@@ -85,6 +92,15 @@ def update_media_status(
     if progress is not None:
         set_clauses.append("progress = %s")
         values.append(progress)
+    if current_step is not None:
+        set_clauses.append("current_step = %s")
+        values.append(current_step)
+    if clear_step:
+        set_clauses.append("current_step = NULL")
+        set_clauses.append("estimated_time_remaining = NULL")
+    elif estimated_time_remaining is not None:
+        set_clauses.append("estimated_time_remaining = %s")
+        values.append(estimated_time_remaining)
     if source_language is not None:
         set_clauses.append("source_language = %s")
         values.append(source_language)
@@ -174,25 +190,29 @@ async def process_job(job, token):
         local_audio = work_dir / f"input{ext}"
         minio_client.download_audio(audio_s3_key, local_audio)
 
-        # 2. Run the pipeline
+        # 2. Run the pipeline — record wall-clock start time for ETA
+        import time as _time
+        started_at = _time.time()
+
         if processing_mode == "TRANSCRIBE":
             result_data = run_transcribe_pipeline(
-                pipeline, minio_client, local_audio, media_id
+                pipeline, minio_client, local_audio, media_id, started_at=started_at
             )
         else:
             result_data = run_transcribe_translate_pipeline(
-                pipeline, minio_client, local_audio, media_id
+                pipeline, minio_client, local_audio, media_id, started_at=started_at
             )
 
         # 3. Upload final result
         transcript_key = minio_client.upload_final_result(media_id, result_data)
 
-        # 4. Mark as completed
+        # 4. Mark as completed — clear step/ETA fields
         update_media_status(
             media_id,
             status="COMPLETED",
             progress=1.0,
             transcript_s3_key=transcript_key,
+            clear_step=True,
         )
         mark_quota_counted(media_id)
 
@@ -207,6 +227,7 @@ async def process_job(job, token):
             media_id,
             status="FAILED",
             fail_reason=str(e)[:500],  # Truncate long error messages
+            clear_step=True,
         )
         raise  # Re-raise so BullMQ marks the job as failed
 
@@ -226,36 +247,48 @@ def run_transcribe_pipeline(
     minio_client: MinioClient,
     audio_path: Path,
     media_id: str,
+    *,
+    started_at: float,
 ) -> list[dict]:
     """
     TRANSCRIBE mode: VAD → Alignment → Phonemes (no translation, no LLM).
     Streams chunks to MinIO during alignment for real-time mobile UX.
+    Reports current_step + estimated_time_remaining at each phase.
     """
+    import time as _time
+
+    def _eta(progress: float) -> int | None:
+        """Estimate seconds remaining from elapsed time + current progress."""
+        if progress <= 0:
+            return None
+        elapsed = _time.time() - started_at
+        return max(0, int((elapsed / progress) - elapsed))
+
     logger.info("📝 Running TRANSCRIBE pipeline (no translation)")
 
     # Step 1: Audio Standardization
-    update_media_status(media_id, progress=0.05)
+    update_media_status(media_id, progress=0.05, current_step="AUDIO_PREP", estimated_time_remaining=_eta(0.05))
     meta = pipeline.audio_processor.process(audio_path)
     standardized_path = meta.path
 
     # Step 2: Audio Inspection
-    update_media_status(media_id, progress=0.10)
+    update_media_status(media_id, progress=0.10, current_step="INSPECTING", estimated_time_remaining=_eta(0.10))
     profile = pipeline.audio_inspector.inspect(standardized_path)
     logger.info(f"Audio profile: {profile}")
 
     # Step 3: VAD & Isolation
-    update_media_status(media_id, progress=0.15)
+    update_media_status(media_id, progress=0.15, current_step="VAD", estimated_time_remaining=_eta(0.15))
     segments, clean_audio_path = pipeline.vad_manager.process(
         standardized_path, profile=profile
     )
 
     if not segments:
         logger.warning("No speech detected — returning empty result")
-        update_media_status(media_id, progress=1.0)
+        update_media_status(media_id, progress=1.0, clear_step=True)
         return []
 
     # Step 4: Smart Alignment with streaming chunk uploads
-    update_media_status(media_id, progress=0.25)
+    update_media_status(media_id, progress=0.25, current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.25))
     chunk_index = [0]  # Mutable counter for closure
     source_lang_detected = [False]
 
@@ -273,7 +306,12 @@ def run_transcribe_pipeline(
 
         # Progress: scale 0.25-0.85 based on sentences produced
         progress = min(0.85, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.60)
-        update_media_status(media_id, progress=progress)
+        update_media_status(
+            media_id,
+            progress=progress,
+            current_step="TRANSCRIBING",
+            estimated_time_remaining=_eta(progress),
+        )
         logger.info(f"📤 Streamed chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
 
     sentences = pipeline.aligner.process(
@@ -284,10 +322,12 @@ def run_transcribe_pipeline(
     # Detect language if not yet detected (e.g. very few sentences)
     if sentences and not source_lang_detected[0]:
         first_lang = _detect_source_language(sentences)
-        update_media_status(media_id, source_language=first_lang, progress=0.85)
+        update_media_status(media_id, source_language=first_lang, progress=0.85,
+                            current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.85))
 
+    # Step 7: Export
+    update_media_status(media_id, progress=0.95, current_step="EXPORTING", estimated_time_remaining=_eta(0.95))
     result_data = [s.model_dump() for s in sentences]
-    update_media_status(media_id, progress=0.95)
     return result_data
 
 
@@ -296,36 +336,48 @@ def run_transcribe_translate_pipeline(
     minio_client: MinioClient,
     audio_path: Path,
     media_id: str,
+    *,
+    started_at: float,
 ) -> list[dict]:
     """
     TRANSCRIBE_TRANSLATE mode: Full pipeline with translation.
     VAD → Alignment (streaming preview) → Semantic Merge → Translation → Final upload.
+    Reports current_step + estimated_time_remaining at each phase.
     """
+    import time as _time
+
+    def _eta(progress: float) -> int | None:
+        """Estimate seconds remaining from elapsed time + current progress."""
+        if progress <= 0:
+            return None
+        elapsed = _time.time() - started_at
+        return max(0, int((elapsed / progress) - elapsed))
+
     logger.info("🌐 Running TRANSCRIBE_TRANSLATE pipeline (full bilingual)")
 
     # Step 1: Audio Standardization
-    update_media_status(media_id, progress=0.05)
+    update_media_status(media_id, progress=0.05, current_step="AUDIO_PREP", estimated_time_remaining=_eta(0.05))
     meta = pipeline.audio_processor.process(audio_path)
     standardized_path = meta.path
 
     # Step 2: Audio Inspection
-    update_media_status(media_id, progress=0.10)
+    update_media_status(media_id, progress=0.10, current_step="INSPECTING", estimated_time_remaining=_eta(0.10))
     profile = pipeline.audio_inspector.inspect(standardized_path)
     logger.info(f"Audio profile: {profile}")
 
     # Step 3: VAD & Isolation
-    update_media_status(media_id, progress=0.15)
+    update_media_status(media_id, progress=0.15, current_step="VAD", estimated_time_remaining=_eta(0.15))
     segments, clean_audio_path = pipeline.vad_manager.process(
         standardized_path, profile=profile
     )
 
     if not segments:
         logger.warning("No speech detected — returning empty result")
-        update_media_status(media_id, progress=1.0)
+        update_media_status(media_id, progress=1.0, clear_step=True)
         return []
 
     # Step 4: Smart Alignment with streaming preview chunks
-    update_media_status(media_id, progress=0.25)
+    update_media_status(media_id, progress=0.25, current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.25))
     chunk_index = [0]
 
     def on_chunk(batch: list, total_so_far: int):
@@ -334,7 +386,12 @@ def run_transcribe_translate_pipeline(
         minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
         chunk_index[0] += 1
         progress = min(0.40, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.15)
-        update_media_status(media_id, progress=progress)
+        update_media_status(
+            media_id,
+            progress=progress,
+            current_step="TRANSCRIBING",
+            estimated_time_remaining=_eta(progress),
+        )
         logger.info(f"📤 Preview chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
 
     sentences = pipeline.aligner.process(
@@ -344,11 +401,12 @@ def run_transcribe_translate_pipeline(
 
     # Detect source language
     source_lang = _detect_source_language(sentences) if sentences else "en"
-    update_media_status(media_id, source_language=source_lang, progress=0.40)
+    update_media_status(media_id, source_language=source_lang, progress=0.40,
+                        current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.40))
 
     # Step 5: Semantic Merge (optional)
     if profile == "music" or len(sentences) > 5:
-        update_media_status(media_id, progress=0.50)
+        update_media_status(media_id, progress=0.50, current_step="MERGING", estimated_time_remaining=_eta(0.50))
         try:
             sentences = pipeline.merger.process(
                 sentences, context_style="Modern/Classical Song"
@@ -357,7 +415,7 @@ def run_transcribe_translate_pipeline(
             logger.error(f"Semantic merge failed (continuing): {e}")
 
     # Step 6: Translation
-    update_media_status(media_id, progress=0.60)
+    update_media_status(media_id, progress=0.60, current_step="TRANSLATING", estimated_time_remaining=_eta(0.60))
     segments_data = [s.model_dump() for s in sentences]
 
     try:
@@ -373,10 +431,11 @@ def run_transcribe_translate_pipeline(
         for d in segments_data:
             d["translation"] = "[Translation Error]"
 
-    # Final upload: overwrite preview chunks with translated results
+    # Step 7: Export — overwrite preview chunks with translated results
+    update_media_status(media_id, progress=0.90, current_step="EXPORTING", estimated_time_remaining=_eta(0.90))
     _upload_chunks(minio_client, media_id, segments_data)
 
-    update_media_status(media_id, progress=0.95)
+    update_media_status(media_id, progress=0.95, current_step="EXPORTING", estimated_time_remaining=_eta(0.95))
     return segments_data
 
 

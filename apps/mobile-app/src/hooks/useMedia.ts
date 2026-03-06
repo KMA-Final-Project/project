@@ -89,7 +89,7 @@ export function useUploadMedia() {
       size: number;
     }) => {
       // Step 1 — Get presigned URL
-      const { uploadUrl, s3Key } = await mediaService.getPresignedUrl({
+      const { uploadUrl, objectKey } = await mediaService.getPresignedUrl({
         fileName: file.name,
         mimeType: file.mimeType,
         fileSize: file.size,
@@ -108,7 +108,7 @@ export function useUploadMedia() {
       const title = file.name.replace(/\.[^.]+$/, ""); // strip file extension for title
       return mediaService.confirmUpload({
         title,
-        objectKey: s3Key,
+        objectKey: objectKey,
         processingMode: "TRANSCRIBE_TRANSLATE",
       });
     },

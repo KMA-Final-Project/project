@@ -1,0 +1,53 @@
+{
+  "title": "Đang xử lý",
+  "status": {
+    "queued": "Đang chờ bắt đầu...",
+    "validating": "Đang chờ bắt đầu...",
+    "processing": "Đang tạo phụ đề...",
+    "completed": "Đã xong!",
+    "failed": "Xử lý thất bại"
+  },
+  "steps": {
+    "audioProcess": {
+      "label": "Xử lý âm thanh",
+      "sublabel": "Đang trích xuất tệp âm thanh"
+    },
+    "analysis": {
+      "label": "Phân tích nội dung",
+      "sublabel": "Phân tích thuộc tính âm thanh"
+    },
+    "vad": {
+      "label": "Tách giọng nói",
+      "sublabel": "Phát hiện đoạn hội thoại"
+    },
+    "transcribe": {
+      "label": "Nhận diện (Transcription)",
+      "sublabel": "Chuyển đổi giọng nói thành văn bản"
+    },
+    "grouping": {
+      "label": "Gộp câu",
+      "sublabel": "Đồng bộ các đoạn phụ đề"
+    },
+    "translate": {
+      "label": "Dịch thuật",
+      "sublabel": "Tạo văn bản song ngữ"
+    },
+    "export": {
+      "label": "Xuất file",
+      "sublabel": "Đang lưu tệp phụ đề"
+    }
+  },
+  "states": {
+    "completed": "Hoàn tất",
+    "pending": "Đang chờ"
+  },
+  "progress": "Tiến độ",
+  "eta": "Thời gian dự kiến: ",
+  "runBackground": "Chạy ngầm",
+  "notificationHint": "Bạn sẽ nhận được thông báo khi hoàn tất",
+  "openPlayer": "Mở trình phát",
+  "backLibrary": "Về Thư viện",
+  "untitled": "Chưa có tiêu đề",
+  "originYoutube": "YouTube",
+  "originLocal": "Tệp cục bộ"
+}

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PipelineStage } from 'src/common/constants';
 
 // ==================== Presigned URL Response ====================
 
@@ -133,6 +134,22 @@ export class MediaStatusResponseDto {
   originType: string;
 
   @ApiProperty({
+    description: 'Current pipeline stage (null when idle or completed)',
+    example: 'TRANSCRIBING',
+    nullable: true,
+    enum: PipelineStage,
+  })
+  currentStep: string | null;
+
+  @ApiProperty({
+    description:
+      'Estimated seconds remaining until completion (null when idle or completed)',
+    example: 45,
+    nullable: true,
+  })
+  estimatedTimeRemaining: number | null;
+
+  @ApiProperty({
     description: 'S3 key of the final transcript/subtitle output',
     nullable: true,
   })
@@ -173,6 +190,13 @@ export class MediaListItemDto {
 
   @ApiProperty()
   durationSeconds: number;
+
+  @ApiProperty({
+    description: 'Current pipeline stage (null when idle or completed)',
+    nullable: true,
+    enum: PipelineStage,
+  })
+  currentStep: string | null;
 
   @ApiProperty()
   createdAt: Date;

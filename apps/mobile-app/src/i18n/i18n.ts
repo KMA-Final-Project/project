@@ -11,12 +11,14 @@ import { getLocales } from "expo-localization";
 
 import en from "./locales/en/common.json";
 import vi from "./locales/vi/common.json";
+import enProcessing from "./locales/en/processing.json";
+import viProcessing from "./locales/vi/processing.json";
 
 export const defaultNS = "common" as const;
 
 export const resources = {
-  en: { common: en },
-  vi: { common: vi },
+  en: { common: en, processing: enProcessing },
+  vi: { common: vi, processing: viProcessing },
 } as const;
 
 export const supportedLanguages = ["en", "vi"] as const;
@@ -37,7 +39,7 @@ function getDeviceLanguage(): SupportedLanguage {
 i18n.use(initReactI18next).init({
   lng: getDeviceLanguage(),
   fallbackLng: "en",
-  ns: ["common"],
+  ns: ["common", "processing"],
   defaultNS,
   resources,
   interpolation: {
