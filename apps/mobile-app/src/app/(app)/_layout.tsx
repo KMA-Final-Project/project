@@ -13,9 +13,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as DocumentPicker from "expo-document-picker";
 
-import { BottomSheet, UploadSheet, YouTubeModal } from "@/components";
+import UploadTab from "./upload";
 
 export default function AppLayout() {
   const { theme } = useUnistyles();
@@ -24,40 +23,10 @@ export default function AppLayout() {
 
   // Upload sheet state — lives HERE so it appears as an overlay over any tab
   const [uploadVisible, setUploadVisible] = useState(false);
-  const [ytVisible, setYtVisible] = useState(false);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-
-  const handleSelectDevice = async () => {
+  const handleCloseUpload = () => {
     setUploadVisible(false);
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["audio/*", "video/*"],
-        copyToCacheDirectory: true,
-      });
-      if (!result.canceled) {
-        const file = result.assets[0];
-        console.log("Selected file:", file.name, file.mimeType, file.size);
-        // TODO: Phase 3 API — upload file to presigned URL
-      }
-    } catch (error) {
-      console.error("Document picker error:", error);
-    }
   };
-
-  const handleSelectYouTube = () => {
-    setUploadVisible(false);
-    // Small delay so the bottom sheet finishes closing before modal opens
-    setTimeout(() => setYtVisible(true), 250);
-  };
-
-  const handleSubmitYT = async (url: string) => {
-    console.log("YouTube URL submitted:", url);
-    // TODO: Phase 3 API — submit YouTube URL
-    setYtVisible(false);
-  };
-
-  // ──────────────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -135,25 +104,10 @@ export default function AppLayout() {
         {/* Hidden stack screens */}
         <Tabs.Screen name="processing" options={{ href: null }} />
         <Tabs.Screen name="player" options={{ href: null }} />
+        <Tabs.Screen name="media-picker" options={{ href: null }} />
       </Tabs>
 
-      {/* Upload Bottom Sheet — rendered OUTSIDE Tabs so it floats above everything */}
-      <BottomSheet
-        visible={uploadVisible}
-        onClose={() => setUploadVisible(false)}
-      >
-        <UploadSheet
-          onSelectDevice={handleSelectDevice}
-          onSelectYouTube={handleSelectYouTube}
-        />
-      </BottomSheet>
-
-      {/* YouTube URL Modal */}
-      <YouTubeModal
-        visible={ytVisible}
-        onClose={() => setYtVisible(false)}
-        onSubmit={handleSubmitYT}
-      />
+      <UploadTab visible={uploadVisible} onClose={handleCloseUpload} />
     </>
   );
 }
