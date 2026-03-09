@@ -307,7 +307,7 @@ const styles = StyleSheet.create((theme) => ({
   overlay: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: theme.spacing[5],
+    paddingHorizontal: theme.spacing[4],
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,

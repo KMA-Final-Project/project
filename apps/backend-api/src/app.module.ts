@@ -15,6 +15,7 @@ import { UserModule } from './modules/user/user.module';
 import { MinioModule } from './modules/minio/minio.module';
 import { MediaModule } from './modules/media/media.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { SocketModule } from './modules/socket/socket.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     UserModule,
     MinioModule,
     MediaModule,
+    SocketModule,
   ],
   controllers: [AppController],
   providers: [

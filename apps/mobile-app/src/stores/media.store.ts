@@ -4,7 +4,7 @@
  * Zustand store to manage the user's media library and filters.
  */
 import { create } from "zustand";
-import { mediaService } from "@/services/media";
+import { mediaService } from "@/services/media.services";
 import type { MediaItem } from "@/types/media";
 
 interface MediaState {

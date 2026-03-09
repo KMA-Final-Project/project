@@ -15,8 +15,11 @@ import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import UploadTab from "./upload";
+import { useSocketSync } from "@/hooks/useSocketSync";
 
 export default function AppLayout() {
+  useSocketSync(); // Global socket event listener Sync -> Tanstack Query
+
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();

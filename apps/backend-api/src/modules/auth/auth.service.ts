@@ -298,6 +298,21 @@ export class AuthService {
   }
 
   /**
+   * Verify an access token directly for WebSockets
+   */
+  async verifyAccessToken(
+    token: string,
+  ): Promise<{ sub: string; email: string }> {
+    try {
+      return await this.jwtService.verifyAsync(token, {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException(AUTH_ERRORS.UNAUTHORIZED);
+    }
+  }
+
+  /**
    * Logout: invalidate the refresh token
    */
   async logout(refreshToken: string): Promise<{ message: string }> {

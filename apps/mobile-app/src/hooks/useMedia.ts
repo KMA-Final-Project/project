@@ -5,12 +5,8 @@
  * processingMode is always TRANSCRIBE_TRANSLATE (full bilingual subtitle generation).
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { mediaService } from "@/services/media";
+import { mediaService } from "@/services/media.services";
 import { useMediaStore } from "@/stores/media.store";
-import type { MediaStatus } from "@/types/media";
-
-/** Active statuses that require polling */
-const POLLING_STATUSES: MediaStatus[] = ["QUEUED", "VALIDATING", "PROCESSING"];
 
 // ─── Query Keys ──────────────────────────────────────────────────
 
@@ -33,18 +29,15 @@ export function useMediaList() {
 }
 
 /**
- * Polls processing status for a single media item.
- * Automatically stops polling when the item reaches a terminal state.
+ * Fetches status for a single media item via REST ONCE.
+ * Subsequence updates are automatically handled and cache-invalidated
+ * by Socket.io global listener inside useSocketSync.
  */
 export function useMediaStatus(id: string | null) {
   return useQuery({
     queryKey: mediaKeys.status(id ?? ""),
     queryFn: () => mediaService.getStatus(id!),
     enabled: !!id,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status && POLLING_STATUSES.includes(status) ? 3000 : false;
-    },
   });
 }
 

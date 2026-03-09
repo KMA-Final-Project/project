@@ -249,7 +249,7 @@ export default function ProcessingScreen() {
                 >
                   {media.title ?? t("untitled")}
                 </Text>
-                {media.durationSeconds && (
+                {media.durationSeconds ? (
                   <Text
                     style={[
                       styles.mediaMeta,
@@ -264,7 +264,7 @@ export default function ProcessingScreen() {
                       ? t("originYoutube")
                       : t("originLocal")}
                   </Text>
-                )}
+                ) : null}
               </View>
             </View>
           )}
@@ -286,7 +286,7 @@ export default function ProcessingScreen() {
         )}
 
         {/* ── Failed reason ────────────────────────────────────── */}
-        {isFailed && media?.failReason && (
+        {isFailed && Boolean(media?.failReason) && (
           <View
             style={[
               styles.errorCard,
@@ -302,7 +302,7 @@ export default function ProcessingScreen() {
               color={theme.colors.error}
             />
             <Text style={[styles.errorText, { color: theme.colors.error }]}>
-              {media.failReason}
+              {media?.failReason}
             </Text>
           </View>
         )}
