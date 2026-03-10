@@ -14,12 +14,12 @@ import { BottomSheet, UploadSheet, YouTubeModal } from "@/components";
 import { useSubmitYouTube } from "@/hooks/useMedia";
 import { ROUTES } from "@/constants/routes";
 
-interface UploadTabProps {
+interface UploadModalsProps {
   visible: boolean;
   onClose: () => void;
 }
 
-export default function UploadTab({ visible, onClose }: UploadTabProps) {
+export default function UploadModals({ visible, onClose }: UploadModalsProps) {
   const router = useRouter();
 
   // const [sheetVisible, setSheetVisible] = useState(true);
@@ -44,14 +44,14 @@ export default function UploadTab({ visible, onClose }: UploadTabProps) {
     onClose();
     // Give bottom sheet time to close before navigating
     setTimeout(() => {
-      router.push("/media-picker");
+      router.push(ROUTES.MEDIA_PICKER);
     }, 200);
   };
 
   /** Closes the YouTube modal and goes back to library */
   const handleCloseYT = () => {
     setYtVisible(false);
-    router.replace("/");
+    // router.replace(ROUTES.HOME);
   };
 
   /** Submits the YouTube URL and navigates to processing screen */
@@ -94,10 +94,3 @@ export default function UploadTab({ visible, onClose }: UploadTabProps) {
     </Fragment>
   );
 }
-
-// const styles = StyleSheet.create((theme) => ({
-//   container: {
-//     flex: 1,
-//     backgroundColor: theme.colors.background,
-//   },
-// }));

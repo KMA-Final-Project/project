@@ -14,7 +14,7 @@ import { useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import UploadTab from "./upload";
+import UploadModals from "@/components/media/UploadModals";
 import { useSocketSync } from "@/hooks/useSocketSync";
 
 export default function AppLayout() {
@@ -110,7 +110,7 @@ export default function AppLayout() {
         <Tabs.Screen name="media-picker" options={{ href: null }} />
       </Tabs>
 
-      <UploadTab visible={uploadVisible} onClose={handleCloseUpload} />
+      <UploadModals visible={uploadVisible} onClose={handleCloseUpload} />
     </>
   );
 }
