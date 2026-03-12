@@ -73,6 +73,14 @@ export class ConfirmUploadDto {
   @IsOptional()
   @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
   processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+
+  @ApiPropertyOptional({
+    example: 'vi',
+    description: 'Target language for translation (defaults to vi)',
+  })
+  @IsOptional()
+  @IsString()
+  targetLanguage?: string;
 }
 
 // ==================== YOUTUBE FLOW ====================
@@ -115,4 +123,12 @@ export class SubmitYoutubeDto {
   @IsOptional()
   @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
   processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+
+  @ApiPropertyOptional({
+    example: 'vi',
+    description: 'Target language for translation (defaults to vi)',
+  })
+  @IsOptional()
+  @IsString()
+  targetLanguage?: string;
 }

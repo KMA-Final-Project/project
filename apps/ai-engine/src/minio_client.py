@@ -12,6 +12,7 @@ from loguru import logger
 from minio import Minio
 
 from src.config import settings
+from src.schemas import SubtitleOutput, TranslatedBatch
 
 
 class MinioClient:
@@ -53,7 +54,7 @@ class MinioClient:
 
     def upload_chunk(self, media_id: str, chunk_index: int, data: list[dict]) -> str:
         """
-        Upload a subtitle chunk (progressive output) to the processed bucket.
+        Upload a subtitle chunk (Tier 1 progressive output) to the processed bucket.
 
         Args:
             media_id: MediaItem ID
@@ -63,7 +64,7 @@ class MinioClient:
         Returns:
             The S3 key of the uploaded chunk
         """
-        object_key = f"subtitles/{media_id}/chunk_{chunk_index:03d}.json"
+        object_key = f"{media_id}/chunks/{chunk_index}.json"
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
         from io import BytesIO
@@ -77,18 +78,19 @@ class MinioClient:
         logger.debug(f"Uploaded chunk: {object_key} ({len(data)} sentences)")
         return object_key
 
-    def upload_final_result(self, media_id: str, data: list[dict]) -> str:
+    def upload_final_result(self, media_id: str, output: SubtitleOutput) -> str:
         """
-        Upload the complete subtitle result to the processed bucket.
+        Upload the complete SubtitleOutput to the processed bucket as final.json.
 
         Args:
             media_id: MediaItem ID
-            data: Complete list of sentence dicts
+            output: Complete SubtitleOutput with metadata + segments
 
         Returns:
             The S3 key of the final result
         """
-        object_key = f"subtitles/{media_id}/final.json"
+        object_key = f"{media_id}/final.json"
+        data = output.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
         from io import BytesIO
@@ -99,7 +101,40 @@ class MinioClient:
             length=len(json_bytes),
             content_type="application/json",
         )
-        logger.info(f"Uploaded final result: {object_key} ({len(data)} sentences)")
+        logger.info(f"Uploaded final result: {object_key} ({len(output.segments)} segments)")
+        return object_key
+
+    def upload_translated_batch(
+        self, media_id: str, batch: TranslatedBatch
+    ) -> str:
+        """
+        Upload a translated batch (Tier 2 streaming) to the processed bucket.
+
+        Args:
+            media_id: MediaItem ID
+            batch: TranslatedBatch with batch_index and segments
+
+        Returns:
+            The S3 key of the uploaded batch
+        """
+        object_key = (
+            f"{media_id}/translated_batches/{batch.batch_index}.json"
+        )
+        data = batch.model_dump()
+        json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+
+        from io import BytesIO
+
+        self.client.put_object(
+            self.bucket_processed,
+            object_key,
+            BytesIO(json_bytes),
+            length=len(json_bytes),
+            content_type="application/json",
+        )
+        logger.debug(
+            f"Uploaded translated batch: {object_key} ({len(batch.segments)} segments)"
+        )
         return object_key
 
     def upload_json(self, object_key: str, data: Any) -> str:

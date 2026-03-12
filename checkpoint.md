@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-02-26
+> **Last Updated:** 2026-03-12
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -61,26 +61,28 @@ bilingual-subtitle-system/
 │   │   │   └── clean-test-env.ts   # Flush queues + MinIO + DB media items
 │   │   └── package.json            # Scripts: start:dev, worker:dev, clean:env, pgen, pmigrate:dev
 │   │
-│   ├── ai-engine/               # Python 3.11/3.12 (CUDA) — AI Processing Worker
+│   ├── ai-engine/               # Python 3.12 (CUDA) — AI Processing Worker
 │   │   ├── src/
-│   │   │   ├── main.py              # BullMQ consumer entry point (ai-processing queue)
+│   │   │   ├── main.py              # BullMQ consumer entry point + job orchestration (Two-Tier Streaming)
 │   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, Redis, MinIO, DB
-│   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/results)
-│   │   │   ├── schemas.py           # Pydantic: VADSegment, Word, Sentence, SegmentType
+│   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/batches/final)
+│   │   │   ├── schemas.py           # ALL Pydantic models (Sentence, SubtitleOutput, TranslatedBatch, etc.)
 │   │   │   ├── core/
-│   │   │   │   ├── pipeline.py           # PipelineOrchestrator (7-step E2E flow)
+│   │   │   │   ├── pipeline.py           # PipelineOrchestrator (component registry only — no business logic)
 │   │   │   │   ├── audio_inspector.py    # AudioInspector (multi-segment AST: music vs standard)
 │   │   │   │   ├── vad_manager.py        # VADManager (Silero VAD + greedy merge)
-│   │   │   │   ├── smart_aligner.py      # SmartAligner (dual-model, batched inference, streaming chunks)
-│   │   │   │   ├── semantic_merger.py    # SemanticMerger (LLM-based line grouping + homophone fix)
-│   │   │   │   ├── translator_engine.py  # TranslatorEngine (2-pass: Analyze→Correct→Translate)
+│   │   │   │   ├── smart_aligner.py      # SmartAligner (dual-model, batched inference, Tier 1 chunk streaming)
+│   │   │   │   ├── semantic_merger.py    # SemanticMerger (language-aware line grouping + CJK homophone fix)
+│   │   │   │   ├── translator_engine.py  # TranslatorEngine (Analyze-Once, Translate-Streaming with Sliding Context)
 │   │   │   │   ├── llm_provider.py       # LLMProvider (Ollama — qwen2.5:7b-instruct)
-│   │   │   │   └── prompts.py            # System prompts for LLM tasks
+│   │   │   │   └── prompts.py            # All LLM prompt templates (analysis, translation vi/en/generic)
 │   │   │   ├── utils/
 │   │   │   │   ├── audio_processor.py    # AudioProcessor (FFmpeg → 16kHz WAV mono)
 │   │   │   │   ├── vocal_isolator.py     # VocalIsolator (BS-Roformer / MDX ONNX)
 │   │   │   │   └── hardware_profiler.py  # HardwareProfiler (background CPU/RAM/GPU sampler)
 │   │   │   └── scripts/                  # Test/debug scripts
+│   │   ├── tests/                        # Unit tests (pytest)
+│   │   │   └── test_two_tier_streaming.py # 19 tests: Two-Tier Streaming, partial failure, output contract
 │   │   ├── requirements.txt              # 25+ deps (faster-whisper, bullmq, minio, psycopg2, pynvml, etc.)
 │   │   ├── Dockerfile                    # CUDA 12.1 + cuDNN 8 image
 │   │   ├── docker-compose.yml            # Profile-based scaling (auto/turbo/full)
@@ -257,16 +259,16 @@ bilingual-subtitle-system/
 
 **7-Step Pipeline (`PipelineOrchestrator`):**
 
-| Step | Class              | Description                                                                                       | Status  |
-| ---- | ------------------ | ------------------------------------------------------------------------------------------------- | ------- |
-| 1    | `AudioProcessor`   | Convert input to 16kHz WAV mono (FFmpeg)                                                          | ✅ Done |
-| 2    | `AudioInspector`   | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                          | ✅ Done |
-| 3    | `VADManager`       | Silero VAD → speech segments → greedy merge (5-15s targets)                                       | ✅ Done |
-| 3b   | `VocalIsolator`    | Separate vocals for music (BS-Roformer / MDX ONNX)                                                | ✅ Done |
-| 4    | `SmartAligner`     | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **streaming chunk callback** | ✅ Done |
-| 5    | `SemanticMerger`   | LLM-based line grouping + homophone correction (safe version: preserves char count)               | ✅ Done |
-| 6    | `TranslatorEngine` | 2-pass: Analyze context→Correct ASR→Translate (via LLMProvider/Ollama qwen2.5:7b)                 | ✅ Done |
-| 7    | Export             | Upload final JSON to MinIO `processed` bucket                                                     | ✅ Done |
+| Step | Class              | Description                                                                                                | Status        |
+| ---- | ------------------ | ---------------------------------------------------------------------------------------------------------- | ------------- |
+| 1    | `AudioProcessor`   | Convert input to 16kHz WAV mono (FFmpeg)                                                                   | ✅ Done       |
+| 2    | `AudioInspector`   | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                                   | ✅ Done       |
+| 3    | `VADManager`       | Silero VAD → speech segments → greedy merge (5-15s targets)                                                | ✅ Done       |
+| 3b   | `VocalIsolator`    | Separate vocals for music (BS-Roformer / MDX ONNX)                                                         | ✅ Done       |
+| 4    | `SmartAligner`     | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **Tier 1 chunk streaming**            | ✅ Done       |
+| 5    | `SemanticMerger`   | Language-aware LLM line grouping (CJK: grouping + homophone fix; non-CJK: grouping only), batched (30 seg) | ✅ Refactored |
+| 6    | `TranslatorEngine` | Analyze-Once + Translate-Streaming with Sliding Context (batch=15, window=3), **Tier 2 batch streaming**   | ✅ Rebuilt    |
+| 7    | Export             | Upload `SubtitleOutput` as `final.json` to MinIO `processed` bucket                                        | ✅ Updated    |
 
 **BullMQ Consumer (`main.py`):**
 
@@ -277,12 +279,27 @@ bilingual-subtitle-system/
 - Progress updates: direct PostgreSQL via `psycopg2` (strips Prisma's `?schema=public` from DSN)
 - MinIO integration: `minio_client.py` handles download/upload of audio and subtitle data
 
-**Streaming Chunk Uploads:**
+**Two-Tier Streaming Protocol:**
+
+Tier 1 — Raw Transcription (during SmartAligner):
 
 - `SmartAligner.process()` accepts `on_chunk(batch, total_so_far)` callback
 - Flushes every 20 sentences during alignment — client sees partial results in real-time
-- TRANSCRIBE mode: chunks are final
-- TRANSCRIBE_TRANSLATE mode: preview chunks during alignment → overwritten with translated results
+- Uploads to `processed/{mediaId}/chunks/{chunkIndex}.json`
+- Mobile app can **start media playback** as soon as the first chunk arrives
+
+Tier 2 — Bilingual Translation (during TranslatorEngine):
+
+- `TranslatorEngine.translate()` accepts `on_batch_complete(batch_index, translated_batch)` callback
+- Each completed batch uploaded to `processed/{mediaId}/translated_batches/{batchIndex}.json`
+- Mobile app **progressively replaces** raw source-only display with full bilingual subtitles
+
+Final — Complete Output:
+
+- `processed/{mediaId}/final.json` — full `SubtitleOutput` with metadata + all bilingual segments
+- Uploaded once pipeline finishes; mobile uses this as the canonical source
+
+Progress semantics: `0.00–0.55` SmartAligner (Tier 1) → `0.55–0.65` SemanticMerger → `0.65–0.95` TranslatorEngine (Tier 2) → `0.95–1.00` Final assembly
 
 **Key Design Decisions:**
 
@@ -292,7 +309,9 @@ bilingual-subtitle-system/
 - **Batched Inference:** `BatchedInferencePipeline` wraps each model; `batch_size` driven by `AI_PERF_MODE` (LOW=1, MEDIUM=4, HIGH=8)
 - **Model Routing:** First segment detects anchor language → routes subsequent segments to correct model; logs which model was selected
 - **Performance Profiles:** LOW/MEDIUM/HIGH → controls `compute_type`, `beam_size`, `batch_size`
-- **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, correction, and translation
+- **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, and translation
+- **TranslatorEngine Architecture:** Analyze-Once (smart-sampled context analysis) + Translate-Streaming (batched with sliding window). `TRANSLATION_BATCH_SIZE=15`, `SLIDING_WINDOW_SIZE=3`. Partial failure → `[Translation Pending]` markers (no data loss). Language config registry — adding a new target language = one prompt template + one `LanguageConfig` entry.
+- **Output Contract:** `SubtitleOutput` = `SubtitleMetadata` + `List[Sentence]`. Every `Sentence` has `translation: str` (never None, `""` default) and `phonetic: str` (CJK pinyin from word phonemes, empty for non-CJK).
 - **Multi-Segment Inspector:** Samples 3 positions (10%, 50%, 90%) with weighted voting to prevent music intro bias
 - **Graceful Fallback:** All steps catch exceptions and fall back (e.g., vocal isolation fails → use original audio)
 - **Hardware Profiler:** `HardwareProfiler` runs as background thread per job — writes CPU/RAM/GPU stats to `outputs/profiles/` as `.txt` + `.csv`
@@ -358,6 +377,55 @@ graph TD
 
 ---
 
+## 7. AI Engine — Refactoring Progress (Translation Step Cleanup)
+
+**Plan:** `plan-refactorAiEngineTranslationStepCleanup.prompt.md`
+
+| Phase | Description                               | Status      | Files Modified                                                                                      |
+| ----- | ----------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| 1     | Cleanup — remove dead code & legacy paths | ✅ Complete | `pipeline.py`, `translator_engine.py` (deleted), `llm_provider.py`, `prompts.py`, `schemas.py`      |
+| 2     | Refactor SemanticMerger (language-aware)  | ✅ Complete | `semantic_merger.py`, `prompts.py`, `main.py`                                                       |
+| 3     | Build new TranslatorEngine                | ✅ Complete | New `translator_engine.py`, `llm_provider.py`, `prompts.py`, `schemas.py`, `pipeline.py`, `main.py` |
+| 4     | Fix output contract                       | ✅ Complete | `schemas.py`, `minio_client.py`, `main.py`                                                          |
+| 5     | Backend job payload update                | ✅ Complete | `queue.types.ts`, `request.dto.ts`, `media.service.ts`, `media.processor.ts`, `main.py`             |
+
+**Key Changes Summary:**
+
+- **`schemas.py`:** `Sentence` now has `translation: str = ""` and `phonetic: str = ""`. New models: `SubtitleMetadata`, `SubtitleOutput`, `TranslatedBatch`, `ContextAnalysis`, `LanguageConfig`. `TranslatedSentence = Sentence` (alias for backward compat).
+- **`translator_engine.py`:** Rebuilt from scratch. Analyze-Once (smart-sampled context: 5 begin + 5 middle + 5 end), Translate-Streaming (batch=15, sliding window=3). Language config registry (`vi`, `en`, generic fallback). Partial failure → `[Translation Pending]` markers, continues processing.
+- **`minio_client.py`:** Typed uploads: `upload_chunk()` (Tier 1), `upload_translated_batch(TranslatedBatch)` (Tier 2), `upload_final_result(SubtitleOutput)` (final). Path convention: `{mediaId}/chunks/`, `{mediaId}/translated_batches/`, `{mediaId}/final.json`.
+- **`main.py`:** Both pipeline functions return `SubtitleOutput`. Tier 2 callback builds `TranslatedBatch` per batch. Reads `targetLanguage` from job data (default `"vi"`). `_populate_segment_phonetics()` for CJK pinyin.
+- **Backend DTOs:** `targetLanguage?: string` added to `ConfirmUploadDto`, `SubmitYoutubeDto`, both job payload types, and wired through `media.service.ts` → `media.processor.ts`.
+
+**MinIO Storage Convention:**
+
+```
+processed/{mediaId}/
+├── chunks/                    # Tier 1: raw transcription (from SmartAligner)
+│   ├── 0.json
+│   └── ...
+├── translated_batches/        # Tier 2: bilingual batches (from TranslatorEngine)
+│   ├── 0.json
+│   └── ...
+└── final.json                 # Complete SubtitleOutput (canonical)
+```
+
+**Unit Tests:** `tests/test_two_tier_streaming.py` — 19 tests (pytest):
+
+| Test Class                      | Tests | Coverage                                                                          |
+| ------------------------------- | ----- | --------------------------------------------------------------------------------- |
+| `TestTier2StreamingBatches`     | 3     | Batch ordering, translations populated, correct segment counts                    |
+| `TestTierOrdering`              | 1     | Tier 1 chunks complete before any Tier 2 batch                                    |
+| `TestOllamaCrashPartialFailure` | 4     | Partial crash → `[Translation Pending]`, all-fail, count mismatch, empty response |
+| `TestSlidingWindowContinuity`   | 1     | Failed batch doesn't poison sliding window — recovery on next batch               |
+| `TestMinIOPathConvention`       | 3     | Tier 1/Tier 2/final paths match convention                                        |
+| `TestOutputContract`            | 3     | `SubtitleOutput` JSON structure, `translation`/`phonetic` never None              |
+| `TestPhoneticPopulation`        | 4     | CJK pinyin assembled, English no-op, Japanese, missing phoneme skipped            |
+
+Run: `cd apps/ai-engine && .\venv\Scripts\Activate.ps1 && python -m pytest tests/ -v`
+
+---
+
 ## 8. Job Payload Contracts (Redis)
 
 ### Queue 1: `transcription` (API → NestJS Worker)
@@ -370,6 +438,7 @@ interface TranscriptionJobPayload {
   url?: string; // YouTube URL
   userId: string;
   processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
+  targetLanguage?: string; // Default: "vi" — passed through to AI Engine
 }
 ```
 
@@ -382,6 +451,7 @@ interface AiProcessingJobPayload {
   processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
   durationSeconds: number;
   userId: string;
+  targetLanguage?: string; // Default: "vi" — target translation language
 }
 ```
 
@@ -447,6 +517,7 @@ interface AiProcessingJobPayload {
 - Fixed TypeScript differences with the backend APIs
 
 ### 🔲 Phase 4: Processing Status
+
 - Processing status screen (polling/SSE progress)
 - Bilingual subtitle player with Karaoke word-highlight effect
 - Forgot-password and social login (future, optional)
@@ -477,14 +548,15 @@ interface AiProcessingJobPayload {
 ## 11. Priority TODO (Next Steps)
 
 1. **🟡 Mobile App — App Shell:** Implement production tab/stack structure to replace demo home screen
-2. **🟡 Mobile App — Media Submit Flow:** Local extraction + presigned upload + `/media/confirm-upload` integration
-3. **🟡 Mobile App — Processing UX:** Status polling/SSE UI for queued/processing/completed states
-4. **🟡 Mobile App — Subtitle Player:** Bilingual playback + Karaoke word-highlight effect
+2. **🟡 Mobile App — Processing UX:** Status polling/SSE UI for queued/processing/completed states
+3. **🟡 Mobile App — Subtitle Player:** Bilingual playback + Karaoke word-highlight effect
+4. **🟡 Mobile App — Two-Tier Streaming Consumption:** Poll `chunks/` → render source subtitles (Tier 1), poll `translated_batches/` → merge bilingual data (Tier 2), switch to `final.json` when complete
 5. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`
-6. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
-7. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
-8. **🟢 VAD Performance:** Investigate VAD processing time on long music files
-9. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
+6. **🟡 AI Engine — Integration Test:** End-to-end test with real Ollama + MinIO to verify Two-Tier Streaming in a live environment
+7. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
+8. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
+9. **🟢 VAD Performance:** Investigate VAD processing time on long music files
+10. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
 
 ---
 

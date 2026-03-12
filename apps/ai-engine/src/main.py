@@ -23,6 +23,9 @@ import redis
 from src.config import settings
 from src.minio_client import MinioClient
 from src.core.pipeline import PipelineOrchestrator
+from src.schemas import (
+    Sentence, SubtitleMetadata, SubtitleOutput, TranslatedBatch, TranslatedSentence,
+)
 from src.utils.hardware_profiler import HardwareProfiler
 
 # ============================================================================
@@ -217,16 +220,21 @@ async def process_job(job, token):
         started_at = _time.time()
 
         if processing_mode == "TRANSCRIBE":
-            result_data = run_transcribe_pipeline(
-                pipeline, minio_client, local_audio, media_id, user_id=user_id, started_at=started_at
+            subtitle_output = run_transcribe_pipeline(
+                pipeline, minio_client, local_audio, media_id,
+                user_id=user_id, started_at=started_at,
+                duration_seconds=duration_seconds,
             )
         else:
-            result_data = run_transcribe_translate_pipeline(
-                pipeline, minio_client, local_audio, media_id, user_id=user_id, started_at=started_at
+            target_lang = job_data.get("targetLanguage", "vi")
+            subtitle_output = run_transcribe_translate_pipeline(
+                pipeline, minio_client, local_audio, media_id,
+                user_id=user_id, started_at=started_at, target_lang=target_lang,
+                duration_seconds=duration_seconds,
             )
 
         # 3. Upload final result
-        transcript_key = minio_client.upload_final_result(media_id, result_data)
+        transcript_key = minio_client.upload_final_result(media_id, subtitle_output)
 
         # 4. Mark as completed — clear step/ETA fields
         update_media_status(
@@ -241,7 +249,7 @@ async def process_job(job, token):
 
         logger.success(
             f"✅ Job {job.id} completed | media: {media_id} | "
-            f"{len(result_data)} sentences"
+            f"{len(subtitle_output.segments)} segments"
         )
 
     except Exception as e:
@@ -274,7 +282,8 @@ def run_transcribe_pipeline(
     *,
     user_id: str,
     started_at: float,
-) -> list[dict]:
+    duration_seconds: float = 0.0,
+) -> SubtitleOutput:
     """
     TRANSCRIBE mode: VAD → Alignment → Phonemes (no translation, no LLM).
     Streams chunks to MinIO during alignment for real-time mobile UX.
@@ -310,7 +319,10 @@ def run_transcribe_pipeline(
     if not segments:
         logger.warning("No speech detected — returning empty result")
         update_media_status(media_id, user_id=user_id, progress=1.0, clear_step=True)
-        return []
+        return SubtitleOutput(
+            metadata=SubtitleMetadata(duration=duration_seconds, engine_profile=settings.AI_PERF_MODE.value),
+            segments=[],
+        )
 
     # Step 4: Smart Alignment with streaming chunk uploads
     update_media_status(media_id, user_id=user_id, progress=0.25, current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.25))
@@ -346,15 +358,33 @@ def run_transcribe_pipeline(
     )
 
     # Detect language if not yet detected (e.g. very few sentences)
+    source_lang = ""
     if sentences and not source_lang_detected[0]:
-        first_lang = _detect_source_language(sentences)
-        update_media_status(media_id, user_id=user_id, source_language=first_lang, progress=0.85,
+        source_lang = _detect_source_language(sentences)
+        update_media_status(media_id, user_id=user_id, source_language=source_lang, progress=0.85,
                             current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.85))
+    elif source_lang_detected[0]:
+        source_lang = _detect_source_language(sentences[:5]) if sentences else ""
+
+    # Generate segment-level phonetics for CJK
+    _populate_segment_phonetics(sentences, source_lang)
 
     # Step 7: Export
     update_media_status(media_id, user_id=user_id, progress=0.95, current_step="EXPORTING", estimated_time_remaining=_eta(0.95))
-    result_data = [s.model_dump() for s in sentences]
-    return result_data
+    model_used = (
+        settings.WHISPER_MODEL_FULL if source_lang in settings.WHISPER_CJK_LANGUAGES
+        else settings.WHISPER_MODEL_TURBO
+    )
+    return SubtitleOutput(
+        metadata=SubtitleMetadata(
+            duration=duration_seconds,
+            engine_profile=settings.AI_PERF_MODE.value,
+            source_lang=source_lang,
+            target_lang="",
+            model_used=model_used,
+        ),
+        segments=sentences,
+    )
 
 
 def run_transcribe_translate_pipeline(
@@ -365,10 +395,12 @@ def run_transcribe_translate_pipeline(
     *,
     user_id: str,
     started_at: float,
-) -> list[dict]:
+    target_lang: str = "vi",
+    duration_seconds: float = 0.0,
+) -> SubtitleOutput:
     """
     TRANSCRIBE_TRANSLATE mode: Full pipeline with translation.
-    VAD → Alignment (streaming preview) → Semantic Merge → Translation → Final upload.
+    VAD → Alignment (Tier 1 streaming) → Semantic Merge → Translation (Tier 2 streaming) → Final upload.
     Reports current_step + estimated_time_remaining at each phase.
     """
     import time as _time
@@ -401,9 +433,14 @@ def run_transcribe_translate_pipeline(
     if not segments:
         logger.warning("No speech detected — returning empty result")
         update_media_status(media_id, user_id=user_id, progress=1.0, clear_step=True)
-        return []
+        return SubtitleOutput(
+            metadata=SubtitleMetadata(
+                duration=duration_seconds, engine_profile=settings.AI_PERF_MODE.value, target_lang=target_lang,
+            ),
+            segments=[],
+        )
 
-    # Step 4: Smart Alignment with streaming preview chunks
+    # Step 4: Smart Alignment with Tier 1 streaming preview chunks
     update_media_status(media_id, user_id=user_id, progress=0.25, current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.25))
     chunk_index = [0]
 
@@ -432,39 +469,74 @@ def run_transcribe_translate_pipeline(
     update_media_status(media_id, user_id=user_id, source_language=source_lang, progress=0.40,
                         current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.40))
 
-    # Step 5: Semantic Merge (optional)
+    # Step 5: Semantic Merge (language-aware, batched)
+    context_style = "Song/Music Lyrics" if profile == "music" else "Speech/Dialogue"
+
     if profile == "music" or len(sentences) > 5:
         update_media_status(media_id, user_id=user_id, progress=0.50, current_step="MERGING", estimated_time_remaining=_eta(0.50))
         try:
-            sentences = pipeline.merger.process(
-                sentences, context_style="Modern/Classical Song"
+            merged_batch_groups = pipeline.merger.process(
+                sentences, source_lang=source_lang, context_style=context_style
             )
+            # Flatten batch groups into a single sentence list for downstream use
+            sentences = [s for group in merged_batch_groups for s in group]
         except Exception as e:
             logger.error(f"Semantic merge failed (continuing): {e}")
 
-    # Step 6: Translation
-    update_media_status(media_id, user_id=user_id, progress=0.60, current_step="TRANSLATING", estimated_time_remaining=_eta(0.60))
-    segments_data = [s.model_dump() for s in sentences]
+    # Step 6: Translation — Tier 2 streaming via on_batch_complete callback
+    update_media_status(media_id, user_id=user_id, progress=0.65, current_step="TRANSLATING", estimated_time_remaining=_eta(0.65))
+
+    total_sentences = len(sentences)
+    batch_size = 15  # matches TRANSLATION_BATCH_SIZE in translator_engine
+    total_batches = max(1, (total_sentences + batch_size - 1) // batch_size)
+
+    def on_batch_complete(batch_idx: int, batch: list[Sentence]) -> None:
+        """Tier 2 callback: upload translated batch + update progress."""
+        tb = TranslatedBatch(batch_index=batch_idx, segments=batch)
+        minio_client.upload_translated_batch(media_id, tb)
+        # Scale progress: 0.65 → 0.95 proportionally
+        batch_progress = 0.65 + ((batch_idx + 1) / total_batches) * 0.30
+        update_media_status(
+            media_id,
+            user_id=user_id,
+            progress=min(0.95, batch_progress),
+            current_step="TRANSLATING",
+            estimated_time_remaining=_eta(min(0.95, batch_progress)),
+        )
 
     try:
-        translations = pipeline.translator.process_two_pass(
-            segments_data, target_lang="vi"
+        translated = pipeline.translator.translate(
+            sentences=sentences,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            profile=str(profile),
+            on_batch_complete=on_batch_complete,
         )
-        for i, sent_data in enumerate(segments_data):
-            sent_data["translation"] = (
-                translations[i] if i < len(translations) else ""
-            )
     except Exception as e:
         logger.error(f"Translation failed: {e}")
-        for d in segments_data:
-            d["translation"] = "[Translation Error]"
+        translated = sentences
+        for s in translated:
+            s.translation = "[Translation Error]"
 
-    # Step 7: Export — overwrite preview chunks with translated results
-    update_media_status(media_id, user_id=user_id, progress=0.90, current_step="EXPORTING", estimated_time_remaining=_eta(0.90))
-    _upload_chunks(minio_client, media_id, segments_data)
+    # Generate segment-level phonetics for CJK source text
+    _populate_segment_phonetics(translated, source_lang)
 
+    # Step 7: Export
     update_media_status(media_id, user_id=user_id, progress=0.95, current_step="EXPORTING", estimated_time_remaining=_eta(0.95))
-    return segments_data
+    model_used = (
+        settings.WHISPER_MODEL_FULL if source_lang in settings.WHISPER_CJK_LANGUAGES
+        else settings.WHISPER_MODEL_TURBO
+    )
+    return SubtitleOutput(
+        metadata=SubtitleMetadata(
+            duration=duration_seconds,
+            engine_profile=settings.AI_PERF_MODE.value,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            model_used=model_used,
+        ),
+        segments=translated,
+    )
 
 
 # ============================================================================
@@ -497,13 +569,19 @@ def _detect_source_language(sentences) -> str:
     return "en"
 
 
-def _upload_chunks(
-    minio_client: MinioClient, media_id: str, data: list[dict]
-) -> None:
-    """Upload subtitle data in chunks for progressive client display."""
-    for i in range(0, len(data), CHUNK_SIZE):
-        chunk = data[i: i + CHUNK_SIZE]
-        minio_client.upload_chunk(media_id, i // CHUNK_SIZE, chunk)
+def _populate_segment_phonetics(sentences: list[Sentence], source_lang: str) -> None:
+    """
+    Populate segment-level phonetic field from word-level phonemes (in-place).
+
+    For CJK source: combines word pinyin/kana into a single segment-level string.
+    For non-CJK: no-op (phonetic stays empty).
+    """
+    if source_lang not in ("zh", "ja", "ko"):
+        return
+    for s in sentences:
+        phonemes = [w.phoneme for w in s.words if w.phoneme]
+        if phonemes:
+            s.phonetic = " ".join(phonemes)
 
 
 # ============================================================================

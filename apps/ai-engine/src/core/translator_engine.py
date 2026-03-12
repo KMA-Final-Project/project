@@ -1,224 +1,345 @@
-from enum import Enum
-from typing import List, Optional, Union
-from pydantic import BaseModel, Field
+"""
+TranslatorEngine — Analyze-Once, Translate-Streaming with Sliding Context.
+
+Architecture:
+  Step A: Context Analysis (one LLM call)
+    Smart sampling: 5 segments from beginning + 5 middle + 5 end.
+    Detects style, tone, glossary, pronoun relationships.
+
+  Step B: Batched Translation (N LLM calls, streaming)
+    Batch size: 15 sentences.
+    Each batch receives global context + sliding window of last 3 translations.
+    Partial failure: mark segments "[Translation Pending]" and continue.
+"""
+
+from __future__ import annotations
+
+from typing import Callable, List, Optional
+
 from loguru import logger
 
-class TranslationStyle(str, Enum):
-    """
-    Defines the tone and style of the translation.
-    Used to guide the LLM's output personality.
-    """
-    # --- GENERAL / SOCIAL ---
-    FORMAL = "Formal"  # Business, Academic, Official
-    CASUAL = "Casual"  # Daily life, Friends, Vlogs
-    NEUTRAL = "Neutral"  # Standard, Objective
-    SLANG = "Slang"  # Street language, highly informal
+from src.core.llm_provider import LLMProvider
+from src.core.prompts import (
+    TRANSLATE_EN_PROMPT,
+    TRANSLATE_GENERIC_PROMPT,
+    TRANSLATE_VI_PROMPT,
+)
+from src.schemas import (
+    ContextAnalysis,
+    ContextAnalysisResult,
+    LanguageConfig,
+    Sentence,
+    TranslatedSentence,
+    TranslationStyle,
+    VietnamesePronoun,
+)
 
-    # --- MEDIA / CONTENT ---
-    NEWS = "News"  # Journalistic, Concise, Objective
-    DOCUMENTARY = "Documentary"  # Educational, Descriptive
-    INTERVIEW = "Interview"  # Dialog-focused, Polite or Casual depending on context
-    PODCAST = "Podcast"  # Conversational, engaging
-    VLOG = "Vlog"  # Personal, energetic, direct address
-    TECH_REVIEW = "Tech Review"  # Technical terms, clear, informative
-    GAMING = "Gaming"  # Energetic, gamer slang, reaction-heavy
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
-    # --- MOVIES / FICTION ---
-    ACTION = "Action"  # Fast-paced, punchy
-    COMEDY = "Comedy"  # Humorous, witty, timing-heavy
-    DRAMA = "Drama"  # Emotional, deep, character-driven
-    HORROR = "Horror"  # Suspenseful, tense
-    SCI_FI = "Sci-Fi"  # Futuristic, technical, imaginative
-    ROMANCE = "Romance"  # Soft, emotional, poetic
-    HISTORICAL = "Historical"  # Archaic, formal, period-appropriate (Kiem Hiep, Period Dramas)
+TRANSLATION_BATCH_SIZE = 15
+CONTEXT_SAMPLE_SIZE = 5  # per segment (beginning, middle, end)
+SLIDING_WINDOW_SIZE = 3
 
-    # --- MUSIC ---
-    MUSIC_RAP = "Rap"  # Rhyme-focused, rhythmic, slang-heavy
-    MUSIC_BALLAD = "Ballad"  # Poetic, lyrical, emotional
-    MUSIC_ROCK = "Rock"  # Rebellious, strong
-    MUSIC_POP = "Pop"  # Catchy, standard lyrical style
+# ---------------------------------------------------------------------------
+# Language Configuration Registry
+# Adding a new language = one entry here + one prompt template in prompts.py
+# ---------------------------------------------------------------------------
 
-class VietnamesePronoun(str, Enum):
-    """
-    Defines the relationship pair for Vietnamese translation.
-    Format: First Person / Second Person
-    """
-    # Standard / Social
-    TOI_BAN = "Tôi / Bạn"  # Standard, polite, equal status (Social, Work)
-    MINH_BAN = "Mình / Bạn"  # Friendly, equal status
-    
-    # Intimate / Romantic
-    ANH_EM = "Anh / Em"  # Romantic (Male to Female), or Elder Brother to Younger Sibling
-    EM_ANH = "Em / Anh"  # Romantic (Female to Male), or Younger Sibling to Elder Brother
-    
-    # Close Friends / Aggressive
-    TAO_MAY = "Tao / Mày"  # Very close friends or Aggressive/Rude
-    
-    # Family
-    CON_BO = "Con / Bố"  # Child to Father
-    CON_ME = "Con / Mẹ"  # Child to Mother
-    BO_CON = "Bố / Con"  # Father to Child
-    ME_CON = "Mẹ / Con"  # Mother to Child
-    CHAU_BAC = "Cháu / Bác"  # Junior to Senior/Elder
-    
-    # School / Youth
-    CAU_TO = "Cậu / Tớ"  # School friends, innocent
-    
-    # Historical / Period (Kiem Hiep)
-    HUYNH_DE = "Huynh / Đệ"  # Brothers (Martial Arts contexts)
-    TAI_HA_CAC_HA = "Tại hạ / Các hạ"  # I / You (Period specific)
-    TA_NANG = "Ta / Nàng" # I / You (Period specific)
-    TA_NGUOI = "Ta / Ngươi" # I / You (Period specific)
+LANGUAGE_CONFIGS: dict[str, LanguageConfig] = {
+    "vi": LanguageConfig(
+        code="vi",
+        name="Vietnamese",
+        prompt_key="vi",
+        has_pronouns=True,
+    ),
+    "en": LanguageConfig(
+        code="en",
+        name="English",
+        prompt_key="en",
+        has_pronouns=False,
+    ),
+}
 
-    # Professional
-    TOI_QUY_KHACH = "Tôi / Quý khách"  # Service provider to Customer
+# Map prompt_key → template string
+_PROMPT_TEMPLATES: dict[str, str] = {
+    "vi": TRANSLATE_VI_PROMPT,
+    "en": TRANSLATE_EN_PROMPT,
+    "generic": TRANSLATE_GENERIC_PROMPT,
+}
 
-class ContextAnalysisResult(BaseModel):
-    """
-    Structured output from the Analysis Pass (Step B).
-    """
-    detected_style: TranslationStyle = Field(
-        ..., 
-        description="The dominant style/genre of the content."
-    )
-    detected_pronouns: Optional[VietnamesePronoun] = Field(
-        None, 
-        description="The most appropriate pronoun pair for the speakers. Required if target_lang is 'vi'."
-    )
-    summary: str = Field(
-        ..., 
-        description="A brief summary of the context, mood, and speaker relationships (max 50 words)."
-    )
-    keywords: List[str] = Field(
-        default_factory=list,
-        description="Key terms or proper nouns that should be preserved or handled consistently."
-    )
-
-from .llm_provider import LLMProvider
 
 class TranslatorEngine:
-    """
-    Core Engine for Bilingual Subtitle Translation.
-    Follows the 'Analyze First, Translate Second' philosophy.
-    """
-    
-    def __init__(self, config=None):
-        self.config = config or {}
-        model_name = self.config.get("model_name", "qwen2.5:7b-instruct")
-        self.llm_provider = LLMProvider(model_name=model_name)
-        logger.info("TranslatorEngine initialized.")
+    """Bilingual translation engine with context analysis and streaming batches."""
 
-    def _get_analysis_batch(self, segments: List[dict]) -> List[dict]:
+    def __init__(self, llm: LLMProvider) -> None:
+        self.llm = llm
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def translate(
+        self,
+        sentences: List[Sentence],
+        source_lang: str,
+        target_lang: str,
+        profile: str = "standard",
+        on_batch_complete: Optional[
+            Callable[[int, List[TranslatedSentence]], None]
+        ] = None,
+    ) -> List[TranslatedSentence]:
         """
-        Selects a sample batch for context analysis.
-        Logic:
-        - If total <= 15: Analyze all.
-        - If total > 15: Analyze first 15.
-        
+        Translate *sentences* with context-aware batching.
+
         Args:
-            segments: List of segment dictionaries (must have 'text' field).
-            
+            sentences: Source sentences (from SemanticMerger).
+            source_lang: Detected source language code (e.g. "zh", "en").
+            target_lang: Target language code (e.g. "vi", "en").
+            profile: Audio profile from AudioInspector ("music", "standard").
+            on_batch_complete: Callback(batch_index, translated_batch) fired
+                after each batch is translated — used for Tier 2 streaming.
+
         Returns:
-            List of segments to be analyzed.
+            List of TranslatedSentence with translations populated.
         """
-        if not segments:
+        if not sentences:
             return []
-            
-        limit = 15
-        if len(segments) <= limit:
-            logger.debug(f"Segment count ({len(segments)}) <= {limit}. Analyzing all.")
-            return segments
-        else:
-            logger.debug(f"Segment count ({len(segments)}) > {limit}. Analyzing first {limit}.")
-            return segments[:limit]
 
-    def analyze_content(self, segments: List[dict], target_lang: str) -> ContextAnalysisResult:
-        """
-        Step A & B: Smart Batching -> Analysis Pass.
-        
-        Args:
-            segments: Full list of audio segments (with 'text' key).
-            target_lang: Target language code (e.g., 'vi', 'en').
-            
-        Returns:
-            ContextAnalysisResult containing style and pronouns.
-        """
-        logger.info(f"Starting Content Analysis for {len(segments)} segments. Target: {target_lang}")
-        
-        # 1. Smart Batching
-        analysis_batch = self._get_analysis_batch(segments)
-        text_samples = [s.get('text', '') for s in analysis_batch]
-        
-        logger.info(f"Analysis Batch prepared. Size: {len(analysis_batch)} segments.")
-        
-        # 2. LLM Analysis
-        result = self.llm_provider.analyze_context(text_samples, target_lang=target_lang)
-        
-        return result
+        lang_config = LANGUAGE_CONFIGS.get(
+            target_lang,
+            LanguageConfig(
+                code=target_lang,
+                name=target_lang.upper(),
+                prompt_key="generic",
+                has_pronouns=False,
+            ),
+        )
 
-    def correct_content(self, segments: List[dict]) -> List[dict]:
-        """
-        Step 1.5: Homophone/ASR Correction.
-        Returns a NEW list of segments with 'text' corrected.
-        """
-        if not segments:
-            return []
-            
-        logger.info(f"Starting Content Correction for {len(segments)} segments.")
-        
-        # We need to batch this too if the list is huge, but for now let's assume one chunk
-        # In production, we'd chunk this by 20-50 lines to avoid context window limits
-        
-        # 1. Extract text
-        texts = [s.get('text', '') for s in segments]
-        
-        # 2. Analyze context first? Or just correct based on local context?
-        # Actually correction needs Style context. So we should analyze -> correct -> re-analyze?
-        # That's expensive. 
-        # Strategy: Analyze First (on raw text) -> Detect Style -> Correct (using Style) -> Translate.
-        
-        # For this method, we assume we want to correct. But we need style.
-        # Let's do a quick pre-analysis on the first few lines if not provided?
-        # To keep it simple for Phase 3: We will pass the 'Context' to this method if available, 
-        # or we just use a Generic correction prompt if not.
-        
-        # Refined Plan: 'process_two_pass' method in Engine will handle the flow.
-        return segments # Placeholder if we don't have the context yet.
+        logger.info(
+            f"🌐 TranslatorEngine: {len(sentences)} sentences, "
+            f"{source_lang}→{target_lang} (profile={profile})"
+        )
 
-    def process_two_pass(self, segments: List[dict], target_lang: str) -> List[str]:
-        """
-        Executes the full "Analyze -> Correct -> Translate" workflow.
-        """
-        logger.info("Starting Two-Pass Workflow...")
-        
-        # Pass 1: Analyze (Raw)
-        analysis_result = self.analyze_content(segments, target_lang)
-        logger.info(f"Initial Analysis: {analysis_result.detected_style}")
-        
-        # Pass 2: Correct (Using Analysis)
-        texts = [s.get('text', '') for s in segments]
-        
-        # We process correction in batches of 20 to be safe
-        corrected_texts = []
-        batch_size = 20
-        for i in range(0, len(texts), batch_size):
-            chunk = texts[i:i+batch_size]
-            corrected_chunk = self.llm_provider.correct_text_batch(chunk, analysis_result)
-            corrected_texts.extend(corrected_chunk)
-            
-        logger.info(f"Correction Complete. Sample: {corrected_texts[:1]}")
-        
-        # Pass 3: Translate (Using Corrected Text & Analysis)
-        # We translate in batches of 20 as well
-        final_translations = []
-        for i in range(0, len(corrected_texts), batch_size):
-            chunk = corrected_texts[i:i+batch_size]
-            translated_chunk = self.llm_provider.translate_batch(
-                chunk, 
-                source_lang="auto", # or passed in
-                target_lang=target_lang,
-                context=analysis_result
+        # Step A — Context Analysis (one LLM call)
+        context = self._analyze_context(
+            sentences, source_lang, target_lang, lang_config
+        )
+
+        # Step B — Batched Translation with sliding context
+        return self._translate_batches(
+            sentences,
+            source_lang,
+            target_lang,
+            context,
+            lang_config,
+            on_batch_complete=on_batch_complete,
+        )
+
+    # ------------------------------------------------------------------
+    # Step A: Context Analysis
+    # ------------------------------------------------------------------
+
+    def _smart_sample(self, sentences: List[Sentence]) -> List[str]:
+        """Sample 5 from beginning + 5 from middle + 5 from end."""
+        n = len(sentences)
+        if n <= CONTEXT_SAMPLE_SIZE * 3:
+            return [s.text for s in sentences]
+
+        begin = sentences[:CONTEXT_SAMPLE_SIZE]
+        mid_start = (n // 2) - (CONTEXT_SAMPLE_SIZE // 2)
+        middle = sentences[mid_start : mid_start + CONTEXT_SAMPLE_SIZE]
+        end = sentences[-CONTEXT_SAMPLE_SIZE:]
+
+        sampled = begin + middle + end
+        return [s.text for s in sampled]
+
+    def _analyze_context(
+        self,
+        sentences: List[Sentence],
+        source_lang: str,
+        target_lang: str,
+        lang_config: LanguageConfig,
+    ) -> ContextAnalysis:
+        """One-shot context analysis via LLM with smart sampling."""
+        samples = self._smart_sample(sentences)
+        logger.info(
+            f"📊 Context analysis: {len(samples)} sampled segments "
+            f"(from {len(sentences)} total)"
+        )
+
+        try:
+            result: ContextAnalysisResult = self.llm.analyze_context(
+                samples, target_lang
             )
-            final_translations.extend(translated_chunk)
-            
-        return final_translations
+
+            language_specific: dict = {}
+            if lang_config.has_pronouns and result.detected_pronouns:
+                language_specific["pronouns"] = result.detected_pronouns.value
+
+            analysis = ContextAnalysis(
+                detected_style=result.detected_style,
+                summary=result.summary,
+                keywords=result.keywords,
+                language_specific=language_specific,
+            )
+            logger.info(
+                f"📊 Context: style={analysis.detected_style.value}, "
+                f"lang_specific={analysis.language_specific}"
+            )
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Context analysis failed, using defaults: {e}")
+            return ContextAnalysis(
+                detected_style=TranslationStyle.NEUTRAL,
+                summary="Context analysis unavailable.",
+                keywords=[],
+                language_specific=(
+                    {"pronouns": VietnamesePronoun.TOI_BAN.value}
+                    if lang_config.has_pronouns
+                    else {}
+                ),
+            )
+
+    # ------------------------------------------------------------------
+    # Step B: Batched Translation
+    # ------------------------------------------------------------------
+
+    def _translate_batches(
+        self,
+        sentences: List[Sentence],
+        source_lang: str,
+        target_lang: str,
+        context: ContextAnalysis,
+        lang_config: LanguageConfig,
+        *,
+        on_batch_complete: Optional[
+            Callable[[int, List[TranslatedSentence]], None]
+        ] = None,
+    ) -> List[TranslatedSentence]:
+        """Translate in batches with a sliding window for continuity."""
+        all_translated: List[TranslatedSentence] = []
+        sliding_window: List[str] = []
+
+        total_batches = max(
+            1,
+            (len(sentences) + TRANSLATION_BATCH_SIZE - 1) // TRANSLATION_BATCH_SIZE,
+        )
+
+        for batch_idx in range(total_batches):
+            start = batch_idx * TRANSLATION_BATCH_SIZE
+            end = min(start + TRANSLATION_BATCH_SIZE, len(sentences))
+            batch_sentences = sentences[start:end]
+            batch_texts = [s.text for s in batch_sentences]
+
+            # Build the language-specific system prompt
+            system_prompt = self._build_system_prompt(
+                context, lang_config, target_lang, sliding_window
+            )
+
+            try:
+                translations = self.llm.translate_raw(batch_texts, system_prompt)
+
+                if not translations or len(translations) != len(batch_texts):
+                    logger.warning(
+                        f"Batch {batch_idx}: count mismatch or empty — "
+                        f"marking as pending"
+                    )
+                    translations = ["[Translation Pending]"] * len(batch_texts)
+                    batch_failed = True
+                else:
+                    batch_failed = False
+
+            except Exception as e:
+                logger.error(f"Batch {batch_idx} failed: {e}")
+                translations = ["[Translation Pending]"] * len(batch_texts)
+                batch_failed = True
+
+            # Build TranslatedSentence objects
+            batch_translated: List[TranslatedSentence] = []
+            for sent, trans in zip(batch_sentences, translations):
+                batch_translated.append(
+                    TranslatedSentence(
+                        text=sent.text,
+                        start=sent.start,
+                        end=sent.end,
+                        words=sent.words,
+                        translation=trans,
+                    )
+                )
+
+            all_translated.extend(batch_translated)
+
+            # Only update sliding window with real translations (not failure markers)
+            if not batch_failed:
+                sliding_window = translations[-SLIDING_WINDOW_SIZE:]
+
+            # Fire Tier 2 streaming callback
+            if on_batch_complete:
+                try:
+                    on_batch_complete(batch_idx, batch_translated)
+                except Exception as cb_err:
+                    logger.error(f"on_batch_complete callback failed: {cb_err}")
+
+            logger.info(
+                f"📝 Batch {batch_idx + 1}/{total_batches} translated "
+                f"({len(batch_texts)} sentences)"
+            )
+
+        return all_translated
+
+    # ------------------------------------------------------------------
+    # Prompt Construction
+    # ------------------------------------------------------------------
+
+    def _build_system_prompt(
+        self,
+        context: ContextAnalysis,
+        lang_config: LanguageConfig,
+        target_lang: str,
+        sliding_window: List[str],
+    ) -> str:
+        """Build a fully-formatted system prompt for the current batch."""
+        template = _PROMPT_TEMPLATES.get(
+            lang_config.prompt_key,
+            _PROMPT_TEMPLATES["generic"],
+        )
+
+        # Sliding context section
+        if sliding_window:
+            sliding_text = (
+                "\nFor continuity, here are the last few translations from "
+                "the previous batch (DO NOT re-translate these — use them "
+                "only as context for tone and flow):\n"
+                + "\n".join(f"  - {t}" for t in sliding_window)
+            )
+        else:
+            sliding_text = ""
+
+        keywords_str = ", ".join(context.keywords) if context.keywords else "None"
+
+        # Common placeholders
+        format_kwargs: dict = {
+            "style": context.detected_style.value,
+            "summary": context.summary,
+            "keywords": keywords_str,
+            "sliding_context": sliding_text,
+        }
+
+        # Vietnamese-specific placeholders
+        if lang_config.prompt_key == "vi":
+            pronouns = context.language_specific.get(
+                "pronouns", VietnamesePronoun.TOI_BAN.value
+            )
+            parts = [p.strip() for p in pronouns.split("/")]
+            format_kwargs["pronouns"] = pronouns
+            format_kwargs["pronoun_first"] = parts[0] if len(parts) >= 1 else "Tôi"
+            format_kwargs["pronoun_second"] = parts[1] if len(parts) >= 2 else "Bạn"
+
+        # Generic prompt needs target_lang
+        if lang_config.prompt_key == "generic":
+            format_kwargs["target_lang"] = target_lang
+
+        return template.format(**format_kwargs)

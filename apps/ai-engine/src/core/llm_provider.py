@@ -2,8 +2,8 @@ import json
 import ollama
 from loguru import logger
 from typing import List, Dict, Any, Optional
-from .translator_engine import ContextAnalysisResult, TranslationStyle, VietnamesePronoun
-from .prompts import ANALYSIS_SYSTEM_PROMPT, TRANSLATION_SYSTEM_PROMPT, CORRECTION_SYSTEM_PROMPT
+from src.schemas import ContextAnalysisResult, TranslationStyle, VietnamesePronoun
+from .prompts import ANALYSIS_SYSTEM_PROMPT, TRANSLATION_SYSTEM_PROMPT
 
 class LLMProvider:
     """
@@ -124,49 +124,6 @@ class LLMProvider:
 
         return None
 
-    def correct_text_batch(
-        self, 
-        texts: List[str], 
-        context: ContextAnalysisResult
-    ) -> List[str]:
-        """
-        Step 1.5: Fix Homophones/ASR errors before translation.
-        """
-        logger.info(f"Sending ASR Correction Batch ({len(texts)} items) to LLM...")
-        
-        system_msg = CORRECTION_SYSTEM_PROMPT.format(
-            style=context.detected_style.value
-        )
-        user_msg = json.dumps(texts, ensure_ascii=False)
-        
-        for attempt in range(2): # Max 2 attempts for correction
-            try:
-                response = ollama.chat(
-                    model=self.model_name,
-                    messages=[
-                        {'role': 'system', 'content': system_msg},
-                        {'role': 'user', 'content': user_msg},
-                    ],
-                    format='json',
-                    options={'temperature': 0.1} # Very low temp for correction
-                )
-                
-                content = response['message']['content']
-                # logger.debug(f"Correction Response (Attempt {attempt+1}): {content}")
-                
-                corrected_list = self._parse_list_output(content, len(texts))
-                
-                if corrected_list and len(corrected_list) == len(texts):
-                    return corrected_list
-                
-                logger.warning(f"Correction output mismatch (Attempt {attempt+1}): Got {len(corrected_list) if corrected_list else 0}, Expected {len(texts)}")
-                
-            except Exception as e:
-                logger.error(f"Correction attempt {attempt+1} failed: {e}")
-        
-        logger.error("All correction attempts failed. Returning original texts.")
-        return texts # Fallback
-
     def translate_batch(
         self, 
         texts: List[str], 
@@ -211,11 +168,7 @@ class LLMProvider:
                 )
                 
                 content = response['message']['content']
-                
-                # Debug logging via file to avoid truncation
-                with open("last_llm_response.txt", "w", encoding="utf-8") as f:
-                    f.write(content)
-                logger.debug(f"LLM Response (Attempt {attempt+1}) captured to file.")
+                logger.debug(f"LLM Response (Attempt {attempt+1}) received.")
                 
                 translated_list = self._parse_list_output(content, len(texts))
                 
@@ -234,6 +187,61 @@ class LLMProvider:
         
         logger.error("All translation attempts failed.")
         return [] # Return empty list on failure
+
+    def translate_raw(
+        self,
+        texts: List[str],
+        system_prompt: str,
+    ) -> List[str]:
+        """
+        Translate a batch of texts using a fully-constructed system prompt.
+
+        This method owns retry logic and JSON parsing but delegates prompt
+        construction to the caller (TranslatorEngine builds language-specific
+        prompts with sliding context).
+
+        Returns an empty list on complete failure.
+        """
+        logger.info(f"Sending raw translation batch ({len(texts)} items) to LLM...")
+        user_msg = json.dumps(texts, ensure_ascii=False)
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Raw translation attempt {attempt + 1}/{max_retries}...")
+                response = ollama.chat(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    format="json",
+                    options={"temperature": 0.3},
+                )
+
+                content = response["message"]["content"]
+                logger.debug(f"LLM raw response (attempt {attempt + 1}) received.")
+
+                translated_list = self._parse_list_output(content, len(texts))
+
+                if not translated_list:
+                    logger.warning(f"Could not extract list (attempt {attempt + 1})")
+                    continue
+
+                if len(translated_list) != len(texts):
+                    logger.warning(
+                        f"Count mismatch (attempt {attempt + 1}): "
+                        f"sent {len(texts)}, got {len(translated_list)}"
+                    )
+                    continue
+
+                return translated_list
+
+            except Exception as e:
+                logger.error(f"Raw translation error (attempt {attempt + 1}): {e}")
+
+        logger.error("All raw translation attempts failed.")
+        return []
 
     def generate(self, prompt: str, system_prompt: str = None) -> str:
         """

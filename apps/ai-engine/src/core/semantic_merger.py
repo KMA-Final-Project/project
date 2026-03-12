@@ -1,141 +1,238 @@
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+from typing import List, Literal
 from loguru import logger
 from pydantic import BaseModel
 
 from src.schemas import Sentence, Word
 from src.core.llm_provider import LLMProvider
-from src.core.prompts import SAFE_MERGE_SYSTEM_PROMPT
+from src.core.prompts import SAFE_MERGE_CJK_PROMPT, SAFE_MERGE_NON_CJK_PROMPT
+
+BATCH_SIZE = 30
+OVERLAP_LINES = 3
+
 
 class MergedLine(BaseModel):
     text: str
     source_indices: List[int]
 
+
+def _is_cjk(source_lang: str) -> bool:
+    """Check if the source language is CJK (Chinese/Japanese/Korean)."""
+    return source_lang.lower() in ("zh", "ja", "ko")
+
+
 class SemanticMerger:
     """
-    Advanced Optimization: Semantic Merging & Homophone Correction.
-    SAFE VERSION: Strictly preserves character count and word timestamps.
+    Language-Aware Semantic Merging with Batching.
+
+    - CJK (zh, ja, ko): Groups broken lines + corrects homophones (char-count validated).
+    - Non-CJK (en, vi, …): Groups broken lines into sentences only — no homophone correction.
+    - Batches ~30 segments at a time with 2-3 overlap lines for context continuity.
+    - Skips entirely when segment count <= 3 (not worth an LLM call).
     """
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.llm = LLMProvider()
-        
-    def process(self, sentences: List[Sentence], context_style: str = "Wuxia/Xianxia Song") -> List[Sentence]:
+
+    def process(
+        self,
+        sentences: List[Sentence],
+        source_lang: str = "en",
+        context_style: str = "Speech/Dialogue",
+    ) -> List[List[Sentence]]:
         """
-        Process a list of raw ASR sentences.
-        Groups broken lines and corrects homophones ONLY if character counts align.
+        Process raw ASR sentences into ordered batch groups.
+
+        Returns a list of batch groups — each group is a list of merged
+        Sentence objects at sentence boundaries.  These groups feed directly
+        into TranslatorEngine as translation batches (Tier 2).
         """
         if not sentences:
             return []
-            
-        logger.info(f"🧠 Semantic Merger (Safe): Processing {len(sentences)} segments...")
-        
-        # 1. Prepare Input
-        input_lines = []
-        for i, sent in enumerate(sentences):
-            input_lines.append(f"[{i}] {sent.text}")
-            
-        input_text = "\n".join(input_lines)
-        
-        # 2. Prompt
-        prompt = SAFE_MERGE_SYSTEM_PROMPT.format(
-            context_style=context_style
-        )
-        prompt += f"\n\nINPUT DATA:\n{input_text}\n"
-        
-        # 3. Call LLM
-        try:
-            response = self.llm.generate(prompt)
-            merged_data = self._parse_response(response)
-            
-            if not merged_data:
-                logger.warning("No valid merged data returned. Keeping original.")
-                return sentences
-                
-            # 4. Reconstruct with Validation
-            new_sentences = []
-            processed_indices = set()
-            
-            for item in merged_data:
-                indices = item.source_indices
-                corrected_text = item.text
-                
-                # Validation: Indices valid?
-                if not indices: continue
-                valid_indices = [idx for idx in indices if 0 <= idx < len(sentences)]
-                if not valid_indices: continue
-                
-                # Check overlaps (duplicates) from LLM?
-                # Ideally LLM consumes each index once.
-                # If overlap, ignore or proceed? Let's proceed but track coverage.
-                
-                # Validation: LENGTH CHECK
-                source_sents = [sentences[idx] for idx in valid_indices]
-                original_text_combined = "".join([s.text for s in source_sents])
-                
-                if len(corrected_text) != len(original_text_combined):
-                    logger.warning(f"Length Mismatch for indices {valid_indices}: '{original_text_combined}'({len(original_text_combined)}) vs '{corrected_text}'({len(corrected_text)}). REJECTING merge/correct.")
-                    # Fallback: Just append original sentences as is
-                    for s in source_sents:
-                        if s not in new_sentences: # Avoid duplication if logic flawed
-                            new_sentences.append(s)
-                    continue
-                
-                # SUCCESS: Create Merged Sentence
-                first_seg = source_sents[0]
-                last_seg = source_sents[-1]
-                
-                # Concatenate Words (Preserve Metadata)
-                all_words = []
-                for s in source_sents:
-                    all_words.extend(s.words if s.words else [])
-                    
-                # Update Characters in Words
-                # We iterate through the NEW text chars and assign them to the OLD word objects
-                # precisely because lengths matched.
-                if len(all_words) == len(corrected_text):
-                    for idx, char in enumerate(corrected_text):
-                         all_words[idx].word = char
-                else:
-                    # Mismatch between word objects and text length?
-                    # Whisper sometimes outputs "empty" text but has words, or punctuation issues.
-                    # Best effort: Just update text, keep words as is?
-                    # Or force update if possible.
-                    # Safety: If counts match (ignoring whitespace), update.
-                    pass 
 
-                new_sent = Sentence(
-                    text=corrected_text,
+        if len(sentences) <= 3:
+            logger.info(f"⏭️ Skipping SemanticMerger ({len(sentences)} segments ≤ 3)")
+            return [sentences]
+
+        cjk = _is_cjk(source_lang)
+        prompt_template = SAFE_MERGE_CJK_PROMPT if cjk else SAFE_MERGE_NON_CJK_PROMPT
+        mode_label = "CJK (group+homophone)" if cjk else "Non-CJK (group only)"
+
+        logger.info(
+            f"🧠 SemanticMerger: {len(sentences)} segments | "
+            f"lang={source_lang} | mode={mode_label} | style={context_style}"
+        )
+
+        batches = self._create_batches(sentences)
+        logger.info(f"   Split into {len(batches)} batches (batch_size={BATCH_SIZE}, overlap={OVERLAP_LINES})")
+
+        all_batch_groups: List[List[Sentence]] = []
+
+        for batch_idx, (batch_sentences, global_offset) in enumerate(batches):
+            logger.info(f"   Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_sentences)} segments)")
+            try:
+                merged = self._process_batch(
+                    batch_sentences, global_offset, prompt_template, context_style, cjk
+                )
+                all_batch_groups.append(merged)
+            except Exception as e:
+                logger.error(f"   Batch {batch_idx + 1} failed: {e} — returning originals for this batch")
+                all_batch_groups.append(batch_sentences)
+
+        total_out = sum(len(g) for g in all_batch_groups)
+        logger.success(f"✨ SemanticMerger complete: {len(sentences)} → {total_out} segments in {len(all_batch_groups)} batches")
+        return all_batch_groups
+
+    # ------------------------------------------------------------------
+    # Batching
+    # ------------------------------------------------------------------
+
+    def _create_batches(
+        self, sentences: List[Sentence]
+    ) -> List[tuple[List[Sentence], int]]:
+        """
+        Split sentences into batches of ~BATCH_SIZE with OVERLAP_LINES overlap.
+
+        Returns list of (batch_sentences, global_start_index) tuples.
+        The overlap lines provide context continuity but are discarded from
+        earlier batches' output (they belong to the next batch).
+        """
+        if len(sentences) <= BATCH_SIZE:
+            return [(sentences, 0)]
+
+        batches: List[tuple[List[Sentence], int]] = []
+        start = 0
+
+        while start < len(sentences):
+            end = min(start + BATCH_SIZE, len(sentences))
+            batch = sentences[start:end]
+            batches.append((batch, start))
+
+            # Next batch starts BATCH_SIZE - OVERLAP_LINES after current start
+            next_start = start + BATCH_SIZE - OVERLAP_LINES
+            if next_start >= len(sentences):
+                break
+            # If remaining sentences after overlap are too few, absorb them
+            if len(sentences) - next_start <= OVERLAP_LINES:
+                break
+            start = next_start
+
+        return batches
+
+    # ------------------------------------------------------------------
+    # Per-batch LLM processing
+    # ------------------------------------------------------------------
+
+    def _process_batch(
+        self,
+        batch_sentences: List[Sentence],
+        global_offset: int,
+        prompt_template: str,
+        context_style: str,
+        cjk: bool,
+    ) -> List[Sentence]:
+        """Run one batch through the LLM and reconstruct validated Sentences."""
+        # Build indexed input
+        input_lines = [f"[{i}] {s.text}" for i, s in enumerate(batch_sentences)]
+        input_text = "\n".join(input_lines)
+
+        prompt = prompt_template.format(context_style=context_style)
+        prompt += f"\n\nINPUT DATA:\n{input_text}\n"
+
+        response = self.llm.generate(prompt)
+        merged_data = self._parse_response(response)
+
+        if not merged_data:
+            logger.warning("   No valid merged data — keeping originals for this batch")
+            return batch_sentences
+
+        return self._reconstruct(batch_sentences, merged_data, cjk)
+
+    # ------------------------------------------------------------------
+    # Reconstruction & validation
+    # ------------------------------------------------------------------
+
+    def _reconstruct(
+        self,
+        batch_sentences: List[Sentence],
+        merged_data: List[MergedLine],
+        cjk: bool,
+    ) -> List[Sentence]:
+        """Rebuild Sentence objects from LLM merge output with validation."""
+        new_sentences: List[Sentence] = []
+
+        for item in merged_data:
+            indices = item.source_indices
+            merged_text = item.text
+
+            if not indices:
+                continue
+            valid_indices = [idx for idx in indices if 0 <= idx < len(batch_sentences)]
+            if not valid_indices:
+                continue
+
+            source_sents = [batch_sentences[idx] for idx in valid_indices]
+
+            if cjk:
+                # CJK: strict char-count validation (homophone correction)
+                original_combined = "".join(s.text for s in source_sents)
+                if len(merged_text) != len(original_combined):
+                    logger.warning(
+                        f"   Length mismatch for indices {valid_indices}: "
+                        f"'{original_combined}'({len(original_combined)}) vs "
+                        f"'{merged_text}'({len(merged_text)}). REJECTING."
+                    )
+                    new_sentences.extend(source_sents)
+                    continue
+            else:
+                # Non-CJK: use the merged text as-is (grouping only, no char edits)
+                merged_text = merged_text
+
+            # Build merged Sentence
+            first_seg = source_sents[0]
+            last_seg = source_sents[-1]
+
+            all_words: List[Word] = []
+            for s in source_sents:
+                all_words.extend(s.words if s.words else [])
+
+            # CJK: update individual characters in word objects if counts match
+            if cjk and len(all_words) == len(merged_text):
+                for idx, char in enumerate(merged_text):
+                    all_words[idx].word = char
+
+            new_sentences.append(
+                Sentence(
+                    text=merged_text,
                     start=first_seg.start,
                     end=last_seg.end,
-                    words=all_words
+                    words=all_words,
                 )
-                new_sentences.append(new_sent)
-                
-            logger.success(f"✨ Semantic Merge Complete: {len(sentences)} -> {len(new_sentences)} lines.")
-            return new_sentences
-            
-        except Exception as e:
-            logger.error(f"Semantic Merge Failed: {e}")
-            return sentences
+            )
+
+        return new_sentences
+
+    # ------------------------------------------------------------------
+    # Response parsing
+    # ------------------------------------------------------------------
 
     def _parse_response(self, response: str) -> List[MergedLine]:
-        """Parses JSON list of MergedLine objects."""
+        """Parse JSON list of MergedLine objects from LLM response."""
         try:
             clean_resp = response.strip()
             if "```json" in clean_resp:
                 clean_resp = clean_resp.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_resp:
                 clean_resp = clean_resp.split("```")[1].split("```")[0].strip()
-                
+
             data = json.loads(clean_resp)
-            results = []
+            results: List[MergedLine] = []
             for item in data:
                 if "text" in item and "source_indices" in item:
                     results.append(MergedLine(**item))
             return results
         except Exception as e:
-            logger.error(f"Error parsing merge response: {e}")
+            logger.error(f"   Error parsing merge response: {e}")
             return []

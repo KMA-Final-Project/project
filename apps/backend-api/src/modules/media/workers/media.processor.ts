@@ -120,6 +120,7 @@ export class MediaProcessor {
         processingMode,
         durationSeconds,
         userId,
+        targetLanguage: job.data.targetLanguage,
       };
 
       const aiJob = await this.aiQueue.add('process', aiPayload, {

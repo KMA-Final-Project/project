@@ -32,6 +32,9 @@ export interface TranscriptionJobPayload {
 
   /** Processing mode selected by the user */
   processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+
+  /** Target language for translation (defaults to 'vi' if omitted) */
+  targetLanguage?: string;
 }
 
 /**
@@ -53,4 +56,7 @@ export interface AiProcessingJobPayload {
 
   /** User who submitted the media */
   userId: string;
+
+  /** Target language for translation (defaults to 'vi' if omitted) */
+  targetLanguage?: string;
 }

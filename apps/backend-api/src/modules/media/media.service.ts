@@ -101,6 +101,7 @@ export class MediaService {
       filePath: dto.objectKey,
       userId,
       processingMode: dto.processingMode ?? 'TRANSCRIBE',
+      targetLanguage: dto.targetLanguage,
     });
 
     this.logger.log(`Upload confirmed: media ${mediaItem.id}, job ${jobId}`);
@@ -154,6 +155,7 @@ export class MediaService {
       url: dto.url,
       userId,
       processingMode: dto.processingMode ?? 'TRANSCRIBE',
+      targetLanguage: dto.targetLanguage,
     });
 
     this.logger.log(`YouTube submitted: media ${mediaItem.id}, job ${jobId}`);

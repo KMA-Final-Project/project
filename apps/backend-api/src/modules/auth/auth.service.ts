@@ -305,7 +305,7 @@ export class AuthService {
   ): Promise<{ sub: string; email: string }> {
     try {
       return await this.jwtService.verifyAsync(token, {
-        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        secret: this.configService.getOrThrow<string>('JWT_SECRET'),
       });
     } catch {
       throw new UnauthorizedException(AUTH_ERRORS.UNAUTHORIZED);
@@ -348,13 +348,17 @@ export class AuthService {
     const refreshTokenExpiryDays = Number(
       this.configService.get<string>('REFRESH_TOKEN_EXPIRY_DAYS') ?? 7,
     );
+    const accessSecret = this.configService.getOrThrow<string>('JWT_SECRET');
     const refreshSecret =
       this.configService.getOrThrow<string>('JWT_REFRESH_SECRET');
 
     // Generate access token
     const accessToken = this.jwtService.sign(
       { sub: userId, email },
-      { expiresIn: accessTokenExpiry as '15m' | '1h' | '7d' },
+      {
+        secret: accessSecret,
+        expiresIn: accessTokenExpiry as '15m' | '1h' | '7d',
+      },
     );
 
     // Generate refresh token ID and calculate expiry

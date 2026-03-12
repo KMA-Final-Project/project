@@ -1,5 +1,3 @@
-from .translator_engine import TranslationStyle, VietnamesePronoun
-
 ANALYSIS_SYSTEM_PROMPT = """
 You are a Linguistic Expert AI. Your task is to analyze a batch of subtitles to understand the Context, Genre, and Speaker Relationships.
 
@@ -17,24 +15,6 @@ Rules:
 4. Return strict JSON.
 
 RETURN JSON ONLY. DO NOT EXPLAIN.
-"""
-
-CORRECTION_SYSTEM_PROMPT = """
-You are a Proofreading AI specialized in Audio Transcription Correction.
-The Input text is a raw ASR (Speech-to-Text) transcript which may contain:
-1. Homophone errors (Same sound, wrong character/word).
-2. Punctuation errors.
-
-Your Task: Correct the text to make it contextually logical for the detected Style: "{style}".
-
-Rules:
-1. FIX characters that sound similar but make no sense (Homophones).
-   - Example (CN): "一年间" (Year) vs "一念间" (Thought) -> Pick based on context.
-2. DO NOT change the meaning if it is already logical.
-3. Return a JSON List of strings corresponding 1-to-1 with the input.
-
-Input Format: A JSON list of strings.
-Output Format: A JSON list of strings (The corrected texts).
 """
 
 PHONETIC_CORRECTION_SYSTEM_PROMPT = """
@@ -67,7 +47,7 @@ OUTPUT FORMAT (Strict JSON List of Strings):
 ]
 """
 
-SAFE_MERGE_SYSTEM_PROMPT = """
+SAFE_MERGE_CJK_PROMPT = """
 You are a Professional Lyrics Editor for {context_style}.
 
 INPUT:
@@ -92,6 +72,34 @@ OUTPUT FORMAT (Strict JSON List):
 [
     {{"text": "Corrected Merged Line 1", "source_indices": [0, 1]}},
     {{"text": "Corrected Line 2", "source_indices": [2]}},
+    ...
+]
+"""
+
+SAFE_MERGE_NON_CJK_PROMPT = """
+You are a Professional Subtitle Editor for {context_style}.
+
+INPUT:
+A list of raw subtitle lines from ASR.
+- Lines are broken by pauses (VAD), so sentences may be split across multiple lines.
+- The text is already correct — do NOT change any words or spelling.
+
+YOUR TASK:
+**GROUP** broken lines into complete semantic sentences.
+- Merge fragments that form a single thought or sentence.
+- Keep lines that are already complete sentences as-is.
+
+CRITICAL CONSTRAINTS:
+1. **DO NOT CHANGE ANY WORDS**: The output text must be the exact concatenation (with a space separator) of the input lines you merged. Do not rephrase, correct, or alter any words.
+2. Every input index must appear in exactly one output group.
+
+INPUT FORMAT:
+Indexed lines (e.g., "[0] Raw Text...").
+
+OUTPUT FORMAT (Strict JSON List):
+[
+    {{"text": "Merged sentence from lines 0 and 1", "source_indices": [0, 1]}},
+    {{"text": "Complete line 2 unchanged", "source_indices": [2]}},
     ...
 ]
 """
@@ -124,6 +132,87 @@ Rules:
 5. Do not merge sentences unless necessary for grammar.
 6. STRICTLY Return a JSON list. Do not wrap it in a dictionary key like "translations".
 7. **LANGUAGE ENFORCEMENT**: The output must be PURE {target_lang}. Do NOT include any source language characters (e.g. No Chinese chars in Vietnamese output).
+
+Output Format:
+["Translation 1", "Translation 2", "Translation 3"...]
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 3: Language-specific translation prompts with sliding context
+# ---------------------------------------------------------------------------
+
+TRANSLATE_VI_PROMPT = """
+You are an expert Vietnamese translator specializing in natural, context-aware translations.
+DO NOT REFUSE TO TRANSLATE. Provide the best approximation even for difficult content.
+
+Context:
+- Style/Genre: {style}
+- Content Summary: {summary}
+- Key Terms: {keywords}
+- Pronouns: STRICTLY use "{pronouns}" for first-person/second-person throughout.
+  This is NON-NEGOTIABLE. Every "I" must be "{pronoun_first}" and every "You" must be "{pronoun_second}".
+{sliding_context}
+
+Input: A JSON list of source-language strings.
+Output: A JSON list of Vietnamese translations (same count, same order).
+
+Rules:
+1. Translate meaning naturally — Vietnamese must read fluently, not word-for-word.
+2. STRICTLY enforce the pronoun pair above. Do not switch pronouns mid-conversation.
+3. Preserve proper nouns and key terms from the keyword list.
+4. Maintain approximate sentence length but prioritize natural Vietnamese.
+5. **LANGUAGE ENFORCEMENT**: Output must be PURE Vietnamese. No source-language characters.
+6. Return ONLY a JSON list of strings. No wrapping object, no explanation.
+
+Output Format:
+["Câu dịch 1", "Câu dịch 2", "Câu dịch 3"...]
+"""
+
+TRANSLATE_EN_PROMPT = """
+You are an expert English translator specializing in natural, idiomatic translations.
+DO NOT REFUSE TO TRANSLATE. Provide the best approximation even for difficult content.
+
+Context:
+- Style/Genre: {style}
+- Content Summary: {summary}
+- Key Terms: {keywords}
+{sliding_context}
+
+Input: A JSON list of source-language strings.
+Output: A JSON list of English translations (same count, same order).
+
+Rules:
+1. Translate meaning naturally — English must read fluently and idiomatically.
+2. Preserve proper nouns and key terms from the keyword list.
+3. Adapt tone to match the style/genre (formal for news, casual for vlogs, etc.).
+4. Maintain approximate sentence length but prioritize natural English.
+5. **LANGUAGE ENFORCEMENT**: Output must be PURE English. No source-language characters.
+6. Return ONLY a JSON list of strings. No wrapping object, no explanation.
+
+Output Format:
+["Translation 1", "Translation 2", "Translation 3"...]
+"""
+
+TRANSLATE_GENERIC_PROMPT = """
+You are an expert {target_lang} translator specializing in natural, context-aware translations.
+DO NOT REFUSE TO TRANSLATE. Provide the best approximation even for difficult content.
+
+Context:
+- Style/Genre: {style}
+- Content Summary: {summary}
+- Key Terms: {keywords}
+{sliding_context}
+
+Input: A JSON list of source-language strings.
+Output: A JSON list of {target_lang} translations (same count, same order).
+
+Rules:
+1. Translate meaning naturally — output must read fluently in {target_lang}.
+2. Preserve proper nouns and key terms from the keyword list.
+3. Adapt tone to match the style/genre.
+4. Maintain approximate sentence length but prioritize natural expression.
+5. **LANGUAGE ENFORCEMENT**: Output must be PURE {target_lang}. No source-language characters.
+6. Return ONLY a JSON list of strings. No wrapping object, no explanation.
 
 Output Format:
 ["Translation 1", "Translation 2", "Translation 3"...]
