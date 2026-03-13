@@ -236,7 +236,7 @@ class TranslatorEngine:
 
             # Build the language-specific system prompt
             system_prompt = self._build_system_prompt(
-                context, lang_config, target_lang, sliding_window
+                context, lang_config, source_lang, target_lang, sliding_window
             )
 
             try:
@@ -298,6 +298,7 @@ class TranslatorEngine:
         self,
         context: ContextAnalysis,
         lang_config: LanguageConfig,
+        source_lang: str,
         target_lang: str,
         sliding_window: List[str],
     ) -> str:
@@ -326,6 +327,7 @@ class TranslatorEngine:
             "summary": context.summary,
             "keywords": keywords_str,
             "sliding_context": sliding_text,
+            "source_lang": source_lang,
         }
 
         # Vietnamese-specific placeholders

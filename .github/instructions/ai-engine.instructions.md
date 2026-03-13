@@ -8,7 +8,7 @@ Python BullMQ worker that runs a bilingual subtitle generation pipeline.
 
 ## Project Structure
 
-```
+```text
 src/
 ├── main.py              # Entry point + job orchestration (all pipeline logic lives here)
 ├── config.py            # pydantic-settings config — single `settings` singleton
