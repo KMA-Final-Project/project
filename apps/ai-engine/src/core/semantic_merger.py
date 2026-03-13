@@ -211,10 +211,11 @@ class SemanticMerger:
                 original_combined = " ".join(s.text for s in source_sents)
                 if merged_text != original_combined:
                     logger.warning(
-                        f"   Text mismatch for indices {valid_indices}: "
+                        f"   Text mismatch for indices {filtered_indices}: "
                         f"expected '{original_combined}' but got '{merged_text}'. REJECTING."
                     )
                     # Fall back to the original sentences to preserve alignment.
+                    seen_indices.update(filtered_indices)
                     new_sentences.extend(source_sents)
                     continue
 

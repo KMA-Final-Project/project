@@ -333,11 +333,10 @@ class TranslatorEngine:
             pronouns = context.language_specific.get(
                 "pronouns", VietnamesePronoun.TOI_BAN.value
             )
-            parts = [p.strip() for p in pronouns.split("/")]
+            parts = [p.strip() for p in pronouns.split("/") if p.strip()]
             format_kwargs["pronouns"] = pronouns
-            format_kwargs["pronoun_first"] = parts[0] if len(parts) >= 1 else "Tôi"
+            format_kwargs["pronoun_first"] = parts[0] if parts else "Tôi"
             format_kwargs["pronoun_second"] = parts[1] if len(parts) >= 2 else "Bạn"
-
         # Generic prompt needs target_lang
         if lang_config.prompt_key == "generic":
             format_kwargs["target_lang"] = target_lang
