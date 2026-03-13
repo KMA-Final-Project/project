@@ -15,6 +15,7 @@ export class MinioService {
   private readonly logger = new Logger(MinioService.name);
   private readonly client: Minio.Client;
   private readonly bucketRaw: string;
+  private readonly bucketProcessed: string;
   private readonly publicEndpoint: string;
   private readonly internalOrigin: string;
 
@@ -33,6 +34,10 @@ export class MinioService {
     });
 
     this.bucketRaw = this.configService.get<string>('MINIO_BUCKET_RAW', 'raw');
+    this.bucketProcessed = this.configService.get<string>(
+      'MINIO_BUCKET_PROCESSED',
+      'processed',
+    );
     this.publicEndpoint = this.configService.getOrThrow<string>(
       'MINIO_PUBLIC_ENDPOINT',
     );
@@ -79,6 +84,38 @@ export class MinioService {
     );
 
     this.logger.debug(`Presigned URL generated for: ${objectKey}`);
+    return publicUrl;
+  }
+
+  /**
+   * Generate a presigned GET URL for reading a processed file.
+   *
+   * Used to give mobile clients temporary direct access to subtitle/transcript
+   * files stored in the processed bucket (chunks, batches, final.json).
+   *
+   * @param objectKey - S3 object key in the processed bucket
+   * @param bucket - Override bucket (defaults to processed bucket)
+   * @param expirySeconds - URL validity period (default: 1 hour)
+   * @returns Public-facing presigned GET URL
+   */
+  async generatePresignedGetUrl(
+    objectKey: string,
+    bucket?: string,
+    expirySeconds: number = 3600,
+  ): Promise<string> {
+    const targetBucket = bucket ?? this.bucketProcessed;
+    const internalUrl = await this.client.presignedGetObject(
+      targetBucket,
+      objectKey,
+      expirySeconds,
+    );
+
+    const publicUrl = internalUrl.replace(
+      this.internalOrigin,
+      this.publicEndpoint,
+    );
+
+    this.logger.debug(`Presigned GET URL generated for: ${objectKey}`);
     return publicUrl;
   }
 

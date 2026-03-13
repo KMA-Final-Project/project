@@ -162,7 +162,16 @@ export class MediaStatusResponseDto {
   createdAt: Date;
 }
 
-// ==================== Media Library List ====================
+// ==================== Processed File Download ====================
+
+export class DownloadUrlResponseDto {
+  @ApiProperty({
+    description: 'Presigned GET URL for the processed transcript/subtitle file',
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/final.json?X-Amz-...',
+  })
+  url: string;
+}
 
 export class MediaListItemDto {
   @ApiProperty()

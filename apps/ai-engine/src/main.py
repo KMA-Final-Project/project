@@ -24,7 +24,6 @@ from src.config import settings
 from src.minio_client import MinioClient
 from src.core.pipeline import PipelineOrchestrator
 from src.schemas import (
-    Sentence,
     SubtitleMetadata,
     SubtitleOutput,
     TranslatedBatch,
@@ -149,13 +148,6 @@ def update_media_status(
                 cur.execute(sql, values)
         conn.close()
 
-        # Publish update event to Redis for NestJS WebSockets
-        if user_id:
-            logger.debug(f"Publishing media_updated event for {media_id}")
-            redis_client.publish(
-                "media_updates", json.dumps({"mediaId": media_id, "userId": user_id})
-            )
-
     except Exception as e:
         logger.error(f"DB update failed for media {media_id}: {e}")
 
@@ -176,6 +168,129 @@ def mark_quota_counted(media_id: str) -> None:
         conn.close()
     except Exception as e:
         logger.error(f"Failed to mark quota for media {media_id}: {e}")
+
+
+# ============================================================================
+# Typed Redis Event Publishers
+# ============================================================================
+
+
+def publish_progress(
+    media_id: str,
+    user_id: str,
+    progress: float,
+    current_step: str,
+    eta: int | None,
+) -> None:
+    """Publish a MediaProgressEvent to the media_updates channel."""
+    try:
+        redis_client.publish(
+            "media_updates",
+            json.dumps({
+                "type": "progress",
+                "mediaId": media_id,
+                "userId": user_id,
+                "progress": progress,
+                "currentStep": current_step,
+                "estimatedTimeRemaining": eta,
+            }),
+        )
+    except Exception as e:
+        logger.error(f"Failed to publish progress event for {media_id}: {e}")
+
+
+def publish_chunk_ready(
+    media_id: str,
+    user_id: str,
+    chunk_index: int,
+    url: str,
+    sentence_count: int,
+) -> None:
+    """Publish a MediaChunkReadyEvent to the media_updates channel."""
+    try:
+        redis_client.publish(
+            "media_updates",
+            json.dumps({
+                "type": "chunk_ready",
+                "mediaId": media_id,
+                "userId": user_id,
+                "chunkIndex": chunk_index,
+                "url": url,
+                "sentenceCount": sentence_count,
+            }),
+        )
+    except Exception as e:
+        logger.error(f"Failed to publish chunk_ready event for {media_id}: {e}")
+
+
+def publish_batch_ready(
+    media_id: str,
+    user_id: str,
+    batch_index: int,
+    url: str,
+    segment_count: int,
+    progress: float,
+) -> None:
+    """Publish a MediaBatchReadyEvent to the media_updates channel."""
+    try:
+        redis_client.publish(
+            "media_updates",
+            json.dumps({
+                "type": "batch_ready",
+                "mediaId": media_id,
+                "userId": user_id,
+                "batchIndex": batch_index,
+                "url": url,
+                "segmentCount": segment_count,
+                "progress": progress,
+            }),
+        )
+    except Exception as e:
+        logger.error(f"Failed to publish batch_ready event for {media_id}: {e}")
+
+
+def publish_completed(
+    media_id: str,
+    user_id: str,
+    final_url: str,
+    segment_count: int,
+    source_lang: str,
+    target_lang: str,
+    s3_key: str,
+) -> None:
+    """Publish a MediaCompletedEvent to the media_updates channel."""
+    try:
+        redis_client.publish(
+            "media_updates",
+            json.dumps({
+                "type": "completed",
+                "mediaId": media_id,
+                "userId": user_id,
+                "finalUrl": final_url,
+                "segmentCount": segment_count,
+                "sourceLanguage": source_lang,
+                "targetLanguage": target_lang,
+                "transcriptS3Key": s3_key,
+            }),
+        )
+    except Exception as e:
+        logger.error(f"Failed to publish completed event for {media_id}: {e}")
+
+
+def publish_failed(media_id: str, user_id: str, reason: str) -> None:
+    """Publish a MediaFailedEvent to the media_updates channel."""
+    try:
+        redis_client.publish(
+            "media_updates",
+            json.dumps({
+                "type": "failed",
+                "mediaId": media_id,
+                "userId": user_id,
+                "reason": reason,
+            }),
+        )
+    except Exception as e:
+        logger.error(f"Failed to publish failed event for {media_id}: {e}")
 
 
 # ============================================================================
@@ -251,7 +366,7 @@ async def process_job(job, token):
             )
 
         # 3. Upload final result
-        transcript_key = minio_client.upload_final_result(media_id, subtitle_output)
+        transcript_key, final_url = minio_client.upload_final_result(media_id, subtitle_output)
 
         # 4. Mark as completed — clear step/ETA fields
         update_media_status(
@@ -262,6 +377,15 @@ async def process_job(job, token):
             transcript_s3_key=transcript_key,
             clear_step=True,
         )
+        publish_completed(
+            media_id=media_id,
+            user_id=user_id,
+            final_url=final_url,
+            segment_count=len(subtitle_output.segments),
+            source_lang=subtitle_output.metadata.source_lang or "",
+            target_lang=subtitle_output.metadata.target_lang or "",
+            s3_key=transcript_key,
+        )
         mark_quota_counted(media_id)
 
         logger.success(
@@ -271,13 +395,15 @@ async def process_job(job, token):
 
     except Exception as e:
         logger.error(f"❌ Job {job.id} failed | media: {media_id} | {e}")
+        reason = str(e)[:500]
         update_media_status(
             media_id,
             user_id=user_id,
             status="FAILED",
-            fail_reason=str(e)[:500],  # Truncate long error messages
+            fail_reason=reason,
             clear_step=True,
         )
+        publish_failed(media_id=media_id, user_id=user_id, reason=reason)
         raise  # Re-raise so BullMQ marks the job as failed
 
     finally:
@@ -326,6 +452,7 @@ def run_transcribe_pipeline(
         current_step="AUDIO_PREP",
         estimated_time_remaining=_eta(0.05),
     )
+    publish_progress(media_id, user_id, 0.05, "AUDIO_PREP", _eta(0.05))
     meta = pipeline.audio_processor.process(audio_path)
     standardized_path = meta.path
 
@@ -337,6 +464,7 @@ def run_transcribe_pipeline(
         current_step="INSPECTING",
         estimated_time_remaining=_eta(0.10),
     )
+    publish_progress(media_id, user_id, 0.10, "INSPECTING", _eta(0.10))
     profile = pipeline.audio_inspector.inspect(standardized_path)
     logger.info(f"Audio profile: {profile}")
 
@@ -348,6 +476,7 @@ def run_transcribe_pipeline(
         current_step="VAD",
         estimated_time_remaining=_eta(0.15),
     )
+    publish_progress(media_id, user_id, 0.15, "VAD", _eta(0.15))
     segments, clean_audio_path = pipeline.vad_manager.process(
         standardized_path, profile=profile
     )
@@ -370,13 +499,22 @@ def run_transcribe_pipeline(
         current_step="TRANSCRIBING",
         estimated_time_remaining=_eta(0.25),
     )
+    publish_progress(media_id, user_id, 0.25, "TRANSCRIBING", _eta(0.25))
     chunk_index = [0]  # Mutable counter for closure
     source_lang_detected = [False]
 
     def on_chunk(batch: list, total_so_far: int):
         """Upload each batch of sentences to MinIO as they're transcribed."""
         batch_data = [s.model_dump() for s in batch]
-        minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
+        idx = chunk_index[0]
+        _chunk_key, chunk_url = minio_client.upload_chunk(media_id, idx, batch_data)
+        publish_chunk_ready(
+            media_id=media_id,
+            user_id=user_id,
+            chunk_index=idx,
+            url=chunk_url,
+            sentence_count=len(batch),
+        )
         chunk_index[0] += 1
 
         # Detect source language from first batch
@@ -394,6 +532,7 @@ def run_transcribe_pipeline(
             current_step="TRANSCRIBING",
             estimated_time_remaining=_eta(progress),
         )
+        publish_progress(media_id, user_id, progress, "TRANSCRIBING", _eta(progress))
         logger.info(
             f"📤 Streamed chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)"
         )
@@ -418,6 +557,7 @@ def run_transcribe_pipeline(
             current_step="TRANSCRIBING",
             estimated_time_remaining=_eta(0.85),
         )
+        publish_progress(media_id, user_id, 0.85, "TRANSCRIBING", _eta(0.85))
     elif source_lang_detected[0]:
         source_lang = _detect_source_language(sentences[:5]) if sentences else ""
 
@@ -432,6 +572,7 @@ def run_transcribe_pipeline(
         current_step="EXPORTING",
         estimated_time_remaining=_eta(0.95),
     )
+    publish_progress(media_id, user_id, 0.95, "EXPORTING", _eta(0.95))
     model_used = (
         settings.WHISPER_MODEL_FULL
         if source_lang in settings.WHISPER_CJK_LANGUAGES
@@ -484,6 +625,7 @@ def run_transcribe_translate_pipeline(
         current_step="AUDIO_PREP",
         estimated_time_remaining=_eta(0.05),
     )
+    publish_progress(media_id, user_id, 0.05, "AUDIO_PREP", _eta(0.05))
     meta = pipeline.audio_processor.process(audio_path)
     standardized_path = meta.path
 
@@ -495,6 +637,7 @@ def run_transcribe_translate_pipeline(
         current_step="INSPECTING",
         estimated_time_remaining=_eta(0.10),
     )
+    publish_progress(media_id, user_id, 0.10, "INSPECTING", _eta(0.10))
     profile = pipeline.audio_inspector.inspect(standardized_path)
     logger.info(f"Audio profile: {profile}")
 
@@ -506,6 +649,7 @@ def run_transcribe_translate_pipeline(
         current_step="VAD",
         estimated_time_remaining=_eta(0.15),
     )
+    publish_progress(media_id, user_id, 0.15, "VAD", _eta(0.15))
     segments, clean_audio_path = pipeline.vad_manager.process(
         standardized_path, profile=profile
     )
@@ -530,12 +674,21 @@ def run_transcribe_translate_pipeline(
         current_step="TRANSCRIBING",
         estimated_time_remaining=_eta(0.25),
     )
+    publish_progress(media_id, user_id, 0.25, "TRANSCRIBING", _eta(0.25))
     chunk_index = [0]
 
     def on_chunk(batch: list, total_so_far: int):
         """Upload transcription-only preview chunks during alignment."""
         batch_data = [s.model_dump() for s in batch]
-        minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
+        idx = chunk_index[0]
+        _chunk_key, chunk_url = minio_client.upload_chunk(media_id, idx, batch_data)
+        publish_chunk_ready(
+            media_id=media_id,
+            user_id=user_id,
+            chunk_index=idx,
+            url=chunk_url,
+            sentence_count=len(batch),
+        )
         chunk_index[0] += 1
         progress = min(0.40, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.15)
         update_media_status(
@@ -545,6 +698,7 @@ def run_transcribe_translate_pipeline(
             current_step="TRANSCRIBING",
             estimated_time_remaining=_eta(progress),
         )
+        publish_progress(media_id, user_id, progress, "TRANSCRIBING", _eta(progress))
         logger.info(
             f"📤 Preview chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)"
         )
@@ -567,19 +721,20 @@ def run_transcribe_translate_pipeline(
         current_step="TRANSCRIBING",
         estimated_time_remaining=_eta(0.40),
     )
+    publish_progress(media_id, user_id, 0.40, "TRANSCRIBING", _eta(0.40))
 
     # Step 5: Semantic Merge (language-aware, batched)
     context_style = "Song/Music Lyrics" if profile == "music" else "Speech/Dialogue"
 
     def _flatten_semantic_batch_groups(
-        merged_batch_groups: list[list[Sentence]],
-    ) -> list[Sentence]:
+        merged_batch_groups: list[list[TranslatedSentence]],
+    ) -> list[TranslatedSentence]:
         """
         Flatten semantic merge batch groups into a single, de-duplicated list.
         SemanticMerger may produce overlapping batches; this helper removes
         duplicate sentences while preserving overall order.
         """
-        flattened: list[Sentence] = []
+        flattened: list[TranslatedSentence] = []
         seen_keys: set[tuple] = set()
         for group in merged_batch_groups:
             for s in group:
@@ -602,6 +757,7 @@ def run_transcribe_translate_pipeline(
             current_step="MERGING",
             estimated_time_remaining=_eta(0.50),
         )
+        publish_progress(media_id, user_id, 0.50, "MERGING", _eta(0.50))
         try:
             merged_batch_groups = pipeline.merger.process(
                 sentences, source_lang=source_lang, context_style=context_style
@@ -619,23 +775,32 @@ def run_transcribe_translate_pipeline(
         current_step="TRANSLATING",
         estimated_time_remaining=_eta(0.65),
     )
+    publish_progress(media_id, user_id, 0.65, "TRANSLATING", _eta(0.65))
 
     total_sentences = len(sentences)
     batch_size = TRANSLATION_BATCH_SIZE
     total_batches = max(1, (total_sentences + batch_size - 1) // batch_size)
 
-    def on_batch_complete(batch_idx: int, batch: list[Sentence]) -> None:
+    def on_batch_complete(batch_idx: int, batch: list[TranslatedSentence]) -> None:
         """Tier 2 callback: upload translated batch + update progress."""
         tb = TranslatedBatch(batch_index=batch_idx, segments=batch)
-        minio_client.upload_translated_batch(media_id, tb)
+        _batch_key, batch_url = minio_client.upload_translated_batch(media_id, tb)
         # Scale progress: 0.65 → 0.95 proportionally
-        batch_progress = 0.65 + ((batch_idx + 1) / total_batches) * 0.30
+        batch_progress = min(0.95, 0.65 + ((batch_idx + 1) / total_batches) * 0.30)
+        publish_batch_ready(
+            media_id=media_id,
+            user_id=user_id,
+            batch_index=batch_idx,
+            url=batch_url,
+            segment_count=len(batch),
+            progress=batch_progress,
+        )
         update_media_status(
             media_id,
             user_id=user_id,
-            progress=min(0.95, batch_progress),
+            progress=batch_progress,
             current_step="TRANSLATING",
-            estimated_time_remaining=_eta(min(0.95, batch_progress)),
+            estimated_time_remaining=_eta(batch_progress),
         )
 
     try:
@@ -663,6 +828,7 @@ def run_transcribe_translate_pipeline(
         current_step="EXPORTING",
         estimated_time_remaining=_eta(0.95),
     )
+    publish_progress(media_id, user_id, 0.95, "EXPORTING", _eta(0.95))
     model_used = (
         settings.WHISPER_MODEL_FULL
         if source_lang in settings.WHISPER_CJK_LANGUAGES
@@ -713,7 +879,9 @@ def _detect_source_language(sentences) -> str:
     return "en"
 
 
-def _populate_segment_phonetics(sentences: list[Sentence], source_lang: str) -> None:
+def _populate_segment_phonetics(
+    sentences: list[TranslatedSentence], source_lang: str
+) -> None:
     """
     Populate segment-level phonetic field from word-level phonemes (in-place).
 

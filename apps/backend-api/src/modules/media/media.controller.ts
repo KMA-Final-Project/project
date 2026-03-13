@@ -26,6 +26,7 @@ import {
   SubmitYoutubeResponseDto,
   MediaStatusResponseDto,
   MediaListItemDto,
+  DownloadUrlResponseDto,
 } from './dto';
 
 @ApiTags('Media')
@@ -110,6 +111,30 @@ export class MediaController {
   }
 
   // ==================== Status & Library ====================
+
+  /**
+   * Get a presigned GET URL for downloading the processed transcript file.
+   * Only available for COMPLETED media items.
+   */
+  @Get(':id/download-url')
+  @ApiOperation({
+    summary: 'Get a presigned GET URL for the processed transcript',
+    description:
+      'Returns a presigned URL valid for 1 hour for downloading the final transcript/subtitle JSON from MinIO. ' +
+      'Only available when the media item status is COMPLETED.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Presigned GET URL generated successfully',
+    type: DownloadUrlResponseDto,
+  })
+  @ApiResponse({ status: 400, type: ErrorResponseDto })
+  async getProcessedFileUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<DownloadUrlResponseDto> {
+    return this.mediaService.getProcessedFileUrl(user.id, id);
+  }
 
   /**
    * Get the processing status of a single media item.

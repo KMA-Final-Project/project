@@ -4,17 +4,11 @@ import {
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { RedisService } from '../redis/redis.service';
 import { SocketGateway } from './socket.gateway';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import { Inject } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { MediaService } from '../media/media.service';
-
-type MediaUpdatePayload = {
-  mediaId: string;
-  userId: string;
-};
+import type { MediaEvent } from './socket.types';
 
 @Injectable()
 export class SocketService implements OnModuleInit, OnModuleDestroy {
@@ -22,10 +16,7 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
   private subscriber: Redis;
 
   constructor(
-    private readonly redisService: RedisService,
     private readonly socketGateway: SocketGateway,
-    private readonly mediaService: MediaService,
-    // We inject the redis client to duplicate it for subscribing
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -33,49 +24,51 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       'Initializing Redis Pub/Sub subscriber for WebSocket updates...',
     );
-    // Create a dedicated Redis subscriber connection to listen for messages
     this.subscriber = this.redis.duplicate();
 
     await this.subscriber.subscribe('media_updates');
 
     this.subscriber.on('message', (channel: string, message: string) => {
-      if (channel === 'media_updates') {
-        void (async () => {
-          try {
-            const payload: MediaUpdatePayload = JSON.parse(message);
-            const mediaId = payload.mediaId;
-            const userId = payload.userId;
+      if (channel !== 'media_updates') return;
 
-            if (!mediaId || !userId) {
-              this.logger.warn(
-                'Received invalid media_updates payload:',
-                payload,
-              );
-              return;
-            }
+      try {
+        const event = JSON.parse(message) as MediaEvent;
 
-            // We fetch the full media status to emit to the client
-            const media = await this.mediaService.getMediaStatus(
-              userId,
-              mediaId,
+        if (!event.mediaId || !event.userId) {
+          this.logger.warn('Received invalid media_updates payload:', event);
+          return;
+        }
+
+        const room = `user_${event.userId}`;
+
+        switch (event.type) {
+          case 'progress':
+            this.socketGateway.server.to(room).emit('media_progress', event);
+            break;
+          case 'chunk_ready':
+            this.socketGateway.server.to(room).emit('media_chunk_ready', event);
+            break;
+          case 'batch_ready':
+            this.socketGateway.server.to(room).emit('media_batch_ready', event);
+            break;
+          case 'completed':
+            this.socketGateway.server.to(room).emit('media_completed', event);
+            break;
+          case 'failed':
+            this.socketGateway.server.to(room).emit('media_failed', event);
+            break;
+          default:
+            this.logger.warn(
+              `Unknown media event type: ${(event as MediaEvent & { type: string }).type}`,
             );
+        }
 
-            // Emit the update directly to the user's private room
-            this.socketGateway.server
-              .to(`user_${userId}`)
-              .emit('media_updated', media);
-
-            this.logger.debug(
-              `Broadcasted update for media ${mediaId} to user_${userId}`,
-            );
-          } catch (error: unknown) {
-            const msg =
-              error instanceof Error ? error.message : 'Unknown error';
-            this.logger.error(
-              `Failed to process media_updates message: ${msg}`,
-            );
-          }
-        })();
+        this.logger.debug(
+          `Forwarded "${event.type}" event for media ${event.mediaId} → ${room}`,
+        );
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`Failed to process media_updates message: ${msg}`);
       }
     });
   }

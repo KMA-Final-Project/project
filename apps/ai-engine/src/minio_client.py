@@ -5,6 +5,8 @@ Handles downloading input audio and uploading result chunks/final outputs.
 """
 
 import json
+from datetime import timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,31 @@ class MinioClient:
                 self.client.make_bucket(bucket)
                 logger.info(f"Created MinIO bucket: {bucket}")
 
+    def get_presigned_url(self, object_key: str, expires: int = 3600) -> str:
+        """
+        Generate a presigned GET URL for an object in the processed bucket.
+
+        Args:
+            object_key: S3 key in the processed bucket
+            expires: URL validity in seconds (default: 1 hour)
+
+        Returns:
+            Public-facing presigned GET URL
+        """
+        url = self.client.presigned_get_object(
+            self.bucket_processed,
+            object_key,
+            expires=timedelta(seconds=expires),
+        )
+        # Rewrite internal Docker endpoint → public-facing domain
+        if settings.MINIO_PUBLIC_ENDPOINT:
+            protocol = "https" if settings.MINIO_USE_SSL else "http"
+            internal_origin = (
+                f"{protocol}://{settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}"
+            )
+            url = url.replace(internal_origin, settings.MINIO_PUBLIC_ENDPOINT)
+        return url
+
     def download_audio(self, object_key: str, local_path: Path) -> Path:
         """
         Download an audio file from the raw bucket to a local path.
@@ -52,7 +79,9 @@ class MinioClient:
         logger.info(f"Downloaded audio: {object_key} → {local_path}")
         return local_path
 
-    def upload_chunk(self, media_id: str, chunk_index: int, data: list[dict]) -> str:
+    def upload_chunk(
+        self, media_id: str, chunk_index: int, data: list[dict]
+    ) -> tuple[str, str]:
         """
         Upload a subtitle chunk (Tier 1 progressive output) to the processed bucket.
 
@@ -62,12 +91,11 @@ class MinioClient:
             data: List of sentence dicts for this chunk
 
         Returns:
-            The S3 key of the uploaded chunk
+            Tuple of (s3_key, presigned_get_url)
         """
         object_key = f"{media_id}/chunks/{chunk_index}.json"
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        from io import BytesIO
         self.client.put_object(
             self.bucket_processed,
             object_key,
@@ -76,9 +104,11 @@ class MinioClient:
             content_type="application/json",
         )
         logger.debug(f"Uploaded chunk: {object_key} ({len(data)} sentences)")
-        return object_key
+        return object_key, self.get_presigned_url(object_key)
 
-    def upload_final_result(self, media_id: str, output: SubtitleOutput) -> str:
+    def upload_final_result(
+        self, media_id: str, output: SubtitleOutput
+    ) -> tuple[str, str]:
         """
         Upload the complete SubtitleOutput to the processed bucket as final.json.
 
@@ -87,13 +117,12 @@ class MinioClient:
             output: Complete SubtitleOutput with metadata + segments
 
         Returns:
-            The S3 key of the final result
+            Tuple of (s3_key, presigned_get_url)
         """
         object_key = f"{media_id}/final.json"
         data = output.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        from io import BytesIO
         self.client.put_object(
             self.bucket_processed,
             object_key,
@@ -101,12 +130,14 @@ class MinioClient:
             length=len(json_bytes),
             content_type="application/json",
         )
-        logger.info(f"Uploaded final result: {object_key} ({len(output.segments)} segments)")
-        return object_key
+        logger.info(
+            f"Uploaded final result: {object_key} ({len(output.segments)} segments)"
+        )
+        return object_key, self.get_presigned_url(object_key)
 
     def upload_translated_batch(
         self, media_id: str, batch: TranslatedBatch
-    ) -> str:
+    ) -> tuple[str, str]:
         """
         Upload a translated batch (Tier 2 streaming) to the processed bucket.
 
@@ -115,15 +146,11 @@ class MinioClient:
             batch: TranslatedBatch with batch_index and segments
 
         Returns:
-            The S3 key of the uploaded batch
+            Tuple of (s3_key, presigned_get_url)
         """
-        object_key = (
-            f"{media_id}/translated_batches/{batch.batch_index}.json"
-        )
+        object_key = f"{media_id}/translated_batches/{batch.batch_index}.json"
         data = batch.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-
-        from io import BytesIO
 
         self.client.put_object(
             self.bucket_processed,
@@ -135,7 +162,7 @@ class MinioClient:
         logger.debug(
             f"Uploaded translated batch: {object_key} ({len(batch.segments)} segments)"
         )
-        return object_key
+        return object_key, self.get_presigned_url(object_key)
 
     def upload_json(self, object_key: str, data: Any) -> str:
         """
@@ -150,7 +177,6 @@ class MinioClient:
         """
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        from io import BytesIO
         self.client.put_object(
             self.bucket_processed,
             object_key,

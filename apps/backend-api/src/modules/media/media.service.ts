@@ -12,6 +12,7 @@ import type {
   PresignedUrlResponseDto,
   ConfirmUploadResponseDto,
   SubmitYoutubeResponseDto,
+  DownloadUrlResponseDto,
 } from './dto';
 import { randomUUID } from 'crypto';
 import { MediaOriginType, ProcessingMode } from 'prisma/generated/enums';
@@ -237,6 +238,36 @@ export class MediaService {
   }
 
   // ==================== STATUS & LIBRARY ====================
+
+  /**
+   * Generate a presigned GET URL for downloading the processed transcript.
+   * Only available for COMPLETED media items that have a transcriptS3Key.
+   */
+  async getProcessedFileUrl(
+    userId: string,
+    mediaId: string,
+  ): Promise<DownloadUrlResponseDto> {
+    const item = await this.prisma.mediaItem.findFirst({
+      where: { id: mediaId, userId, deletedAt: null },
+      select: { status: true, transcriptS3Key: true },
+    });
+
+    if (!item) {
+      throw new BadRequestException('Media item not found');
+    }
+    if (item.status !== 'COMPLETED' || !item.transcriptS3Key) {
+      throw new BadRequestException(
+        'Media item is not yet completed or has no transcript',
+      );
+    }
+
+    const url = await this.minioService.generatePresignedGetUrl(
+      item.transcriptS3Key,
+    );
+    return { url };
+  }
+
+  // ==================== STATUS & LIBRARY (continued) ====================
 
   /**
    * Get detailed status of a single media item (for polling/progress tracking).
