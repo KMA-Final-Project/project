@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import List, Literal
+from typing import List, Literal, Set
 from loguru import logger
 from pydantic import BaseModel
 
@@ -66,23 +66,31 @@ class SemanticMerger:
         )
 
         batches = self._create_batches(sentences)
-        logger.info(f"   Split into {len(batches)} batches (batch_size={BATCH_SIZE}, overlap={OVERLAP_LINES})")
+        logger.info(
+            f"   Split into {len(batches)} batches (batch_size={BATCH_SIZE}, overlap={OVERLAP_LINES})"
+        )
 
         all_batch_groups: List[List[Sentence]] = []
 
         for batch_idx, (batch_sentences, global_offset) in enumerate(batches):
-            logger.info(f"   Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_sentences)} segments)")
+            logger.info(
+                f"   Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_sentences)} segments)"
+            )
             try:
                 merged = self._process_batch(
                     batch_sentences, global_offset, prompt_template, context_style, cjk
                 )
                 all_batch_groups.append(merged)
             except Exception as e:
-                logger.error(f"   Batch {batch_idx + 1} failed: {e} — returning originals for this batch")
+                logger.error(
+                    f"   Batch {batch_idx + 1} failed: {e} — returning originals for this batch"
+                )
                 all_batch_groups.append(batch_sentences)
 
         total_out = sum(len(g) for g in all_batch_groups)
-        logger.success(f"✨ SemanticMerger complete: {len(sentences)} → {total_out} segments in {len(all_batch_groups)} batches")
+        logger.success(
+            f"✨ SemanticMerger complete: {len(sentences)} → {total_out} segments in {len(all_batch_groups)} batches"
+        )
         return all_batch_groups
 
     # ------------------------------------------------------------------
@@ -162,6 +170,9 @@ class SemanticMerger:
     ) -> List[Sentence]:
         """Rebuild Sentence objects from LLM merge output with validation."""
         new_sentences: List[Sentence] = []
+        # Track which source indices have already been consumed to avoid
+        # duplicates and to enable a full-coverage fallback.
+        seen_indices: Set[int] = set()
 
         for item in merged_data:
             indices = item.source_indices
@@ -169,26 +180,43 @@ class SemanticMerger:
 
             if not indices:
                 continue
-            valid_indices = [idx for idx in indices if 0 <= idx < len(batch_sentences)]
-            if not valid_indices:
+            # Filter to in-range and not-yet-seen indices, preserving order.
+            filtered_indices: List[int] = []
+            for idx in indices:
+                if 0 <= idx < len(batch_sentences) and idx not in seen_indices:
+                    filtered_indices.append(idx)
+            if not filtered_indices:
+                # All indices were out of range or already consumed.
                 continue
 
-            source_sents = [batch_sentences[idx] for idx in valid_indices]
+            source_sents = [batch_sentences[idx] for idx in filtered_indices]
 
             if cjk:
                 # CJK: strict char-count validation (homophone correction)
                 original_combined = "".join(s.text for s in source_sents)
                 if len(merged_text) != len(original_combined):
                     logger.warning(
-                        f"   Length mismatch for indices {valid_indices}: "
+                        f"   Length mismatch for indices {filtered_indices}: "
                         f"'{original_combined}'({len(original_combined)}) vs "
                         f"'{merged_text}'({len(merged_text)}). REJECTING."
                     )
+
+                    # Mark these indices as seen to avoid repeated attempts, but keep original sentences.
+                    seen_indices.update(filtered_indices)
                     new_sentences.extend(source_sents)
                     continue
             else:
-                # Non-CJK: use the merged text as-is (grouping only, no char edits)
-                merged_text = merged_text
+                # Non-CJK: validate that the LLM did not alter the text content.
+                # The merged text must be the exact concatenation of the source texts.
+                original_combined = " ".join(s.text for s in source_sents)
+                if merged_text != original_combined:
+                    logger.warning(
+                        f"   Text mismatch for indices {valid_indices}: "
+                        f"expected '{original_combined}' but got '{merged_text}'. REJECTING."
+                    )
+                    # Fall back to the original sentences to preserve alignment.
+                    new_sentences.extend(source_sents)
+                    continue
 
             # Build merged Sentence
             first_seg = source_sents[0]
@@ -211,6 +239,14 @@ class SemanticMerger:
                     words=all_words,
                 )
             )
+            # Mark indices used in this merged sentence as consumed.
+            seen_indices.update(filtered_indices)
+
+        # Fallback: append any original sentences that were never referenced
+        # in merged_data so that no segments are lost.
+        for idx, sent in enumerate(batch_sentences):
+            if idx not in seen_indices:
+                new_sentences.append(sent)
 
         return new_sentences
 

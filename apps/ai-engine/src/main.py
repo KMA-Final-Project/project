@@ -24,9 +24,14 @@ from src.config import settings
 from src.minio_client import MinioClient
 from src.core.pipeline import PipelineOrchestrator
 from src.schemas import (
-    Sentence, SubtitleMetadata, SubtitleOutput, TranslatedBatch, TranslatedSentence,
+    Sentence,
+    SubtitleMetadata,
+    SubtitleOutput,
+    TranslatedBatch,
+    TranslatedSentence,
 )
 from src.utils.hardware_profiler import HardwareProfiler
+from src.core.translator_engine import TRANSLATION_BATCH_SIZE
 
 # ============================================================================
 # Redis Client for Pub/Sub
@@ -35,7 +40,7 @@ redis_client = redis.Redis(
     host=settings.REDIS_HOST,
     port=settings.REDIS_PORT,
     password=settings.REDIS_PASSWORD or None,
-    decode_responses=True
+    decode_responses=True,
 )
 
 # ============================================================================
@@ -53,6 +58,7 @@ CHUNK_SIZE = 20
 # Database helper (direct Postgres for status updates)
 # ============================================================================
 
+
 def _get_psycopg2_dsn() -> str:
     """
     Strip Prisma-specific query parameters (like ?schema=public) from
@@ -67,6 +73,7 @@ def _get_psycopg2_dsn() -> str:
     clean_query = urlencode(qs, doseq=True)
     clean_url = urlunparse(parsed._replace(query=clean_query))
     return clean_url
+
 
 def update_media_status(
     media_id: str,
@@ -102,7 +109,7 @@ def update_media_status(
     values = []
 
     if status is not None:
-        set_clauses.append("status = %s::\"MediaStatus\"")
+        set_clauses.append('status = %s::"MediaStatus"')
         values.append(status)
     if progress is not None:
         set_clauses.append("progress = %s")
@@ -141,15 +148,14 @@ def update_media_status(
             with conn.cursor() as cur:
                 cur.execute(sql, values)
         conn.close()
-        
+
         # Publish update event to Redis for NestJS WebSockets
         if user_id:
             logger.debug(f"Publishing media_updated event for {media_id}")
-            redis_client.publish("media_updates", json.dumps({
-                "mediaId": media_id,
-                "userId": user_id
-            }))
-            
+            redis_client.publish(
+                "media_updates", json.dumps({"mediaId": media_id, "userId": user_id})
+            )
+
     except Exception as e:
         logger.error(f"DB update failed for media {media_id}: {e}")
 
@@ -175,6 +181,7 @@ def mark_quota_counted(media_id: str) -> None:
 # ============================================================================
 # Job Processor
 # ============================================================================
+
 
 async def process_job(job, token):
     """
@@ -217,19 +224,29 @@ async def process_job(job, token):
 
         # 2. Run the pipeline — record wall-clock start time for ETA
         import time as _time
+
         started_at = _time.time()
 
         if processing_mode == "TRANSCRIBE":
             subtitle_output = run_transcribe_pipeline(
-                pipeline, minio_client, local_audio, media_id,
-                user_id=user_id, started_at=started_at,
+                pipeline,
+                minio_client,
+                local_audio,
+                media_id,
+                user_id=user_id,
+                started_at=started_at,
                 duration_seconds=duration_seconds,
             )
         else:
             target_lang = job_data.get("targetLanguage", "vi")
             subtitle_output = run_transcribe_translate_pipeline(
-                pipeline, minio_client, local_audio, media_id,
-                user_id=user_id, started_at=started_at, target_lang=target_lang,
+                pipeline,
+                minio_client,
+                local_audio,
+                media_id,
+                user_id=user_id,
+                started_at=started_at,
+                target_lang=target_lang,
                 duration_seconds=duration_seconds,
             )
 
@@ -274,6 +291,7 @@ async def process_job(job, token):
 # Pipeline Modes
 # ============================================================================
 
+
 def run_transcribe_pipeline(
     pipeline: PipelineOrchestrator,
     minio_client: MinioClient,
@@ -301,17 +319,35 @@ def run_transcribe_pipeline(
     logger.info("📝 Running TRANSCRIBE pipeline (no translation)")
 
     # Step 1: Audio Standardization
-    update_media_status(media_id, user_id=user_id, progress=0.05, current_step="AUDIO_PREP", estimated_time_remaining=_eta(0.05))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.05,
+        current_step="AUDIO_PREP",
+        estimated_time_remaining=_eta(0.05),
+    )
     meta = pipeline.audio_processor.process(audio_path)
     standardized_path = meta.path
 
     # Step 2: Audio Inspection
-    update_media_status(media_id, user_id=user_id, progress=0.10, current_step="INSPECTING", estimated_time_remaining=_eta(0.10))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.10,
+        current_step="INSPECTING",
+        estimated_time_remaining=_eta(0.10),
+    )
     profile = pipeline.audio_inspector.inspect(standardized_path)
     logger.info(f"Audio profile: {profile}")
 
     # Step 3: VAD & Isolation
-    update_media_status(media_id, user_id=user_id, progress=0.15, current_step="VAD", estimated_time_remaining=_eta(0.15))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.15,
+        current_step="VAD",
+        estimated_time_remaining=_eta(0.15),
+    )
     segments, clean_audio_path = pipeline.vad_manager.process(
         standardized_path, profile=profile
     )
@@ -320,12 +356,20 @@ def run_transcribe_pipeline(
         logger.warning("No speech detected — returning empty result")
         update_media_status(media_id, user_id=user_id, progress=1.0, clear_step=True)
         return SubtitleOutput(
-            metadata=SubtitleMetadata(duration=duration_seconds, engine_profile=settings.AI_PERF_MODE.value),
+            metadata=SubtitleMetadata(
+                duration=duration_seconds, engine_profile=settings.AI_PERF_MODE.value
+            ),
             segments=[],
         )
 
     # Step 4: Smart Alignment with streaming chunk uploads
-    update_media_status(media_id, user_id=user_id, progress=0.25, current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.25))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.25,
+        current_step="TRANSCRIBING",
+        estimated_time_remaining=_eta(0.25),
+    )
     chunk_index = [0]  # Mutable counter for closure
     source_lang_detected = [False]
 
@@ -350,19 +394,30 @@ def run_transcribe_pipeline(
             current_step="TRANSCRIBING",
             estimated_time_remaining=_eta(progress),
         )
-        logger.info(f"📤 Streamed chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
+        logger.info(
+            f"📤 Streamed chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)"
+        )
 
     sentences = pipeline.aligner.process(
-        clean_audio_path, segments, profile=profile,
-        on_chunk=on_chunk, chunk_size=CHUNK_SIZE,
+        clean_audio_path,
+        segments,
+        profile=profile,
+        on_chunk=on_chunk,
+        chunk_size=CHUNK_SIZE,
     )
 
     # Detect language if not yet detected (e.g. very few sentences)
     source_lang = ""
     if sentences and not source_lang_detected[0]:
         source_lang = _detect_source_language(sentences)
-        update_media_status(media_id, user_id=user_id, source_language=source_lang, progress=0.85,
-                            current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.85))
+        update_media_status(
+            media_id,
+            user_id=user_id,
+            source_language=source_lang,
+            progress=0.85,
+            current_step="TRANSCRIBING",
+            estimated_time_remaining=_eta(0.85),
+        )
     elif source_lang_detected[0]:
         source_lang = _detect_source_language(sentences[:5]) if sentences else ""
 
@@ -370,9 +425,16 @@ def run_transcribe_pipeline(
     _populate_segment_phonetics(sentences, source_lang)
 
     # Step 7: Export
-    update_media_status(media_id, user_id=user_id, progress=0.95, current_step="EXPORTING", estimated_time_remaining=_eta(0.95))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.95,
+        current_step="EXPORTING",
+        estimated_time_remaining=_eta(0.95),
+    )
     model_used = (
-        settings.WHISPER_MODEL_FULL if source_lang in settings.WHISPER_CJK_LANGUAGES
+        settings.WHISPER_MODEL_FULL
+        if source_lang in settings.WHISPER_CJK_LANGUAGES
         else settings.WHISPER_MODEL_TURBO
     )
     return SubtitleOutput(
@@ -415,17 +477,35 @@ def run_transcribe_translate_pipeline(
     logger.info("🌐 Running TRANSCRIBE_TRANSLATE pipeline (full bilingual)")
 
     # Step 1: Audio Standardization
-    update_media_status(media_id, user_id=user_id, progress=0.05, current_step="AUDIO_PREP", estimated_time_remaining=_eta(0.05))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.05,
+        current_step="AUDIO_PREP",
+        estimated_time_remaining=_eta(0.05),
+    )
     meta = pipeline.audio_processor.process(audio_path)
     standardized_path = meta.path
 
     # Step 2: Audio Inspection
-    update_media_status(media_id, user_id=user_id, progress=0.10, current_step="INSPECTING", estimated_time_remaining=_eta(0.10))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.10,
+        current_step="INSPECTING",
+        estimated_time_remaining=_eta(0.10),
+    )
     profile = pipeline.audio_inspector.inspect(standardized_path)
     logger.info(f"Audio profile: {profile}")
 
     # Step 3: VAD & Isolation
-    update_media_status(media_id, user_id=user_id, progress=0.15, current_step="VAD", estimated_time_remaining=_eta(0.15))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.15,
+        current_step="VAD",
+        estimated_time_remaining=_eta(0.15),
+    )
     segments, clean_audio_path = pipeline.vad_manager.process(
         standardized_path, profile=profile
     )
@@ -435,13 +515,21 @@ def run_transcribe_translate_pipeline(
         update_media_status(media_id, user_id=user_id, progress=1.0, clear_step=True)
         return SubtitleOutput(
             metadata=SubtitleMetadata(
-                duration=duration_seconds, engine_profile=settings.AI_PERF_MODE.value, target_lang=target_lang,
+                duration=duration_seconds,
+                engine_profile=settings.AI_PERF_MODE.value,
+                target_lang=target_lang,
             ),
             segments=[],
         )
 
     # Step 4: Smart Alignment with Tier 1 streaming preview chunks
-    update_media_status(media_id, user_id=user_id, progress=0.25, current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.25))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.25,
+        current_step="TRANSCRIBING",
+        estimated_time_remaining=_eta(0.25),
+    )
     chunk_index = [0]
 
     def on_chunk(batch: list, total_so_far: int):
@@ -457,37 +545,83 @@ def run_transcribe_translate_pipeline(
             current_step="TRANSCRIBING",
             estimated_time_remaining=_eta(progress),
         )
-        logger.info(f"📤 Preview chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
+        logger.info(
+            f"📤 Preview chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)"
+        )
 
     sentences = pipeline.aligner.process(
-        clean_audio_path, segments, profile=profile,
-        on_chunk=on_chunk, chunk_size=CHUNK_SIZE,
+        clean_audio_path,
+        segments,
+        profile=profile,
+        on_chunk=on_chunk,
+        chunk_size=CHUNK_SIZE,
     )
 
     # Detect source language
     source_lang = _detect_source_language(sentences) if sentences else "en"
-    update_media_status(media_id, user_id=user_id, source_language=source_lang, progress=0.40,
-                        current_step="TRANSCRIBING", estimated_time_remaining=_eta(0.40))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        source_language=source_lang,
+        progress=0.40,
+        current_step="TRANSCRIBING",
+        estimated_time_remaining=_eta(0.40),
+    )
 
     # Step 5: Semantic Merge (language-aware, batched)
     context_style = "Song/Music Lyrics" if profile == "music" else "Speech/Dialogue"
 
+    def _flatten_semantic_batch_groups(
+        merged_batch_groups: list[list[Sentence]],
+    ) -> list[Sentence]:
+        """
+        Flatten semantic merge batch groups into a single, de-duplicated list.
+        SemanticMerger may produce overlapping batches; this helper removes
+        duplicate sentences while preserving overall order.
+        """
+        flattened: list[Sentence] = []
+        seen_keys: set[tuple] = set()
+        for group in merged_batch_groups:
+            for s in group:
+                key = (
+                    getattr(s, "start", None),
+                    getattr(s, "end", None),
+                    getattr(s, "text", None),
+                )
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                flattened.append(s)
+        return flattened
+
     if profile == "music" or len(sentences) > 5:
-        update_media_status(media_id, user_id=user_id, progress=0.50, current_step="MERGING", estimated_time_remaining=_eta(0.50))
+        update_media_status(
+            media_id,
+            user_id=user_id,
+            progress=0.50,
+            current_step="MERGING",
+            estimated_time_remaining=_eta(0.50),
+        )
         try:
             merged_batch_groups = pipeline.merger.process(
                 sentences, source_lang=source_lang, context_style=context_style
             )
-            # Flatten batch groups into a single sentence list for downstream use
-            sentences = [s for group in merged_batch_groups for s in group]
+            # Flatten batch groups into a single, de-overlapped sentence list for downstream use
+            sentences = _flatten_semantic_batch_groups(merged_batch_groups)
         except Exception as e:
             logger.error(f"Semantic merge failed (continuing): {e}")
 
     # Step 6: Translation — Tier 2 streaming via on_batch_complete callback
-    update_media_status(media_id, user_id=user_id, progress=0.65, current_step="TRANSLATING", estimated_time_remaining=_eta(0.65))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.65,
+        current_step="TRANSLATING",
+        estimated_time_remaining=_eta(0.65),
+    )
 
     total_sentences = len(sentences)
-    batch_size = 15  # matches TRANSLATION_BATCH_SIZE in translator_engine
+    batch_size = TRANSLATION_BATCH_SIZE
     total_batches = max(1, (total_sentences + batch_size - 1) // batch_size)
 
     def on_batch_complete(batch_idx: int, batch: list[Sentence]) -> None:
@@ -522,9 +656,16 @@ def run_transcribe_translate_pipeline(
     _populate_segment_phonetics(translated, source_lang)
 
     # Step 7: Export
-    update_media_status(media_id, user_id=user_id, progress=0.95, current_step="EXPORTING", estimated_time_remaining=_eta(0.95))
+    update_media_status(
+        media_id,
+        user_id=user_id,
+        progress=0.95,
+        current_step="EXPORTING",
+        estimated_time_remaining=_eta(0.95),
+    )
     model_used = (
-        settings.WHISPER_MODEL_FULL if source_lang in settings.WHISPER_CJK_LANGUAGES
+        settings.WHISPER_MODEL_FULL
+        if source_lang in settings.WHISPER_CJK_LANGUAGES
         else settings.WHISPER_MODEL_TURBO
     )
     return SubtitleOutput(
@@ -542,6 +683,7 @@ def run_transcribe_translate_pipeline(
 # ============================================================================
 # Helpers
 # ============================================================================
+
 
 def _detect_source_language(sentences) -> str:
     """
@@ -561,7 +703,9 @@ def _detect_source_language(sentences) -> str:
         return "zh"
 
     # Vietnamese diacritics
-    vn_chars = set("ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ")
+    vn_chars = set(
+        "ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ"
+    )
     vn_count = sum(1 for c in sample_text.lower() if c in vn_chars)
     if vn_count > len(sample_text) * 0.05:
         return "vi"
@@ -587,6 +731,7 @@ def _populate_segment_phonetics(sentences: list[Sentence], source_lang: str) -> 
 # ============================================================================
 # Main
 # ============================================================================
+
 
 async def main():
     """Start the AI Engine BullMQ worker."""
