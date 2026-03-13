@@ -80,6 +80,7 @@ export class ConfirmUploadDto {
   })
   @IsOptional()
   @IsString()
+  @Matches(/^[a-z]{2}(-[A-Z]{2})?$/)
   targetLanguage?: string;
 }
 
@@ -130,5 +131,6 @@ export class SubmitYoutubeDto {
   })
   @IsOptional()
   @IsString()
+  @Matches(/^[a-z]{2}(-[A-Z]{2})?$/)
   targetLanguage?: string;
 }
