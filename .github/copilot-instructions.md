@@ -6,12 +6,12 @@
   - `apps/backend-api`: NestJS API gateway + BullMQ worker producer
   - `apps/ai-engine`: Python BullMQ worker for GPU-heavy subtitle generation
   - `apps/mobile-app`: Expo/React Native client
-- The most useful high-level document is `/home/runner/work/project/project/checkpoint.md`. Read it first for architecture, queues, infra, current feature status, and the command table.
-- Then read `/home/runner/work/project/project/apps/INSTRUCTION.md` and the app-specific instruction file for the area you are changing:
-  - `/home/runner/work/project/project/apps/backend-api/INSTRUCTION.md`
-  - `/home/runner/work/project/project/apps/mobile-app/INSTRUCTION.md`
-  - `/home/runner/work/project/project/apps/ai-engine/INSTRUCTION.md`
-- There is also scoped GitHub instruction coverage for the AI engine at `/home/runner/work/project/project/.github/instructions/ai-engine.instructions.md`.
+- The most useful high-level document is `checkpoint.md`. Read it first for architecture, queues, infra, current feature status, and the command table.
+- Then read `apps/INSTRUCTION.md` and the app-specific instruction file for the area you are changing:
+  - `apps/backend-api/INSTRUCTION.md`
+  - `apps/mobile-app/INSTRUCTION.md`
+  - `apps/ai-engine/INSTRUCTION.md`
+- There is also scoped GitHub instruction coverage for the AI engine at `.github/instructions/ai-engine.instructions.md`.
 - The default app READMEs are less trustworthy than `checkpoint.md` and the `INSTRUCTION.md` files. In particular, `apps/mobile-app/README.md` is still the stock Expo template.
 
 ## Repository shape and ownership
@@ -21,10 +21,10 @@
   `AudioProcessor -> AudioInspector -> VADManager -> SmartAligner -> SemanticMerger -> TranslatorEngine`
 - `apps/mobile-app` is an Expo Router app using Zustand, Axios, Zod, i18next, and `react-native-unistyles`.
 - Infra is not managed by a single root compose file in this clone. Instead, compose files live here:
-  - `/home/runner/work/project/project/infra/postgres/docker-compose.yml`
-  - `/home/runner/work/project/project/infra/redis/docker-compose.yml`
-  - `/home/runner/work/project/project/infra/minio/docker-compose.yml`
-  - `/home/runner/work/project/project/apps/ai-engine/docker-compose.yml`
+  - `infra/postgres/docker-compose.yml`
+  - `infra/redis/docker-compose.yml`
+  - `infra/minio/docker-compose.yml`
+  - `apps/ai-engine/docker-compose.yml`
 
 ## How to work efficiently
 
@@ -92,9 +92,9 @@ These were reproduced in this repository during onboarding and are worth knowing
   - Workaround: install `pnpm` first, then run `pnpm install` inside the Node app you are working on before using `pnpm lint`, `pnpm test`, or dev commands.
 - AI engine import sanity check fails immediately with `ModuleNotFoundError: No module named 'loguru'` in a fresh clone.
   - Workaround: create/activate the AI engine virtual environment, install PyTorch first, then install `requirements.txt`:
-    - `cd /home/runner/work/project/project/apps/ai-engine`
+    - `cd apps/ai-engine`
     - `python -m venv .venv`
-    - `source .venv/bin/activate` on Linux/macOS or `.venv\\Scripts\\activate` on Windows
+    - `source .venv/bin/activate` on Linux/macOS or `.venv\Scripts\activate` on Windows
     - `pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128`
     - `pip install -r requirements.txt`
 - `python -m pytest` currently fails with `No module named pytest` in the same fresh environment.
