@@ -49,5 +49,9 @@
   "backLibrary": "Back to Library",
   "untitled": "Untitled",
   "originYoutube": "YouTube",
-  "originLocal": "Local File"
+  "originLocal": "Local File",
+  "subtitlePreview": {
+    "title": "Live Preview",
+    "loading": "Loading subtitles..."
+  }
 }

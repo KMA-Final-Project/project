@@ -5,6 +5,7 @@
  * processingMode is always TRANSCRIBE_TRANSLATE (full bilingual subtitle generation).
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { mediaService } from "@/services/media.services";
 import { useMediaStore } from "@/stores/media.store";
 
@@ -13,6 +14,8 @@ import { useMediaStore } from "@/stores/media.store";
 export const mediaKeys = {
   all: ["media"] as const,
   status: (id: string) => ["media-status", id] as const,
+  chunks: (id: string) => ["media-chunks", id] as const,
+  batches: (id: string) => ["media-batches", id] as const,
 };
 
 // ─── Queries ─────────────────────────────────────────────────────
@@ -50,12 +53,14 @@ export function useMediaStatus(id: string | null) {
 export function useSubmitYouTube() {
   const queryClient = useQueryClient();
   const addItemLocally = useMediaStore((s) => s.addItemLocally);
+  const { i18n } = useTranslation();
 
   return useMutation({
     mutationFn: (url: string) =>
       mediaService.submitYouTube({
         url,
         processingMode: "TRANSCRIBE_TRANSLATE",
+        targetLanguage: i18n.language,
       }),
     onSuccess: (newItem) => {
       addItemLocally(newItem);
@@ -73,6 +78,7 @@ export function useSubmitYouTube() {
 export function useUploadMedia() {
   const queryClient = useQueryClient();
   const addItemLocally = useMediaStore((s) => s.addItemLocally);
+  const { i18n } = useTranslation();
 
   return useMutation({
     mutationFn: async (file: {
@@ -103,6 +109,7 @@ export function useUploadMedia() {
         title,
         objectKey: objectKey,
         processingMode: "TRANSCRIBE_TRANSLATE",
+        targetLanguage: i18n.language,
       });
     },
     onSuccess: (newItem) => {

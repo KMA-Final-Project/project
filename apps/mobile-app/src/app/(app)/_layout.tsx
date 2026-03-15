@@ -88,7 +88,11 @@ export default function AppLayout() {
                   elevation: 5,
                 }}
               >
-                <Ionicons name="add" size={32} color="#fff" />
+                <Ionicons
+                  name="add"
+                  size={32}
+                  color={theme.colors.textOnPrimary}
+                />
               </View>
             ),
           }}

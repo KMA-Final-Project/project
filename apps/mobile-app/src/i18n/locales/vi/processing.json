@@ -49,5 +49,9 @@
   "backLibrary": "Về Thư viện",
   "untitled": "Chưa có tiêu đề",
   "originYoutube": "YouTube",
-  "originLocal": "Tệp cục bộ"
+  "originLocal": "Tệp cục bộ",
+  "subtitlePreview": {
+    "title": "Xem trước trực tiếp",
+    "loading": "Đang tải phụ đề..."
+  }
 }

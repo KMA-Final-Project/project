@@ -1,3 +1,6 @@
 prompt.md
 .agent
-.github/prompts
+# .github/prompts
+
+response_*.*
+test_results.txt

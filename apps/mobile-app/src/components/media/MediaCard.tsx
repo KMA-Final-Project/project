@@ -12,6 +12,7 @@ import React from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
 import { useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Card, IconButton, StatusBadge } from "@/components";
 import type { MediaItem } from "@/types/media";
 import dayjs from "dayjs";
@@ -34,6 +35,7 @@ function formatDuration(seconds?: number | null) {
 
 export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
   const { theme } = useUnistyles();
+  const { t } = useTranslation("common");
 
   // Build subtitle text
   const subtitleLine = (() => {
@@ -129,7 +131,8 @@ export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
           {isProcessing ? (
             <View style={styles.progressContainer}>
               <Text style={[styles.progressText, { color: theme.colors.info }]}>
-                Generating subtitles... {item.progress}%
+                {t("library.generating")}{" "}
+                {Math.round((item.progress ?? 0) * 100)}%
               </Text>
               <View
                 style={[
@@ -141,7 +144,7 @@ export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
                   style={[
                     styles.progressFill,
                     {
-                      width: `${Math.max(4, item.progress || 4)}%`,
+                      width: `${Math.max(4, Math.round((item.progress ?? 0) * 100))}%`,
                       backgroundColor: theme.colors.info,
                     },
                   ]}

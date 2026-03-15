@@ -73,19 +73,33 @@ class SemanticMerger:
         all_batch_groups: List[List[Sentence]] = []
 
         for batch_idx, (batch_sentences, global_offset) in enumerate(batches):
+            is_last_batch = batch_idx == len(batches) - 1
+            # Core size = how many segments this batch "owns".
+            # Non-last batches exclude the trailing overlap (belongs to next batch).
+            core_size = (
+                len(batch_sentences)
+                if is_last_batch
+                else len(batch_sentences) - OVERLAP_LINES
+            )
             logger.info(
-                f"   Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_sentences)} segments)"
+                f"   Processing batch {batch_idx + 1}/{len(batches)} "
+                f"({len(batch_sentences)} segments, core={core_size})"
             )
             try:
                 merged = self._process_batch(
-                    batch_sentences, global_offset, prompt_template, context_style, cjk
+                    batch_sentences,
+                    global_offset,
+                    prompt_template,
+                    context_style,
+                    cjk,
+                    core_size=core_size,
                 )
                 all_batch_groups.append(merged)
             except Exception as e:
                 logger.error(
                     f"   Batch {batch_idx + 1} failed: {e} — returning originals for this batch"
                 )
-                all_batch_groups.append(batch_sentences)
+                all_batch_groups.append(batch_sentences[:core_size])
 
         total_out = sum(len(g) for g in all_batch_groups)
         logger.success(
@@ -140,10 +154,16 @@ class SemanticMerger:
         prompt_template: str,
         context_style: str,
         cjk: bool,
+        core_size: int | None = None,
     ) -> List[Sentence]:
         """Run one batch through the LLM and reconstruct validated Sentences."""
-        # Build indexed input
-        input_lines = [f"[{i}] {s.text}" for i, s in enumerate(batch_sentences)]
+        if core_size is None:
+            core_size = len(batch_sentences)
+
+        # Build indexed input (strip whitespace to avoid LLM mismatches)
+        # The LLM sees ALL sentences (including overlap for context),
+        # but only core indices will be emitted in the output.
+        input_lines = [f"[{i}] {s.text.strip()}" for i, s in enumerate(batch_sentences)]
         input_text = "\n".join(input_lines)
 
         prompt = prompt_template.format(context_style=context_style)
@@ -154,9 +174,9 @@ class SemanticMerger:
 
         if not merged_data:
             logger.warning("   No valid merged data — keeping originals for this batch")
-            return batch_sentences
+            return batch_sentences[:core_size]
 
-        return self._reconstruct(batch_sentences, merged_data, cjk)
+        return self._reconstruct(batch_sentences, merged_data, cjk, core_size=core_size)
 
     # ------------------------------------------------------------------
     # Reconstruction & validation
@@ -167,8 +187,16 @@ class SemanticMerger:
         batch_sentences: List[Sentence],
         merged_data: List[MergedLine],
         cjk: bool,
+        core_size: int | None = None,
     ) -> List[Sentence]:
-        """Rebuild Sentence objects from LLM merge output with validation."""
+        """Rebuild Sentence objects from LLM merge output with validation.
+
+        Only indices in [0, core_size) are emitted.  Indices >= core_size
+        are overlap context that belongs to the next batch.
+        """
+        if core_size is None:
+            core_size = len(batch_sentences)
+
         new_sentences: List[Sentence] = []
         # Track which source indices have already been consumed to avoid
         # duplicates and to enable a full-coverage fallback.
@@ -189,11 +217,24 @@ class SemanticMerger:
                 # All indices were out of range or already consumed.
                 continue
 
+            # Check if this merge spans into the overlap zone.
+            core_indices = [i for i in filtered_indices if i < core_size]
+            overlap_indices = [i for i in filtered_indices if i >= core_size]
+
+            if overlap_indices:
+                # Merge crosses the core/overlap boundary — reject it.
+                # Keep only the core originals; overlap belongs to next batch.
+                seen_indices.update(filtered_indices)
+                for idx in core_indices:
+                    new_sentences.append(batch_sentences[idx])
+                continue
+
+            # All indices are within core range — proceed with validation.
             source_sents = [batch_sentences[idx] for idx in filtered_indices]
 
             if cjk:
                 # CJK: strict char-count validation (homophone correction)
-                original_combined = "".join(s.text for s in source_sents)
+                original_combined = "".join(s.text.strip() for s in source_sents)
                 if len(merged_text) != len(original_combined):
                     logger.warning(
                         f"   Length mismatch for indices {filtered_indices}: "
@@ -208,8 +249,10 @@ class SemanticMerger:
             else:
                 # Non-CJK: validate that the LLM did not alter the text content.
                 # The merged text must be the exact concatenation of the source texts.
-                original_combined = " ".join(s.text for s in source_sents)
-                if merged_text != original_combined:
+                # Strip individual texts to normalize leading/trailing whitespace
+                # from upstream Whisper output.
+                original_combined = " ".join(s.text.strip() for s in source_sents)
+                if merged_text.strip() != original_combined:
                     logger.warning(
                         f"   Text mismatch for indices {filtered_indices}: "
                         f"expected '{original_combined}' but got '{merged_text}'. REJECTING."
@@ -244,10 +287,10 @@ class SemanticMerger:
             seen_indices.update(filtered_indices)
 
         # Fallback: append any original sentences that were never referenced
-        # in merged_data so that no segments are lost.
-        for idx, sent in enumerate(batch_sentences):
+        # in merged_data so that no segments are lost.  Only for core indices.
+        for idx in range(core_size):
             if idx not in seen_indices:
-                new_sentences.append(sent)
+                new_sentences.append(batch_sentences[idx])
 
         return new_sentences
 

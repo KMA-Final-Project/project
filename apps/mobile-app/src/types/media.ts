@@ -28,6 +28,7 @@ export interface MediaItem {
   durationSeconds: number | null;
   sourceLanguage: string | null;
   languageCount?: number; // Added for subtitle string
+  transcriptS3Key: string | null;
   subtitleS3Key: string | null;
   audioS3Key: string | null;
   thumbnailUrl?: string | null; // Added for thumbnail support
@@ -56,6 +57,8 @@ export interface ConfirmUploadRequest {
   /** S3 object key returned from presigned-url step */
   objectKey: string;
   processingMode?: ProcessingMode;
+  /** Target language for translation (e.g. "vi", "en") */
+  targetLanguage?: string;
 }
 
 export interface SubmitYouTubeRequest {
@@ -63,6 +66,8 @@ export interface SubmitYouTubeRequest {
   /** Optional title — worker auto-extracts via yt-dlp if omitted */
   title?: string;
   processingMode?: ProcessingMode;
+  /** Target language for translation (e.g. "vi", "en") */
+  targetLanguage?: string;
 }
 
 export interface MediaStatusResponse {

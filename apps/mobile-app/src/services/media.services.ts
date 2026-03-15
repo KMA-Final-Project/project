@@ -49,4 +49,10 @@ export const mediaService = {
     const res = await api.post<MediaItem>(ENDPOINTS.MEDIA_SUBMIT_YOUTUBE, data);
     return res.data;
   },
+
+  /** Get a presigned download URL for a processed artifact (chunk/batch JSON) */
+  async getDownloadUrl(url: string): Promise<unknown> {
+    const res = await api.get(url);
+    return res.data;
+  },
 };

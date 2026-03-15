@@ -22,13 +22,16 @@ import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Circle } from "react-native-svg";
 import { useTranslation } from "react-i18next";
 
 import { useMediaStatus } from "@/hooks/useMedia";
+import { useProcessingSubtitles } from "@/hooks/useProcessingSubtitles";
+import { useThrottle } from "@/hooks/useThrottle";
 import { PipelineStepper } from "@/components/media/PipelineStepper";
+import { SubtitlePreview } from "@/components/media/SubtitlePreview";
 import { ROUTES } from "@/constants/routes";
 import type { MediaStatus } from "@/types/media";
+import { ProcessingProgressRing } from "@/components/media/ProcessingProgressRing";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -50,53 +53,6 @@ function getStatusLabel(status: MediaStatus | undefined, t: any): string {
 
 // ─── Circular Progress Ring (SVG) ────────────────────────────────
 
-function CircularProgressRing({
-  progress,
-  size = 160,
-  strokeWidth = 10,
-  color,
-  trackColor,
-}: {
-  progress: number; // 0.0 – 1.0
-  size?: number;
-  strokeWidth?: number;
-  color: string;
-  trackColor: string;
-}) {
-  const r = (size - strokeWidth) / 2;
-  const cx = size / 2;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference * (1 - Math.min(1, Math.max(0, progress)));
-
-  return (
-    <Svg
-      width={size}
-      height={size}
-      style={{ transform: [{ rotate: "-90deg" }] }}
-    >
-      <Circle
-        cx={cx}
-        cy={cx}
-        r={r}
-        stroke={trackColor}
-        strokeWidth={strokeWidth}
-        fill="transparent"
-      />
-      <Circle
-        cx={cx}
-        cy={cx}
-        r={r}
-        stroke={color}
-        strokeWidth={strokeWidth}
-        fill="transparent"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
-
 // ─── Main Screen ──────────────────────────────────────────────────
 
 export default function ProcessingScreen() {
@@ -109,14 +65,32 @@ export default function ProcessingScreen() {
 
   const { data: media, isLoading } = useMediaStatus(id ?? null);
 
+  // Throttle raw progress to reduce re-renders on the ring (bypass for terminal states)
+  const rawProgress = media?.progress ?? 0;
+  const throttledProgress = useThrottle(
+    rawProgress,
+    1500,
+    (v) => v === 0 || v === 1,
+  );
+
+  // Progressive subtitle preview during processing
+  const { sentences, isLoading: subtitlesLoading } = useProcessingSubtitles(
+    id ?? null,
+  );
+
   const goToLibrary = () => router.replace("/");
   const goToPlayer = () =>
     router.replace({ pathname: ROUTES.PLAYER, params: { id } } as any);
 
-  const progress = media?.progress ?? 0;
+  const progress = throttledProgress;
   const status = media?.status;
   const isDone = status === "COMPLETED";
   const isFailed = status === "FAILED";
+  const statusAccent = isFailed
+    ? theme.colors.error
+    : isDone
+      ? theme.colors.success
+      : theme.colors.primary;
 
   // ── Loading skeleton ──────────────────────────────────────────
   if (isLoading && !media) {
@@ -140,77 +114,27 @@ export default function ProcessingScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <View
+        style={[
+          styles.stickyHero,
+          {
+            backgroundColor: theme.colors.background,
+            borderBottomColor: theme.colors.divider,
+          },
+        ]}
       >
         {/* ── Progress Ring + Status Text ───────────────────── */}
         <View style={styles.ringSection}>
-          <View style={styles.ringWrapper}>
-            <CircularProgressRing
-              progress={isDone ? 1 : progress}
-              size={160}
-              strokeWidth={10}
-              color={
-                isFailed
-                  ? theme.colors.error
-                  : isDone
-                    ? theme.colors.success
-                    : theme.colors.primary
-              }
-              trackColor={theme.colors.surface}
-            />
-
-            {/* Centre label */}
-            <View style={styles.ringCenter}>
-              {isDone ? (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={48}
-                  color={theme.colors.success}
-                />
-              ) : isFailed ? (
-                <Ionicons
-                  name="close-circle"
-                  size={48}
-                  color={theme.colors.error}
-                />
-              ) : (
-                <>
-                  <Text
-                    style={[styles.ringPercent, { color: theme.colors.text }]}
-                  >
-                    {Math.round(progress * 100)}%
-                  </Text>
-                  <Text
-                    style={[
-                      styles.ringLabel,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    {t("progress")}
-                  </Text>
-                </>
-              )}
-            </View>
-          </View>
+          <ProcessingProgressRing
+            progress={isDone ? 1 : progress}
+            status={status}
+            progressLabel={t("progress")}
+          />
 
           {/* Status text */}
-          <Text
-            style={[
-              styles.statusText,
-              {
-                color: isFailed
-                  ? theme.colors.error
-                  : isDone
-                    ? theme.colors.success
-                    : theme.colors.primary,
-              },
-            ]}
-          >
+          <Text style={[styles.statusText, { color: statusAccent }]}>
             {getStatusLabel(status, t)}
           </Text>
-
           {/* Media title card */}
           {media && (
             <View
@@ -237,7 +161,7 @@ export default function ProcessingScreen() {
                   size={24}
                   color={
                     media.originType === "YOUTUBE"
-                      ? "#EF4444"
+                      ? theme.colors.error
                       : theme.colors.primary
                   }
                 />
@@ -269,18 +193,37 @@ export default function ProcessingScreen() {
             </View>
           )}
         </View>
+      </View>
 
+      <ScrollView
+        style={styles.detailsScroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* ── Pipeline Stepper (hide on completed for cleaner look) ── */}
         {!isFailed && (
           <View
             style={[
               styles.stepperSection,
-              { borderTopColor: theme.colors.border },
+              {
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+              },
             ]}
           >
             <PipelineStepper
               currentStep={isDone ? "EXPORTING" : (media?.currentStep ?? null)}
               status={status ?? "QUEUED"}
+            />
+          </View>
+        )}
+
+        {/* ── Live Subtitle Preview (during PROCESSING) ────────── */}
+        {!isDone && !isFailed && (
+          <View style={styles.previewSection}>
+            <SubtitlePreview
+              sentences={sentences}
+              isLoading={subtitlesLoading}
             />
           </View>
         )}
@@ -331,10 +274,17 @@ export default function ProcessingScreen() {
               <Ionicons
                 name="play-circle"
                 size={20}
-                color="#fff"
+                color={theme.colors.textOnPrimary}
                 style={{ marginRight: 8 }}
               />
-              <Text style={styles.btnPrimaryText}>{t("openPlayer")}</Text>
+              <Text
+                style={[
+                  styles.btnPrimaryText,
+                  { color: theme.colors.textOnPrimary },
+                ]}
+              >
+                {t("openPlayer")}
+              </Text>
             </Pressable>
             <Pressable
               style={[
@@ -444,40 +394,31 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: "700",
   },
   // ── Scroll content
+  detailsScroll: {
+    flex: 1,
+  },
   scrollContent: {
-    paddingBottom: theme.spacing[4],
+    paddingHorizontal: theme.spacing[6],
+    paddingTop: theme.spacing[5],
+    paddingBottom: theme.spacing[6],
+    gap: theme.spacing[4],
+  },
+  stickyHero: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: theme.spacing[5],
+    shadowColor: theme.colors.primary,
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 18,
+    elevation: 3,
+    zIndex: 1,
   },
   // ── Ring section
   ringSection: {
     alignItems: "center",
     paddingHorizontal: theme.spacing[6],
-    paddingTop: theme.spacing[4],
-    paddingBottom: theme.spacing[6],
+    paddingTop: theme.spacing[3],
     gap: theme.spacing[4],
-  },
-  ringWrapper: {
-    position: "relative",
-    width: 160,
-    height: 160,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ringCenter: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ringPercent: {
-    fontSize: 36,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  ringLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginTop: 2,
   },
   statusText: {
     fontSize: 17,
@@ -510,17 +451,18 @@ const styles = StyleSheet.create((theme) => ({
   },
   // ── Stepper
   stepperSection: {
-    paddingHorizontal: theme.spacing[6],
-    paddingTop: theme.spacing[5],
-    borderTopWidth: StyleSheet.hairlineWidth,
+    padding: theme.spacing[5],
+    borderWidth: 1,
+    borderRadius: theme.radii.xl,
+  },
+  previewSection: {
+    minHeight: 120,
   },
   // ── Error card
   errorCard: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.spacing[2],
-    marginHorizontal: theme.spacing[6],
-    marginTop: theme.spacing[4],
     padding: theme.spacing[4],
     borderRadius: theme.radii.lg,
     borderWidth: 1,
@@ -548,7 +490,6 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   btnPrimaryText: {
-    color: "#fff",
     fontSize: 16,
     fontWeight: "700",
   },

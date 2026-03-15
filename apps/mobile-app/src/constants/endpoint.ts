@@ -13,4 +13,5 @@ export const ENDPOINTS = {
   MEDIA_SUBMIT_YOUTUBE: "/media/youtube",
   MEDIA_STATUS: (id: string) => `/media/${id}/status`,
   MEDIA_DETAIL: (id: string) => `/media/${id}`,
+  MEDIA_DOWNLOAD_URL: (id: string) => `/media/${id}/download-url`,
 };

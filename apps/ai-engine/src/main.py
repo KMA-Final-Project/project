@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import psycopg2
+import psycopg2.pool
 from bullmq import Worker
 from loguru import logger
 
@@ -72,6 +73,20 @@ def _get_psycopg2_dsn() -> str:
     clean_query = urlencode(qs, doseq=True)
     clean_url = urlunparse(parsed._replace(query=clean_query))
     return clean_url
+
+
+# Lazy-initialized connection pool (created on first DB call)
+_db_pool: psycopg2.pool.SimpleConnectionPool | None = None
+
+
+def _get_db_pool() -> psycopg2.pool.SimpleConnectionPool:
+    """Return a shared connection pool, creating it on first use."""
+    global _db_pool
+    if _db_pool is None or _db_pool.closed:
+        _db_pool = psycopg2.pool.SimpleConnectionPool(
+            minconn=1, maxconn=4, dsn=_get_psycopg2_dsn()
+        )
+    return _db_pool
 
 
 def update_media_status(
@@ -142,11 +157,14 @@ def update_media_status(
     sql = f"UPDATE media_items SET {', '.join(set_clauses)} WHERE id = %s"
 
     try:
-        conn = psycopg2.connect(_get_psycopg2_dsn())
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, values)
-        conn.close()
+        pool = _get_db_pool()
+        conn = pool.getconn()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, values)
+        finally:
+            pool.putconn(conn)
 
     except Exception as e:
         logger.error(f"DB update failed for media {media_id}: {e}")
@@ -158,14 +176,17 @@ def mark_quota_counted(media_id: str) -> None:
         return
 
     try:
-        conn = psycopg2.connect(_get_psycopg2_dsn())
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE media_items SET counted_in_quota = true WHERE id = %s",
-                    (media_id,),
-                )
-        conn.close()
+        pool = _get_db_pool()
+        conn = pool.getconn()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE media_items SET counted_in_quota = true WHERE id = %s",
+                        (media_id,),
+                    )
+        finally:
+            pool.putconn(conn)
     except Exception as e:
         logger.error(f"Failed to mark quota for media {media_id}: {e}")
 
@@ -186,14 +207,16 @@ def publish_progress(
     try:
         redis_client.publish(
             "media_updates",
-            json.dumps({
-                "type": "progress",
-                "mediaId": media_id,
-                "userId": user_id,
-                "progress": progress,
-                "currentStep": current_step,
-                "estimatedTimeRemaining": eta,
-            }),
+            json.dumps(
+                {
+                    "type": "progress",
+                    "mediaId": media_id,
+                    "userId": user_id,
+                    "progress": progress,
+                    "currentStep": current_step,
+                    "estimatedTimeRemaining": eta,
+                }
+            ),
         )
     except Exception as e:
         logger.error(f"Failed to publish progress event for {media_id}: {e}")
@@ -210,14 +233,16 @@ def publish_chunk_ready(
     try:
         redis_client.publish(
             "media_updates",
-            json.dumps({
-                "type": "chunk_ready",
-                "mediaId": media_id,
-                "userId": user_id,
-                "chunkIndex": chunk_index,
-                "url": url,
-                "sentenceCount": sentence_count,
-            }),
+            json.dumps(
+                {
+                    "type": "chunk_ready",
+                    "mediaId": media_id,
+                    "userId": user_id,
+                    "chunkIndex": chunk_index,
+                    "url": url,
+                    "sentenceCount": sentence_count,
+                }
+            ),
         )
     except Exception as e:
         logger.error(f"Failed to publish chunk_ready event for {media_id}: {e}")
@@ -235,15 +260,17 @@ def publish_batch_ready(
     try:
         redis_client.publish(
             "media_updates",
-            json.dumps({
-                "type": "batch_ready",
-                "mediaId": media_id,
-                "userId": user_id,
-                "batchIndex": batch_index,
-                "url": url,
-                "segmentCount": segment_count,
-                "progress": progress,
-            }),
+            json.dumps(
+                {
+                    "type": "batch_ready",
+                    "mediaId": media_id,
+                    "userId": user_id,
+                    "batchIndex": batch_index,
+                    "url": url,
+                    "segmentCount": segment_count,
+                    "progress": progress,
+                }
+            ),
         )
     except Exception as e:
         logger.error(f"Failed to publish batch_ready event for {media_id}: {e}")
@@ -262,16 +289,18 @@ def publish_completed(
     try:
         redis_client.publish(
             "media_updates",
-            json.dumps({
-                "type": "completed",
-                "mediaId": media_id,
-                "userId": user_id,
-                "finalUrl": final_url,
-                "segmentCount": segment_count,
-                "sourceLanguage": source_lang,
-                "targetLanguage": target_lang,
-                "transcriptS3Key": s3_key,
-            }),
+            json.dumps(
+                {
+                    "type": "completed",
+                    "mediaId": media_id,
+                    "userId": user_id,
+                    "finalUrl": final_url,
+                    "segmentCount": segment_count,
+                    "sourceLanguage": source_lang,
+                    "targetLanguage": target_lang,
+                    "transcriptS3Key": s3_key,
+                }
+            ),
         )
     except Exception as e:
         logger.error(f"Failed to publish completed event for {media_id}: {e}")
@@ -282,12 +311,14 @@ def publish_failed(media_id: str, user_id: str, reason: str) -> None:
     try:
         redis_client.publish(
             "media_updates",
-            json.dumps({
-                "type": "failed",
-                "mediaId": media_id,
-                "userId": user_id,
-                "reason": reason,
-            }),
+            json.dumps(
+                {
+                    "type": "failed",
+                    "mediaId": media_id,
+                    "userId": user_id,
+                    "reason": reason,
+                }
+            ),
         )
     except Exception as e:
         logger.error(f"Failed to publish failed event for {media_id}: {e}")
@@ -366,7 +397,9 @@ async def process_job(job, token):
             )
 
         # 3. Upload final result
-        transcript_key, final_url = minio_client.upload_final_result(media_id, subtitle_output)
+        transcript_key, final_url = minio_client.upload_final_result(
+            media_id, subtitle_output
+        )
 
         # 4. Mark as completed — clear step/ETA fields
         update_media_status(
@@ -768,54 +801,62 @@ def run_transcribe_translate_pipeline(
             logger.error(f"Semantic merge failed (continuing): {e}")
 
     # Step 6: Translation — Tier 2 streaming via on_batch_complete callback
-    update_media_status(
-        media_id,
-        user_id=user_id,
-        progress=0.65,
-        current_step="TRANSLATING",
-        estimated_time_remaining=_eta(0.65),
-    )
-    publish_progress(media_id, user_id, 0.65, "TRANSLATING", _eta(0.65))
-
-    total_sentences = len(sentences)
-    batch_size = TRANSLATION_BATCH_SIZE
-    total_batches = max(1, (total_sentences + batch_size - 1) // batch_size)
-
-    def on_batch_complete(batch_idx: int, batch: list[TranslatedSentence]) -> None:
-        """Tier 2 callback: upload translated batch + update progress."""
-        tb = TranslatedBatch(batch_index=batch_idx, segments=batch)
-        _batch_key, batch_url = minio_client.upload_translated_batch(media_id, tb)
-        # Scale progress: 0.65 → 0.95 proportionally
-        batch_progress = min(0.95, 0.65 + ((batch_idx + 1) / total_batches) * 0.30)
-        publish_batch_ready(
-            media_id=media_id,
-            user_id=user_id,
-            batch_index=batch_idx,
-            url=batch_url,
-            segment_count=len(batch),
-            progress=batch_progress,
+    # Skip translation entirely when source and target languages match
+    # (e.g. en→en) — there's nothing meaningful to translate.
+    if source_lang == target_lang:
+        logger.info(
+            f"⏭️ Skipping translation: source_lang == target_lang ({source_lang})"
         )
+        translated = sentences
+    else:
         update_media_status(
             media_id,
             user_id=user_id,
-            progress=batch_progress,
+            progress=0.65,
             current_step="TRANSLATING",
-            estimated_time_remaining=_eta(batch_progress),
+            estimated_time_remaining=_eta(0.65),
         )
+        publish_progress(media_id, user_id, 0.65, "TRANSLATING", _eta(0.65))
 
-    try:
-        translated = pipeline.translator.translate(
-            sentences=sentences,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            profile=str(profile),
-            on_batch_complete=on_batch_complete,
-        )
-    except Exception as e:
-        logger.error(f"Translation failed: {e}")
-        translated = sentences
-        for s in translated:
-            s.translation = "[Translation Error]"
+        total_sentences = len(sentences)
+        batch_size = TRANSLATION_BATCH_SIZE
+        total_batches = max(1, (total_sentences + batch_size - 1) // batch_size)
+
+        def on_batch_complete(batch_idx: int, batch: list[TranslatedSentence]) -> None:
+            """Tier 2 callback: upload translated batch + update progress."""
+            tb = TranslatedBatch(batch_index=batch_idx, segments=batch)
+            _batch_key, batch_url = minio_client.upload_translated_batch(media_id, tb)
+            # Scale progress: 0.65 → 0.95 proportionally
+            batch_progress = min(0.95, 0.65 + ((batch_idx + 1) / total_batches) * 0.30)
+            publish_batch_ready(
+                media_id=media_id,
+                user_id=user_id,
+                batch_index=batch_idx,
+                url=batch_url,
+                segment_count=len(batch),
+                progress=batch_progress,
+            )
+            update_media_status(
+                media_id,
+                user_id=user_id,
+                progress=batch_progress,
+                current_step="TRANSLATING",
+                estimated_time_remaining=_eta(batch_progress),
+            )
+
+        try:
+            translated = pipeline.translator.translate(
+                sentences=sentences,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                profile=str(profile),
+                on_batch_complete=on_batch_complete,
+            )
+        except Exception as e:
+            logger.error(f"Translation failed: {e}")
+            translated = sentences
+            for s in translated:
+                s.translation = "[Translation Error]"
 
     # Generate segment-level phonetics for CJK source text
     _populate_segment_phonetics(translated, source_lang)
