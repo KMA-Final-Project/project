@@ -23,6 +23,10 @@ def _is_cjk(source_lang: str) -> bool:
     return source_lang.lower() in ("zh", "ja", "ko")
 
 
+MERGE_MIN_WORD_COUNT = 6
+MERGE_FRAGMENT_RATIO = 0.2
+
+
 class SemanticMerger:
     """
     Language-Aware Semantic Merging with Batching.
@@ -35,6 +39,23 @@ class SemanticMerger:
 
     def __init__(self) -> None:
         self.llm = LLMProvider()
+
+    @staticmethod
+    def needs_merge(sentences: List[Sentence], source_lang: str = "en") -> bool:
+        """Quick heuristic: does this batch contain enough fragments to justify an LLM merge call?"""
+        if not sentences:
+            return False
+        cjk = _is_cjk(source_lang)
+        fragment_count = 0
+        for s in sentences:
+            text = s.text.strip()
+            if cjk:
+                if len(text) < 8:
+                    fragment_count += 1
+            else:
+                if len(text.split()) < MERGE_MIN_WORD_COUNT:
+                    fragment_count += 1
+        return fragment_count >= len(sentences) * MERGE_FRAGMENT_RATIO
 
     def process(
         self,

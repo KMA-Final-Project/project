@@ -38,16 +38,23 @@ from src.core.translator_engine import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_sentence(index: int, lang: str = "zh") -> Sentence:
     """Factory for a synthetic Sentence with one word."""
     if lang == "zh":
         text = f"测试句子{index}"
-        word = Word(word=text, start=float(index), end=float(index) + 1.0,
-                    confidence=0.95, phoneme=f"cè shì jù zi {index}")
+        word = Word(
+            word=text,
+            start=float(index),
+            end=float(index) + 1.0,
+            confidence=0.95,
+            phoneme=f"cè shì jù zi {index}",
+        )
     else:
         text = f"Test sentence {index}"
-        word = Word(word="Test", start=float(index), end=float(index) + 0.5,
-                    confidence=0.95)
+        word = Word(
+            word="Test", start=float(index), end=float(index) + 0.5, confidence=0.95
+        )
     return Sentence(
         text=text,
         start=float(index),
@@ -92,17 +99,21 @@ def translator(mock_llm: MagicMock) -> TranslatorEngine:
 # Test: Tier 2 — Translated batches are pushed in order
 # ---------------------------------------------------------------------------
 
+
 class TestTier2StreamingBatches:
     """Verify Tier 2 callback fires for every batch, in correct order."""
 
     def test_batches_fired_in_order(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, zh_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        zh_sentences: List[Sentence],
     ) -> None:
         """on_batch_complete should fire for each batch, sequentially."""
         # Arrange
-        mock_llm.translate_raw.side_effect = (
-            lambda texts, _prompt: [f"翻译{i}" for i in range(len(texts))]
-        )
+        mock_llm.translate_raw.side_effect = lambda texts, _prompt: [
+            f"翻译{i}" for i in range(len(texts))
+        ]
         received_batches: list[tuple[int, list[Sentence]]] = []
 
         def on_batch(idx: int, batch: list[Sentence]) -> None:
@@ -126,13 +137,16 @@ class TestTier2StreamingBatches:
         assert len(result) == 30
 
     def test_all_translations_populated(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, en_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        en_sentences: List[Sentence],
     ) -> None:
         """Every returned TranslatedSentence must have a non-empty translation."""
         # Arrange
-        mock_llm.translate_raw.side_effect = (
-            lambda texts, _prompt: [f"Translated: {t}" for t in texts]
-        )
+        mock_llm.translate_raw.side_effect = lambda texts, _prompt: [
+            f"Translated: {t}" for t in texts
+        ]
 
         # Act
         result = translator.translate(
@@ -149,13 +163,16 @@ class TestTier2StreamingBatches:
             assert s.translation.startswith("Translated: ")
 
     def test_batch_callback_receives_correct_segment_count(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, en_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        en_sentences: List[Sentence],
     ) -> None:
         """20 sentences → batch 0 has 15, batch 1 has 5."""
         # Arrange
-        mock_llm.translate_raw.side_effect = (
-            lambda texts, _prompt: [f"T-{i}" for i in range(len(texts))]
-        )
+        mock_llm.translate_raw.side_effect = lambda texts, _prompt: [
+            f"T-{i}" for i in range(len(texts))
+        ]
         batch_sizes: list[int] = []
 
         def on_batch(idx: int, batch: list[Sentence]) -> None:
@@ -178,6 +195,7 @@ class TestTier2StreamingBatches:
 # Test: Tier 1 before Tier 2 ordering
 # ---------------------------------------------------------------------------
 
+
 class TestTierOrdering:
     """Verify Tier 1 chunks are pushed before Tier 2 translated batches."""
 
@@ -197,9 +215,9 @@ class TestTierOrdering:
                 upload_log.append(f"tier1_chunk_{chunk_idx}")
 
         # Simulate Tier 2: TranslatorEngine pushes translated batches
-        mock_llm.translate_raw.side_effect = (
-            lambda texts, _prompt: [f"翻译" for _ in texts]
-        )
+        mock_llm.translate_raw.side_effect = lambda texts, _prompt: [
+            f"翻译" for _ in texts
+        ]
 
         def on_batch(idx: int, batch: list[Sentence]) -> None:
             upload_log.append(f"tier2_batch_{idx}")
@@ -220,14 +238,15 @@ class TestTierOrdering:
         tier2_indices = [i for i, x in enumerate(upload_log) if x.startswith("tier2")]
         assert tier1_indices, "No Tier 1 chunks recorded"
         assert tier2_indices, "No Tier 2 batches recorded"
-        assert max(tier1_indices) < min(tier2_indices), (
-            f"Tier 1 must complete before Tier 2 starts: {upload_log}"
-        )
+        assert max(tier1_indices) < min(
+            tier2_indices
+        ), f"Tier 1 must complete before Tier 2 starts: {upload_log}"
 
 
 # ---------------------------------------------------------------------------
 # Test: Partial failure — Ollama crash mid-translation
 # ---------------------------------------------------------------------------
+
 
 class TestOllamaCrashPartialFailure:
     """
@@ -237,7 +256,10 @@ class TestOllamaCrashPartialFailure:
     """
 
     def test_first_batch_succeeds_rest_pending(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, zh_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        zh_sentences: List[Sentence],
     ) -> None:
         """
         30 sentences → 2 batches.
@@ -284,7 +306,10 @@ class TestOllamaCrashPartialFailure:
         assert len(received_batches) == 2
 
     def test_all_batches_fail(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, en_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        en_sentences: List[Sentence],
     ) -> None:
         """If Ollama is down from the start, every segment gets [Translation Pending]."""
         # Arrange
@@ -304,7 +329,10 @@ class TestOllamaCrashPartialFailure:
             assert s.translation == "[Translation Pending]"
 
     def test_count_mismatch_marks_pending(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, en_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        en_sentences: List[Sentence],
     ) -> None:
         """If LLM returns wrong count, those segments get [Translation Pending]."""
         # Arrange — return fewer translations than expected
@@ -323,7 +351,10 @@ class TestOllamaCrashPartialFailure:
             assert s.translation == "[Translation Pending]"
 
     def test_empty_response_marks_pending(
-        self, translator: TranslatorEngine, mock_llm: MagicMock, en_sentences: List[Sentence]
+        self,
+        translator: TranslatorEngine,
+        mock_llm: MagicMock,
+        en_sentences: List[Sentence],
     ) -> None:
         """If LLM returns empty list, segments get [Translation Pending]."""
         # Arrange
@@ -345,6 +376,7 @@ class TestOllamaCrashPartialFailure:
 # ---------------------------------------------------------------------------
 # Test: Sliding window continuity
 # ---------------------------------------------------------------------------
+
 
 class TestSlidingWindowContinuity:
     """Verify the sliding context window is passed between batches."""
@@ -405,6 +437,7 @@ class TestSlidingWindowContinuity:
 # Test: MinIO upload path convention
 # ---------------------------------------------------------------------------
 
+
 class TestMinIOPathConvention:
     """Verify uploaded paths match the Two-Tier convention."""
 
@@ -418,6 +451,7 @@ class TestMinIOPathConvention:
 
         # Import real method and bind to mock
         from src.minio_client import MinioClient
+
         bound = MinioClient.upload_chunk.__get__(minio, MinioClient)
         key = bound("media-123", 0, [{"text": "hello"}])
 
@@ -432,6 +466,7 @@ class TestMinIOPathConvention:
         minio.bucket_processed = "processed"
 
         from src.minio_client import MinioClient
+
         batch = TranslatedBatch(
             batch_index=2,
             segments=[_make_sentence(0)],
@@ -450,6 +485,7 @@ class TestMinIOPathConvention:
         minio.bucket_processed = "processed"
 
         from src.minio_client import MinioClient
+
         output = SubtitleOutput(
             metadata=SubtitleMetadata(duration=10.0),
             segments=[_make_sentence(0)],
@@ -464,6 +500,7 @@ class TestMinIOPathConvention:
 # Test: Output contract structure
 # ---------------------------------------------------------------------------
 
+
 class TestOutputContract:
     """Verify SubtitleOutput matches the required JSON contract."""
 
@@ -473,7 +510,9 @@ class TestOutputContract:
             text="你好世界",
             start=0.0,
             end=2.0,
-            words=[Word(word="你好", start=0.0, end=1.0, confidence=0.9, phoneme="nǐ hǎo")],
+            words=[
+                Word(word="你好", start=0.0, end=1.0, confidence=0.9, phoneme="nǐ hǎo")
+            ],
             translation="Xin chào thế giới",
             phonetic="nǐ hǎo",
         )
@@ -523,12 +562,13 @@ class TestOutputContract:
 # Test: Phonetic population helper
 # ---------------------------------------------------------------------------
 
+
 class TestPhoneticPopulation:
-    """Verify _populate_segment_phonetics from main.py."""
+    """Verify _populate_segment_phonetics from pipelines.py."""
 
     def test_cjk_phonetic_from_words(self) -> None:
         """CJK sentences get phonetic assembled from word-level phonemes."""
-        from src.main import _populate_segment_phonetics
+        from src.pipelines import _populate_segment_phonetics
 
         words = [
             Word(word="你", start=0.0, end=0.3, confidence=0.9, phoneme="nǐ"),
@@ -542,7 +582,7 @@ class TestPhoneticPopulation:
 
     def test_english_phonetic_stays_empty(self) -> None:
         """Non-CJK sentences should not get phonetic populated."""
-        from src.main import _populate_segment_phonetics
+        from src.pipelines import _populate_segment_phonetics
 
         s = Sentence(
             text="hello",
@@ -557,10 +597,16 @@ class TestPhoneticPopulation:
 
     def test_japanese_phonetic_populated(self) -> None:
         """Japanese (ja) is CJK — phonetic should be populated."""
-        from src.main import _populate_segment_phonetics
+        from src.pipelines import _populate_segment_phonetics
 
         words = [
-            Word(word="こんにちは", start=0.0, end=1.0, confidence=0.9, phoneme="konnichiwa"),
+            Word(
+                word="こんにちは",
+                start=0.0,
+                end=1.0,
+                confidence=0.9,
+                phoneme="konnichiwa",
+            ),
         ]
         s = Sentence(text="こんにちは", start=0.0, end=1.0, words=words)
 
@@ -570,7 +616,7 @@ class TestPhoneticPopulation:
 
     def test_missing_phoneme_skipped(self) -> None:
         """Words without phoneme field should be skipped gracefully."""
-        from src.main import _populate_segment_phonetics
+        from src.pipelines import _populate_segment_phonetics
 
         words = [
             Word(word="你", start=0.0, end=0.3, confidence=0.9, phoneme="nǐ"),

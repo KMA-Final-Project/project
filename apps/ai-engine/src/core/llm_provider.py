@@ -12,10 +12,13 @@ class LLMProvider:
     Wrapper for LLM interactions (Ollama).
     """
 
-    def __init__(self, model_name: str = "qwen2.5:7b-instruct", timeout: int = 30):
+    def __init__(self, model_name: str = "qwen2.5:7b-instruct", timeout: int = 120):
         self.model_name = model_name
         self.timeout = timeout
-        logger.info(f"LLMProvider initialized with model: {self.model_name}")
+        self._client = ollama.Client(timeout=timeout)
+        logger.info(
+            f"LLMProvider initialized with model: {self.model_name}, timeout: {timeout}s"
+        )
 
     def analyze_context(
         self, text_samples: List[str], target_lang: str
@@ -54,7 +57,7 @@ class LLMProvider:
         user_msg = f"Text Samples:\n" + "\n".join(text_samples)
 
         try:
-            response = ollama.chat(
+            response = self._client.chat(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": system_msg},
@@ -153,8 +156,19 @@ class LLMProvider:
 
             # 2b: Dict of Strings (e.g. {"1": "Text", "2": "Text"})
             if all(isinstance(v, str) for v in parsed.values()):
+                keys = list(parsed.keys())
+                values = list(parsed.values())
+                non_empty_values = [v for v in values if v.strip()]
+                non_empty_keys = [k for k in keys if k.strip()]
+                # LLM sometimes puts translations as dict keys with empty values
+                if not non_empty_values and non_empty_keys:
+                    logger.warning(
+                        "Parsed Dict of Strings: values are ALL empty, "
+                        "keys contain text — using keys as translations."
+                    )
+                    return keys
                 logger.warning("Parsed Dict of Strings. Converting to List.")
-                return list(parsed.values())
+                return values
 
         return None
 
@@ -198,7 +212,7 @@ class LLMProvider:
         for attempt in range(max_retries):
             try:
                 logger.info(f"Translation Attempt {attempt+1}/{max_retries}...")
-                response = ollama.chat(
+                response = self._client.chat(
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": system_msg},
@@ -268,7 +282,7 @@ class LLMProvider:
         for attempt in range(max_retries):
             try:
                 logger.info(f"Raw translation attempt {attempt + 1}/{max_retries}...")
-                response = ollama.chat(
+                response = self._client.chat(
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -326,7 +340,7 @@ class LLMProvider:
         messages.append({"role": "user", "content": prompt})
 
         try:
-            response = ollama.chat(
+            response = self._client.chat(
                 model=self.model_name, messages=messages, options={"temperature": 0.3}
             )
             return response["message"]["content"]

@@ -137,6 +137,74 @@ class TranslatorEngine:
             on_batch_complete=on_batch_complete,
         )
 
+    def analyze_context(
+        self,
+        sentences: List[Sentence],
+        source_lang: str,
+        target_lang: str,
+    ) -> ContextAnalysis:
+        """Public wrapper for context analysis. Can be called once and reused."""
+        lang_config = LANGUAGE_CONFIGS.get(
+            target_lang,
+            LanguageConfig(
+                code=target_lang,
+                name=target_lang.upper(),
+                prompt_key="generic",
+                has_pronouns=False,
+            ),
+        )
+        return self._analyze_context(sentences, source_lang, target_lang, lang_config)
+
+    def translate_single_batch(
+        self,
+        batch_sentences: List[Sentence],
+        source_lang: str,
+        target_lang: str,
+        context: ContextAnalysis,
+        lang_config: LanguageConfig,
+        sliding_window: List[str],
+    ) -> tuple[List[TranslatedSentence], List[str]]:
+        """Translate one batch and return (translated_sentences, updated_sliding_window)."""
+        batch_texts = [s.text for s in batch_sentences]
+
+        system_prompt = self._build_system_prompt(
+            context, lang_config, source_lang, target_lang, sliding_window
+        )
+
+        try:
+            translations = self.llm.translate_raw(batch_texts, system_prompt)
+            if not translations or len(translations) != len(batch_texts):
+                logger.warning(
+                    "Single batch: count mismatch or empty — marking as pending"
+                )
+                translations = ["[Translation Pending]"] * len(batch_texts)
+                batch_failed = True
+            else:
+                batch_failed = False
+        except Exception as e:
+            logger.error(f"Single batch translation failed: {e}")
+            translations = ["[Translation Pending]"] * len(batch_texts)
+            batch_failed = True
+
+        batch_translated: List[TranslatedSentence] = []
+        for sent, trans in zip(batch_sentences, translations):
+            batch_translated.append(
+                TranslatedSentence(
+                    text=sent.text,
+                    start=sent.start,
+                    end=sent.end,
+                    words=sent.words,
+                    translation=trans,
+                )
+            )
+
+        updated_window = (
+            translations[-SLIDING_WINDOW_SIZE:]
+            if not batch_failed
+            else list(sliding_window)
+        )
+        return batch_translated, updated_window
+
     # ------------------------------------------------------------------
     # Step A: Context Analysis
     # ------------------------------------------------------------------
