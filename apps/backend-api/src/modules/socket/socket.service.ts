@@ -13,7 +13,7 @@ import type { MediaEvent } from './socket.types';
 @Injectable()
 export class SocketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SocketService.name);
-  private subscriber: Redis;
+  private subscriber!: Redis;
 
   constructor(
     private readonly socketGateway: SocketGateway,
