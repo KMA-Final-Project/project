@@ -111,6 +111,24 @@ class Settings(BaseSettings):
     # --- Translation Config ---
     TRANSLATOR_PROVIDER: str = "google"
 
+    # --- NMT (NLLB via CTranslate2) ---
+    NMT_MODEL_DIR: Path = Field(
+        default=Path("temp/models/nllb-200-3.3B-ct2"),
+        description="CTranslate2-converted NLLB model directory",
+    )
+    NMT_TOKENIZER_NAME: str = Field(
+        default="facebook/nllb-200-3.3B",
+        description="HuggingFace tokenizer name for NLLB",
+    )
+    NMT_COMPUTE_TYPE: str = Field(
+        default="int8_float16",
+        description="CTranslate2 compute type: int8_float16 | float16",
+    )
+    NMT_BEAM_SIZE: int = Field(default=4, description="Beam search width for NMT")
+    CHUNK_SIZE: int = Field(
+        default=8, description="Sentences per streaming chunk (all stages)"
+    )
+
     # Load env vars from .env file (if present)
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
