@@ -34,6 +34,39 @@ CHUNK_SIZE = 20
 
 
 # ============================================================================
+# V2 Pipeline (async NMT-based)
+# ============================================================================
+
+
+async def run_v2_pipeline(
+    pipeline: PipelineOrchestrator,
+    minio_client: MinioClient,
+    audio_path: Path,
+    media_id: str,
+    *,
+    user_id: str,
+    started_at: float,
+    target_lang: str = "vi",
+    duration_seconds: float = 0.0,
+) -> SubtitleOutput:
+    """V2 async pipeline entry point. Delegates to async_pipeline.py."""
+    from src.async_pipeline import (
+        run_v2_pipeline_async,
+    )  # local import avoids circular refs
+
+    return await run_v2_pipeline_async(
+        pipeline,
+        minio_client,
+        audio_path,
+        media_id,
+        user_id=user_id,
+        started_at=started_at,
+        target_lang=target_lang,
+        duration_seconds=duration_seconds,
+    )
+
+
+# ============================================================================
 # Helpers
 # ============================================================================
 

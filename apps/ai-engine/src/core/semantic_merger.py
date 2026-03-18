@@ -128,6 +128,62 @@ class SemanticMerger:
         )
         return all_batch_groups
 
+    def correct_homophones(
+        self,
+        sentences: list[Sentence],
+        context_style: str = "Speech/Dialogue",
+    ) -> list[Sentence]:
+        """CJK homophone correction without sentence merging.
+
+        For CJK sentences that are already well-formed (needs_merge() returned False)
+        but may still have homophone errors from Whisper (e.g., 他/她/它, 的/地/得).
+
+        Uses the same CJK LLM prompt and _process_batch() infrastructure as process().
+        The strict char-count validation in _reconstruct() naturally rejects any accidental
+        merge attempts by the LLM — only same-length corrections pass through.
+        """
+        if not sentences:
+            return []
+        if len(sentences) <= 3:
+            logger.info(
+                f"⏭️ Skipping homophone correction ({len(sentences)} segments ≤ 3)"
+            )
+            return list(sentences)
+
+        logger.info(
+            f"🔤 Homophone correction: {len(sentences)} CJK segments | style={context_style}"
+        )
+        batches = self._create_batches(sentences)
+        result: list[Sentence] = []
+
+        for batch_idx, (batch_sentences, global_offset) in enumerate(batches):
+            is_last_batch = batch_idx == len(batches) - 1
+            core_size = (
+                len(batch_sentences)
+                if is_last_batch
+                else len(batch_sentences) - OVERLAP_LINES
+            )
+            try:
+                corrected = self._process_batch(
+                    batch_sentences,
+                    global_offset,
+                    SAFE_MERGE_CJK_PROMPT,
+                    context_style,
+                    cjk=True,
+                    core_size=core_size,
+                )
+                result.extend(corrected)
+            except Exception as e:
+                logger.error(
+                    f"   Homophone batch {batch_idx + 1} failed: {e} — keeping originals"
+                )
+                result.extend(batch_sentences[:core_size])
+
+        logger.success(
+            f"✨ Homophone correction complete: {len(sentences)} → {len(result)} segments"
+        )
+        return result
+
     # ------------------------------------------------------------------
     # Batching
     # ------------------------------------------------------------------

@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     # --- Translation Config ---
     TRANSLATOR_PROVIDER: str = "google"
 
+    # --- V2 Pipeline Feature Flag ---
+    USE_V2_PIPELINE: bool = Field(
+        default=False,
+        description="Use V2 async NMT pipeline. Set USE_V2_PIPELINE=true in .env to activate.",
+    )
+
     # --- NMT (NLLB via CTranslate2) ---
     NMT_MODEL_DIR: Path = Field(
         default=Path("temp/models/nllb-200-3.3B-ct2"),
@@ -121,8 +127,9 @@ class Settings(BaseSettings):
         description="HuggingFace tokenizer name for NLLB",
     )
     NMT_COMPUTE_TYPE: str = Field(
-        default="int8_float16",
-        description="CTranslate2 compute type: int8_float16 | float16",
+        default="float16",
+        description="CTranslate2 compute type. Use 'float16' for Blackwell/Ada (RTX 50xx/40xx). "
+        "'int8_float16' is faster on Ampere/Turing but unsupported on Blackwell.",
     )
     NMT_BEAM_SIZE: int = Field(default=4, description="Beam search width for NMT")
     CHUNK_SIZE: int = Field(

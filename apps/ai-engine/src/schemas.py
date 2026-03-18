@@ -3,15 +3,18 @@ from pydantic import BaseModel, Field
 
 from typing import List, Optional
 
+
 class SegmentType(str, Enum):
-    HAPPY_CASE = "happy"       # <= 15s, safe for Whisper
-    SPECIAL_CASE = "special"   # > 15s, needs Refinement (Word-level split)
+    HAPPY_CASE = "happy"  # <= 15s, safe for Whisper
+    SPECIAL_CASE = "special"  # > 15s, needs Refinement (Word-level split)
+
 
 class VADSegment(BaseModel):
     start: float
     end: float
     type: SegmentType
     duration: float
+
 
 class Word(BaseModel):
     word: str
@@ -20,6 +23,7 @@ class Word(BaseModel):
     confidence: float
     phoneme: str | None = None
 
+
 class Sentence(BaseModel):
     text: str
     start: float
@@ -27,6 +31,7 @@ class Sentence(BaseModel):
     words: List[Word]  # Crucial for Karaoke
     translation: str = ""
     phonetic: str = ""
+    detected_lang: str = ""  # ISO code from Whisper per-segment detection
 
 
 class TranslationStyle(str, Enum):
@@ -34,6 +39,7 @@ class TranslationStyle(str, Enum):
     Defines the tone and style of the translation.
     Used to guide the LLM's output personality.
     """
+
     # --- GENERAL / SOCIAL ---
     FORMAL = "Formal"
     CASUAL = "Casual"
@@ -70,6 +76,7 @@ class VietnamesePronoun(str, Enum):
     Defines the relationship pair for Vietnamese translation.
     Format: First Person / Second Person
     """
+
     TOI_BAN = "Tôi / Bạn"
     MINH_BAN = "Mình / Bạn"
     ANH_EM = "Anh / Em"
@@ -93,21 +100,21 @@ class ContextAnalysisResult(BaseModel):
     Structured output from the LLM context analysis pass.
     Used by LLMProvider.analyze_context() — kept for backward compatibility.
     """
+
     detected_style: TranslationStyle = Field(
-        ...,
-        description="The dominant style/genre of the content."
+        ..., description="The dominant style/genre of the content."
     )
     detected_pronouns: Optional[VietnamesePronoun] = Field(
         None,
-        description="The most appropriate pronoun pair for the speakers. Required if target_lang is 'vi'."
+        description="The most appropriate pronoun pair for the speakers. Required if target_lang is 'vi'.",
     )
     summary: str = Field(
         ...,
-        description="A brief summary of the context, mood, and speaker relationships (max 50 words)."
+        description="A brief summary of the context, mood, and speaker relationships (max 50 words).",
     )
     keywords: List[str] = Field(
         default_factory=list,
-        description="Key terms or proper nouns that should be preserved or handled consistently."
+        description="Key terms or proper nouns that should be preserved or handled consistently.",
     )
 
 
@@ -115,26 +122,27 @@ class ContextAnalysisResult(BaseModel):
 # Phase 3: New models for TranslatorEngine
 # ---------------------------------------------------------------------------
 
+
 class ContextAnalysis(BaseModel):
     """
     Language-pair-aware context analysis result.
     Used internally by TranslatorEngine — not tied to any specific target language.
     """
+
     detected_style: TranslationStyle = Field(
         default=TranslationStyle.NEUTRAL,
-        description="The dominant style/genre of the content."
+        description="The dominant style/genre of the content.",
     )
     summary: str = Field(
-        default="",
-        description="Brief context summary (max 50 words)."
+        default="", description="Brief context summary (max 50 words)."
     )
     keywords: List[str] = Field(
         default_factory=list,
-        description="Key terms or proper nouns to preserve consistently."
+        description="Key terms or proper nouns to preserve consistently.",
     )
     language_specific: dict = Field(
         default_factory=dict,
-        description='Language-specific data, e.g. {"pronouns": "Tôi / Bạn"} for vi, {} for en.'
+        description='Language-specific data, e.g. {"pronouns": "Tôi / Bạn"} for vi, {} for en.',
     )
 
 
@@ -145,12 +153,15 @@ TranslatedSentence = Sentence
 
 class LanguageConfig(BaseModel):
     """Registry entry describing target-language-specific translation behavior."""
+
     code: str = Field(..., description="ISO 639-1 code, e.g. 'vi', 'en'.")
     name: str = Field(..., description="Human-readable name, e.g. 'Vietnamese'.")
-    prompt_key: str = Field(..., description="Key to look up the prompt template in prompts.py.")
+    prompt_key: str = Field(
+        ..., description="Key to look up the prompt template in prompts.py."
+    )
     has_pronouns: bool = Field(
         default=False,
-        description="Whether pronoun detection matters for this language."
+        description="Whether pronoun detection matters for this language.",
     )
 
 
@@ -158,23 +169,32 @@ class LanguageConfig(BaseModel):
 # Phase 4: Output contract models
 # ---------------------------------------------------------------------------
 
+
 class SubtitleMetadata(BaseModel):
     """Metadata about the pipeline run, included in the final output."""
+
     duration: float = Field(default=0.0, description="Audio duration in seconds.")
-    engine_profile: str = Field(default="MEDIUM", description="AI performance profile used.")
+    engine_profile: str = Field(
+        default="MEDIUM", description="AI performance profile used."
+    )
     source_lang: str = Field(default="", description="Detected source language code.")
-    target_lang: str = Field(default="", description="Target translation language code.")
-    model_used: str = Field(default="", description="Whisper model name used for transcription.")
+    target_lang: str = Field(
+        default="", description="Target translation language code."
+    )
+    model_used: str = Field(
+        default="", description="Whisper model name used for transcription."
+    )
 
 
 class SubtitleOutput(BaseModel):
     """Complete subtitle output — the canonical final.json payload."""
+
     metadata: SubtitleMetadata
     segments: List[Sentence]
 
 
 class TranslatedBatch(BaseModel):
     """A batch of translated segments for Tier 2 streaming uploads."""
+
     batch_index: int
     segments: List[Sentence]
-
