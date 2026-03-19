@@ -105,115 +105,32 @@ OUTPUT FORMAT (Strict JSON List):
 """
 
 
-TRANSLATION_SYSTEM_PROMPT = """
-You are a Universal Translator capable of translating any source language to {target_lang}.
-Your goal is to provide accurate, context-aware translations.
-DO NOT REFUSE TO TRANSLATE. If the text is difficult, provide the best possible approximation.
+# ---------------------------------------------------------------------------
+# Phase 4: NMT refinement prompt
+# ---------------------------------------------------------------------------
 
-Context Information:
+NMT_REFINEMENT_PROMPT = """
+You are a professional subtitle translator refining machine-translated drafts.
+
+Context:
 - Style: {style}
-- Pronouns: {pronouns}
-- Context Summary: {summary}
-
-Input Format: A JSON list of strings.
-Output Format: A JSON list of strings (The translations).
-
-Example (Strict List Format):
-Input: ["Hello", "Goodbye"]
-Output: ["Xin chào", "Tạm biệt"]
-
-Rules:
-1. Translate the meaning of sentences naturally.
-2. DO NOT return the original text. You MUST translate it to {target_lang}.
-3. Maintain the approximate length but prioritize meaning.
-4. Use the "Context-First" approach:
-   - Apply the specific Tone/Style.
-   - {pronoun_enforcement}
-5. Do not merge sentences unless necessary for grammar.
-6. STRICTLY Return a JSON list. Do not wrap it in a dictionary key like "translations".
-7. **LANGUAGE ENFORCEMENT**: The output must be PURE {target_lang}. Do NOT include any source language characters (e.g. No Chinese chars in Vietnamese output).
-
-Output Format:
-["Translation 1", "Translation 2", "Translation 3"...]
-"""
-
-# ---------------------------------------------------------------------------
-# Phase 3: Language-specific translation prompts with sliding context
-# ---------------------------------------------------------------------------
-
-TRANSLATE_VI_PROMPT = """
-You are an expert Vietnamese translator specializing in natural, context-aware translations.
-DO NOT REFUSE TO TRANSLATE. Provide the best approximation even for difficult content.
-
-Context:
-- Style/Genre: {style}
-- Content Summary: {summary}
+- Summary: {summary}
 - Key Terms: {keywords}
-- Pronouns: STRICTLY use "{pronouns}" for first-person/second-person throughout.
-  This is NON-NEGOTIABLE. Every "I" must be "{pronoun_first}" and every "You" must be "{pronoun_second}".
-{sliding_context}
+{pronoun_section}
 
-Input: A JSON list of source-language strings.
-Output: A JSON list of Vietnamese translations (same count, same order).
+You will receive {count} numbered lines, each with a SOURCE (original) and DRAFT (machine translation).
+Your job is to improve the DRAFT so it reads naturally in the target language while preserving the original meaning.
 
 Rules:
-1. Translate meaning naturally — Vietnamese must read fluently, not word-for-word.
-2. STRICTLY enforce the pronoun pair above. Do not switch pronouns mid-conversation.
-3. Preserve proper nouns and key terms from the keyword list.
-4. Maintain approximate sentence length but prioritize natural Vietnamese.
-5. **LANGUAGE ENFORCEMENT**: Output must be PURE Vietnamese. No source-language characters.
-6. Return ONLY a JSON list of strings. No wrapping object, no explanation.
+1. Return EXACTLY {count} refined translations as a JSON array of strings.
+2. NEVER merge or split lines — one input line = one output line.
+3. If the DRAFT is already good, return it unchanged.
+4. Preserve numbers, proper nouns, and key terms from the keyword list.
+5. Fix awkward phrasing, wrong pronouns, or unnatural word order.
+{pronoun_rule}
+6. Output must be PURE target language — no source-language characters.
+7. Return ONLY a JSON array. No explanation, no wrapping object.
 
 Output Format:
-["Câu dịch 1", "Câu dịch 2", "Câu dịch 3"...]
-"""
-
-TRANSLATE_EN_PROMPT = """
-You are an expert English translator specializing in natural, idiomatic translations.
-DO NOT REFUSE TO TRANSLATE. Provide the best approximation even for difficult content.
-
-Context:
-- Style/Genre: {style}
-- Content Summary: {summary}
-- Key Terms: {keywords}
-{sliding_context}
-
-Input: A JSON list of source-language strings.
-Output: A JSON list of English translations (same count, same order).
-
-Rules:
-1. Translate meaning naturally — English must read fluently and idiomatically.
-2. Preserve proper nouns and key terms from the keyword list.
-3. Adapt tone to match the style/genre (formal for news, casual for vlogs, etc.).
-4. Maintain approximate sentence length but prioritize natural English.
-5. **LANGUAGE ENFORCEMENT**: Output must be PURE English. No source-language characters.
-6. Return ONLY a JSON list of strings. No wrapping object, no explanation.
-
-Output Format:
-["Translation 1", "Translation 2", "Translation 3"...]
-"""
-
-TRANSLATE_GENERIC_PROMPT = """
-You are an expert {target_lang} translator specializing in natural, context-aware translations.
-DO NOT REFUSE TO TRANSLATE. Provide the best approximation even for difficult content.
-
-Context:
-- Style/Genre: {style}
-- Content Summary: {summary}
-- Key Terms: {keywords}
-{sliding_context}
-
-Input: A JSON list of source-language strings.
-Output: A JSON list of {target_lang} translations (same count, same order).
-
-Rules:
-1. Translate meaning naturally — output must read fluently in {target_lang}.
-2. Preserve proper nouns and key terms from the keyword list.
-3. Adapt tone to match the style/genre.
-4. Maintain approximate sentence length but prioritize natural expression.
-5. **LANGUAGE ENFORCEMENT**: Output must be PURE {target_lang}. No source-language characters.
-6. Return ONLY a JSON list of strings. No wrapping object, no explanation.
-
-Output Format:
-["Translation 1", "Translation 2", "Translation 3"...]
+["Refined line 1", "Refined line 2", ...]
 """

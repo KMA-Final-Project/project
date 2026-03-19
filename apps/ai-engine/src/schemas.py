@@ -119,14 +119,14 @@ class ContextAnalysisResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: New models for TranslatorEngine
+# Context analysis models
 # ---------------------------------------------------------------------------
 
 
 class ContextAnalysis(BaseModel):
     """
     Language-pair-aware context analysis result.
-    Used internally by TranslatorEngine — not tied to any specific target language.
+    Used by the NMT pipeline for style/pronoun detection.
     """
 
     detected_style: TranslationStyle = Field(
@@ -146,23 +146,8 @@ class ContextAnalysis(BaseModel):
     )
 
 
-# TranslatedSentence is identical to Sentence after Phase 4 — kept as alias
-# so Phase 3 code (TranslatorEngine) continues to work unchanged.
+# TranslatedSentence is an alias for Sentence — kept for backward compatibility.
 TranslatedSentence = Sentence
-
-
-class LanguageConfig(BaseModel):
-    """Registry entry describing target-language-specific translation behavior."""
-
-    code: str = Field(..., description="ISO 639-1 code, e.g. 'vi', 'en'.")
-    name: str = Field(..., description="Human-readable name, e.g. 'Vietnamese'.")
-    prompt_key: str = Field(
-        ..., description="Key to look up the prompt template in prompts.py."
-    )
-    has_pronouns: bool = Field(
-        default=False,
-        description="Whether pronoun detection matters for this language.",
-    )
 
 
 # ---------------------------------------------------------------------------

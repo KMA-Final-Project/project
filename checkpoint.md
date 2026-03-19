@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-03-15
+> **Last Updated:** 2026-03-19
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -66,9 +66,9 @@ bilingual-subtitle-system/
 │   │   │   ├── main.py              # Thin BullMQ consumer entry point (process_job + main)
 │   │   │   ├── db.py                # Direct PostgreSQL helpers (update_media_status, mark_quota_counted)
 │   │   │   ├── events.py            # Redis Pub/Sub event publishers (progress, chunk_ready, batch_ready, etc.)
-│   │   │   ├── pipelines.py         # Pipeline runners (run_transcribe_pipeline, run_transcribe_translate_pipeline)
-│   │   │   ├── incremental_pipeline.py # IncrementalPipeline class (background-threaded merge+translate)
-│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, Redis, MinIO, DB
+│   │   │   ├── pipelines.py         # V2 pipeline entry point (run_v2_pipeline only)
+│   │   │   ├── async_pipeline.py    # V2 asyncio producer-consumer (NMT translation + LLM refinement)
+│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, NMT_*, Redis, MinIO, DB
 │   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/batches/final)
 │   │   │   ├── schemas.py           # ALL Pydantic models (Sentence, SubtitleOutput, TranslatedBatch, etc.)
 │   │   │   ├── core/
@@ -77,16 +77,16 @@ bilingual-subtitle-system/
 │   │   │   │   ├── vad_manager.py        # VADManager (Silero VAD + greedy merge)
 │   │   │   │   ├── smart_aligner.py      # SmartAligner (dual-model, batched inference, Tier 1 chunk streaming)
 │   │   │   │   ├── semantic_merger.py    # SemanticMerger (language-aware line grouping + CJK homophone fix + needs_merge)
-│   │   │   │   ├── translator_engine.py  # TranslatorEngine (Analyze-Once, Translate-Streaming with Sliding Context)
-│   │   │   │   ├── llm_provider.py       # LLMProvider (Ollama — qwen2.5:7b-instruct, timeout=120s)
-│   │   │   │   └── prompts.py            # All LLM prompt templates (analysis, translation vi/en/generic)
+│   │   │   │   ├── nmt_translator.py     # NMTTranslator (NLLB-200-3.3B via CTranslate2, singleton)
+│   │   │   │   ├── llm_provider.py       # LLMProvider (Ollama — qwen2.5:7b-instruct, NMT refinement + merge + analysis)
+│   │   │   │   └── prompts.py            # LLM prompt templates (analysis, merge CJK/non-CJK, phonetic correction, NMT refinement)
 │   │   │   ├── utils/
 │   │   │   │   ├── audio_processor.py    # AudioProcessor (FFmpeg → 16kHz WAV mono)
 │   │   │   │   ├── vocal_isolator.py     # VocalIsolator (BS-Roformer / MDX ONNX)
 │   │   │   │   └── hardware_profiler.py  # HardwareProfiler (background CPU/RAM/GPU sampler)
 │   │   │   └── scripts/                  # Test/debug scripts
 │   │   ├── tests/                        # Unit tests (pytest)
-│   │   │   └── test_two_tier_streaming.py # 19 tests: Two-Tier Streaming, partial failure, output contract
+│   │   │   └── test_two_tier_streaming.py # 6 tests: MinIO paths, output contract
 │   │   ├── outputs/debug/               # Per-batch debug JSON snapshots (auto-generated per job)
 │   │   ├── requirements.txt              # 25+ deps (faster-whisper, bullmq, minio, psycopg2, pynvml, etc.)
 │   │   ├── Dockerfile                    # CUDA 12.1 + cuDNN 8 image
@@ -262,20 +262,21 @@ bilingual-subtitle-system/
 
 **Entry Point:** `main.py` — thin BullMQ consumer (~175 lines) listening on `ai-processing` queue. Delegates to `pipelines.py` for pipeline execution.
 
-**7-Step Pipeline (`PipelineOrchestrator`) — now with Incremental Merge+Translate:**
+**7-Step Pipeline (`PipelineOrchestrator`) — V2 Async NMT-based:**
 
-| Step | Class                 | Description                                                                                                | Status        |
-| ---- | --------------------- | ---------------------------------------------------------------------------------------------------------- | ------------- |
-| 1    | `AudioProcessor`      | Convert input to 16kHz WAV mono (FFmpeg)                                                                   | ✅ Done       |
-| 2    | `AudioInspector`      | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                                   | ✅ Done       |
-| 3    | `VADManager`          | Silero VAD → speech segments → greedy merge (5-15s targets)                                                | ✅ Done       |
-| 3b   | `VocalIsolator`       | Separate vocals for music (BS-Roformer / MDX ONNX)                                                         | ✅ Done       |
-| 4    | `SmartAligner`        | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **Tier 1 chunk streaming**            | ✅ Done       |
-| 5    | `SemanticMerger`      | Language-aware LLM line grouping (CJK: grouping + homophone fix; non-CJK: grouping only), batched (30 seg) | ✅ Refactored |
-| 5b   | `needs_merge()`       | **NEW:** Skip merge for well-formed sentences (Option D — merge-only-when-needed)                          | ✅ New        |
-| 6    | `TranslatorEngine`    | Analyze-Once + Translate-Streaming with Sliding Context (batch=15, window=3), **Tier 2 batch streaming**   | ✅ Rebuilt    |
-| 6b   | `IncrementalPipeline` | **NEW:** Accumulates ~30 sentences, flushes merge→translate in background thread (Option B)                | ✅ New        |
-| 7    | Export                | Upload `SubtitleOutput` as `final.json` to MinIO `processed` bucket                                        | ✅ Updated    |
+> **V1→V2 Migration:** The original V1 pipeline used `TranslatorEngine` (LLM-only, Ollama qwen2.5:7b) + `IncrementalPipeline` (threaded merge→translate). V2 replaces this with an asyncio producer-consumer architecture using NLLB-200-3.3B via CTranslate2 for fast GPU-native translation, with optional LLM refinement for quality. This eliminated the serial TranslatorEngine bottleneck and removed ~700 lines of dead code.
+
+| Step | Class            | Description                                                                                                                | Status       |
+| ---- | ---------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| 1    | `AudioProcessor` | Convert input to 16kHz WAV mono (FFmpeg)                                                                                   | ✅ Done      |
+| 2    | `AudioInspector` | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                                                   | ✅ Done      |
+| 3    | `VADManager`     | Silero VAD → speech segments → greedy merge (5-15s targets)                                                                | ✅ Done      |
+| 3b   | `VocalIsolator`  | Separate vocals for music (BS-Roformer / MDX ONNX)                                                                         | ✅ Done      |
+| 4    | `SmartAligner`   | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **Tier 1 chunk streaming**                            | ✅ Done      |
+| 5    | `SemanticMerger` | Language-aware LLM line grouping (CJK: grouping + homophone fix; non-CJK: grouping only), via `needs_merge()` heuristic    | ✅ Done      |
+| 6    | `NMTTranslator`  | **V2:** NLLB-200-3.3B via CTranslate2 (GPU, float16). Singleton with async `translate_batch()`. Replaces TranslatorEngine. | ✅ V2 Active |
+| 6b   | LLM Refinement   | **V2:** Optional post-NMT pass via Ollama (`NMT_REFINEMENT_PROMPT`). Fixes NMT artifacts for CJK/complex text.             | ✅ V2 Active |
+| 7    | Export           | Upload `SubtitleOutput` as `final.json` to MinIO `processed` bucket                                                        | ✅ Done      |
 
 **BullMQ Consumer (`main.py`):**
 
@@ -295,27 +296,23 @@ Tier 1 — Raw Transcription (during SmartAligner):
 - Uploads to `processed/{mediaId}/chunks/{chunkIndex}.json`
 - Mobile app can **start media playback** as soon as the first chunk arrives
 
-Tier 2 — Bilingual Translation (during IncrementalPipeline):
+Tier 2 — Bilingual Translation (during V2 async consumer):
 
-- `IncrementalPipeline` accumulates sentences from SmartAligner into a buffer
-- When buffer reaches `MERGE_ACCUMULATOR_THRESHOLD` (30), flushes through merge→translate in a **background thread**
+- `async_pipeline.py` consumer reads from asyncio.Queue, runs NMT translation + optional LLM refinement
 - Each completed batch uploaded to `processed/{mediaId}/translated_batches/{batchIndex}.json`
 - Mobile app **progressively replaces** raw source-only display with full bilingual subtitles
-- **Merge-only-when-needed (Option D):** `needs_merge()` checks fragment ratio — well-formed batches skip SemanticMerger entirely
+- CJK languages: batches pass through SemanticMerger before NMT; non-CJK bypass merge entirely
 
 Final — Complete Output:
 
 - `processed/{mediaId}/final.json` — full `SubtitleOutput` with metadata + all bilingual segments
 - Uploaded once pipeline finishes; mobile uses this as the canonical source
 
-Progress semantics (TRANSCRIBE_TRANSLATE): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0.15` VAD → `0.15–0.60` PROCESSING (transcription portion) → `0.60–0.90` PROCESSING (merge+translate interleaved) → `0.90` FINALIZING → `0.95` EXPORTING → `1.00` COMPLETED
-
-Progress semantics (TRANSCRIBE): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0.15` VAD → `0.25–0.85` TRANSCRIBING → `0.95` EXPORTING → `1.00` COMPLETED
+Progress semantics (V2 pipeline): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0.15` VAD → `0.15–0.60` PROCESSING (transcription portion) → `0.60–0.90` PROCESSING (NMT+refinement interleaved) → `0.90` FINALIZING → `0.95` EXPORTING → `1.00` COMPLETED
 
 **Debug Output:**
 
-- Every IncrementalPipeline flush writes a per-batch JSON snapshot to `outputs/debug/{mediaId}/batch_NNN.json`
-- Contains: raw input, merged output, and translated output for each batch — useful for diagnosing LLM quality issues
+- V2 async consumer writes per-batch debug snapshots to `outputs/debug/{mediaId}/` for diagnosing NMT/LLM quality issues
 
 **Key Design Decisions:**
 
@@ -325,11 +322,11 @@ Progress semantics (TRANSCRIBE): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0.
 - **Batched Inference:** `BatchedInferencePipeline` wraps each model; `batch_size` driven by `AI_PERF_MODE` (LOW=1, MEDIUM=4, HIGH=8)
 - **Model Routing:** First segment detects anchor language → routes subsequent segments to correct model; logs which model was selected
 - **Performance Profiles:** LOW/MEDIUM/HIGH → controls `compute_type`, `beam_size`, `batch_size`
-- **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, and translation
-- **TranslatorEngine Architecture:** Analyze-Once (smart-sampled context analysis) + Translate-Streaming (batched with sliding window). `TRANSLATION_BATCH_SIZE=15`, `SLIDING_WINDOW_SIZE=3`. Partial failure → `[Translation Pending]` markers (no data loss). Language config registry — adding a new target language = one prompt template + one `LanguageConfig` entry. Public methods `analyze_context()` and `translate_single_batch()` exposed for incremental pipeline use.
-- **IncrementalPipeline (Option B + D):** Runs merge+translate as a **background thread** (single-worker `ThreadPoolExecutor`) while SmartAligner continues transcription. Accumulates `MERGE_ACCUMULATOR_THRESHOLD=30` sentences before flushing. `needs_merge()` heuristic (Option D) skips SemanticMerger when <20% of sentences are fragments (<6 words). Constants: `MERGE_MIN_WORD_COUNT=6`, `MERGE_FRAGMENT_RATIO=0.2`.
-- **LLM Timeout Fix:** `LLMProvider` now uses `ollama.Client(timeout=120)` instead of bare `ollama.chat()` — prevents engine freezing on slow LLM responses.
-- **Dict-Keys Parser Fix:** `llm_provider._extract_list_from_parsed()` detects when LLM returns `{"text": "", ...}` dicts (translations in keys, empty values) and returns keys instead of empty values.
+- **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, and optional NMT refinement
+- **NMTTranslator (V2):** NLLB-200-3.3B via CTranslate2 (`float16`, singleton). Async `translate_batch()` method. Settings: `NMT_MODEL_DIR`, `NMT_TOKENIZER_NAME`, `NMT_COMPUTE_TYPE`, `NMT_BEAM_SIZE`. Replaces V1 `TranslatorEngine`.
+- **V2 Async Pipeline (`async_pipeline.py`):** asyncio producer-consumer. Producer = SmartAligner transcription → `asyncio.Queue`. Consumer = [CJK: SemanticMerger] → NMTTranslator → [LLM Refinement] → Tier 2 upload. Natural backpressure via bounded queue. Replaces V1 `IncrementalPipeline` + `ThreadPoolExecutor`.
+- **LLM Refinement:** Optional post-NMT pass using `NMT_REFINEMENT_PROMPT`. Fixes CJK particle errors, pronoun consistency, style drift. Controlled per-batch in the async consumer.
+- **SemanticMerger `needs_merge()` heuristic:** Skips merge when <20% of sentences are fragments (<6 words for non-CJK, <8 chars for CJK). Constants: `MERGE_MIN_WORD_COUNT=6`, `MERGE_FRAGMENT_RATIO=0.2`.
 - **Output Contract:** `SubtitleOutput` = `SubtitleMetadata` + `List[Sentence]`. Every `Sentence` has `translation: str` (never None, `""` default) and `phonetic: str` (CJK pinyin from word phonemes, empty for non-CJK).
 - **Multi-Segment Inspector:** Samples 3 positions (10%, 50%, 90%) with weighted voting to prevent music intro bias
 - **Graceful Fallback:** All steps catch exceptions and fall back (e.g., vocal isolation fails → use original audio)
@@ -410,31 +407,33 @@ graph TD
 | 6     | Incremental Merge+Translate Pipeline (Option B+D) | ✅ Complete | `semantic_merger.py`, `translator_engine.py`, `llm_provider.py`, `main.py`                          |
 | 7     | Module Refactor — split monolithic `main.py`      | ✅ Complete | New `db.py`, `events.py`, `pipelines.py`, `incremental_pipeline.py`; rewritten `main.py`            |
 
-**Key Changes Summary:**
+**V2 Pipeline Rebuild (plan-v2-pipeline-architecture.prompt.md):**
 
-- **`schemas.py`:** `Sentence` now has `translation: str = ""` and `phonetic: str = ""`. New models: `SubtitleMetadata`, `SubtitleOutput`, `TranslatedBatch`, `ContextAnalysis`, `LanguageConfig`. `TranslatedSentence = Sentence` (alias for backward compat).
-- **`translator_engine.py`:** Rebuilt from scratch. Analyze-Once (smart-sampled context: 5 begin + 5 middle + 5 end), Translate-Streaming (batch=15, sliding window=3). Language config registry (`vi`, `en`, generic fallback). Partial failure → `[Translation Pending]` markers, continues processing.
+| Phase | Description                        | Status      | Files Modified                                                                                                                                                                          |
+| ----- | ---------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | NLLB Evaluation Scripts            | ✅ Complete | `scripts/eval_nllb.py`, `scripts/eval_nllb_bilingual.py`                                                                                                                                |
+| 1     | NMTTranslator Singleton            | ✅ Complete | New `core/nmt_translator.py`                                                                                                                                                            |
+| 2     | Async Pipeline (producer-consumer) | ✅ Complete | New `async_pipeline.py`, `pipelines.py` updated                                                                                                                                         |
+| 3     | LLM Refinement Wiring              | ✅ Complete | `llm_provider.py`, `prompts.py` (NMT_REFINEMENT_PROMPT), `async_pipeline.py`                                                                                                            |
+| 4     | Test Script                        | ✅ Complete | `scripts/test_v2_pipeline.py`                                                                                                                                                           |
+| 5     | V1 Dead Code Cleanup               | ✅ Complete | Deleted: `translator_engine.py`, `incremental_pipeline.py`, V1 test scripts. Cleaned: `prompts.py`, `llm_provider.py`, `pipeline.py`, `pipelines.py`, `main.py`, `schemas.py`, `tests/` |
+
+**Key Changes Summary (V1 Refactor — Phases 1-7):**
+
+- **`schemas.py`:** `Sentence` now has `translation: str = ""` and `phonetic: str = ""`. Models: `SubtitleMetadata`, `SubtitleOutput`, `TranslatedBatch`, `ContextAnalysisResult`.
 - **`minio_client.py`:** Typed uploads: `upload_chunk()` (Tier 1), `upload_translated_batch(TranslatedBatch)` (Tier 2), `upload_final_result(SubtitleOutput)` (final). Path convention: `{mediaId}/chunks/`, `{mediaId}/translated_batches/`, `{mediaId}/final.json`.
-- **`main.py`:** Both pipeline functions return `SubtitleOutput`. Tier 2 callback builds `TranslatedBatch` per batch. Reads `targetLanguage` from job data (default `"vi"`). `_populate_segment_phonetics()` for CJK pinyin.
 - **Backend DTOs:** `targetLanguage?: string` added to `ConfirmUploadDto`, `SubmitYoutubeDto`, both job payload types, and wired through `media.service.ts` → `media.processor.ts`.
 
-**Phase 6 — Incremental Merge+Translate (plan-incrementalPipeline.prompt.md):**
+**Key Changes Summary (V2 Pipeline — Phases 0-5):**
 
-- **Option B — Incremental pipeline:** `IncrementalPipeline` class accumulates sentences, flushes merge→translate in a `ThreadPoolExecutor(max_workers=1)` background thread while `SmartAligner` continues transcription. Eliminates serial bottleneck.
-- **Option D — Merge-only-when-needed:** `SemanticMerger.needs_merge()` checks fragment ratio before merging. If <20% of sentences are fragments (<6 words), merge is skipped entirely. Constants: `MERGE_MIN_WORD_COUNT=6`, `MERGE_FRAGMENT_RATIO=0.2`.
-- **Bug fix — LLM timeout:** `llm_provider.py` now creates `ollama.Client(timeout=120)` — prevents engine from freezing on slow model responses.
-- **Bug fix — Empty translations:** `_extract_list_from_parsed()` in `llm_provider.py` detects when LLM puts translations in dict keys with empty values, returns keys instead of empty strings.
-- **Debug output:** `IncrementalPipeline._dump_debug()` writes per-batch JSON snapshots to `outputs/debug/{mediaId}/batch_NNN.json` for diagnosing LLM quality issues.
-
-**Phase 7 — Module Refactor (main.py split):**
-
-- **Before:** `main.py` was ~1200 lines — BullMQ consumer + DB helpers + Redis pub/sub + pipeline runners + IncrementalPipeline all in one file.
-- **After:** Split into 5 focused modules:
-  - `main.py` (~175 lines) — thin BullMQ consumer entry point
-  - `db.py` — Postgres pool + `update_media_status()` + `mark_quota_counted()`
-  - `events.py` — Redis pub/sub client + `publish_progress()` / `publish_chunk_ready()` / `publish_batch_ready()` / `publish_completed()` / `publish_failed()`
-  - `pipelines.py` — `run_transcribe_pipeline()` + `run_transcribe_translate_pipeline()` + helpers
-  - `incremental_pipeline.py` — `IncrementalPipeline` class + debug helper
+- **`nmt_translator.py` (NEW):** NLLB-200-3.3B via CTranslate2. Singleton with lazy model load. `translate_batch(texts, src_lang, tgt_lang)` async method. Settings: `NMT_MODEL_DIR`, `NMT_TOKENIZER_NAME`, `NMT_COMPUTE_TYPE` (float16), `NMT_BEAM_SIZE` (4).
+- **`async_pipeline.py` (NEW):** asyncio producer-consumer. Producer = SmartAligner → `asyncio.Queue`. Consumer = [CJK: SemanticMerger] → NMTTranslator → [LLM Refinement] → Tier 2 upload. Replaces `IncrementalPipeline` + `ThreadPoolExecutor`.
+- **`pipelines.py` (REWRITTEN):** Single entry point `run_v2_pipeline()` (~47 lines). Delegates to `async_pipeline.run_v2_pipeline_async()`.
+- **`main.py` (SIMPLIFIED):** Always calls V2 pipeline. No more `processingMode` branching or V1 imports.
+- **`prompts.py` (CLEANED):** V1 translation prompts (`TRANSLATION_SYSTEM_PROMPT`, per-language prompts) deleted. Kept: `ANALYSIS_SYSTEM_PROMPT`, `PHONETIC_CORRECTION_SYSTEM_PROMPT`, `SAFE_MERGE_CJK_PROMPT`, `SAFE_MERGE_NON_CJK_PROMPT`, `NMT_REFINEMENT_PROMPT`.
+- **`llm_provider.py` (CLEANED):** `translate_batch()` and `translate_raw()` deleted. `refine_nmt_translations()` is the only translation-related method.
+- **Deleted files:** `translator_engine.py`, `incremental_pipeline.py`, `scripts/test_phase1.py`, `scripts/test_phase2.py`, `scripts/test_phase2_real.py`.
+- **Tests (REWRITTEN):** 6 tests remain (MinIO paths + output contract). V1-specific tests (TranslatorEngine, sliding window, partial failure, phonetics) removed.
 
 **MinIO Storage Convention:**
 
@@ -449,17 +448,12 @@ processed/{mediaId}/
 └── final.json                 # Complete SubtitleOutput (canonical)
 ```
 
-**Unit Tests:** `tests/test_two_tier_streaming.py` — 19 tests (pytest). Imports updated from `src.main` to `src.pipelines` after Phase 7 refactor:
+**Unit Tests:** `tests/test_two_tier_streaming.py` — 6 tests (pytest). V2-only — MinIO paths and output contract:
 
-| Test Class                      | Tests | Coverage                                                                          |
-| ------------------------------- | ----- | --------------------------------------------------------------------------------- |
-| `TestTier2StreamingBatches`     | 3     | Batch ordering, translations populated, correct segment counts                    |
-| `TestTierOrdering`              | 1     | Tier 1 chunks complete before any Tier 2 batch                                    |
-| `TestOllamaCrashPartialFailure` | 4     | Partial crash → `[Translation Pending]`, all-fail, count mismatch, empty response |
-| `TestSlidingWindowContinuity`   | 1     | Failed batch doesn't poison sliding window — recovery on next batch               |
-| `TestMinIOPathConvention`       | 3     | Tier 1/Tier 2/final paths match convention                                        |
-| `TestOutputContract`            | 3     | `SubtitleOutput` JSON structure, `translation`/`phonetic` never None              |
-| `TestPhoneticPopulation`        | 4     | CJK pinyin assembled, English no-op, Japanese, missing phoneme skipped            |
+| Test Class                | Tests | Coverage                                                             |
+| ------------------------- | ----- | -------------------------------------------------------------------- |
+| `TestMinIOPathConvention` | 3     | Tier 1/Tier 2/final paths match convention                           |
+| `TestOutputContract`      | 3     | `SubtitleOutput` JSON structure, `translation`/`phonetic` never None |
 
 Run: `cd apps/ai-engine && .\venv\Scripts\Activate.ps1 && python -m pytest tests/ -v`
 
@@ -586,18 +580,19 @@ interface AiProcessingJobPayload {
 
 ## 11. Priority TODO (Next Steps)
 
-1. **� AI Engine — Translation Quality:** LLM qwen2.5:7b model occasionally produces garbled or low-quality translations. Investigate prompt tuning, model swaps, or post-processing filters. _(Acknowledged — deferred for now)_
-2. **🟡 AI Engine — Dead Code Cleanup:** Old `translate_batch()` method + `TRANSLATION_SYSTEM_PROMPT` in `llm_provider.py` are unused after TranslatorEngine rebuild. Low severity but should be removed.
-3. **🟡 Mobile App — App Shell:** Implement production tab/stack structure to replace demo home screen
-4. **🟡 Mobile App — Processing UX:** Status polling/SSE UI for queued/processing/completed states
-5. **🟡 Mobile App — Subtitle Player:** Bilingual playback + Karaoke word-highlight effect
-6. **🟡 Mobile App — Two-Tier Streaming Consumption:** Poll `chunks/` → render source subtitles (Tier 1), poll `translated_batches/` → merge bilingual data (Tier 2), switch to `final.json` when complete
-7. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`
-8. **🟡 AI Engine — Integration Test:** End-to-end test with real Ollama + MinIO to verify Two-Tier Streaming in a live environment
-9. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
-10. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
-11. **🟢 VAD Performance:** Investigate VAD processing time on long music files
-12. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
+1. **🟡 AI Engine — NMT Quality Tuning:** V2 uses NLLB-200-3.3B (CTranslate2) + optional LLM refinement. Monitor NMT output quality per language pair and tune `NMT_BEAM_SIZE`, `NMT_COMPUTE_TYPE`, and refinement prompts as needed.
+2. **🟡 Post-V2 Integration — Backend:** The `processingMode` field (`TRANSCRIBE` vs `TRANSCRIBE_TRANSLATE`) in `MediaItem` and job payloads may be obsolete now that V2 always translates. Consider simplifying or deprecating `TRANSCRIBE`-only mode in the backend.
+3. **🟡 Post-V2 Integration — Mobile:** Subtitle player needs to handle V2 output format. New streaming events (`batch_ready` from async consumer) may differ from V1 expectations. Verify Two-Tier Streaming consumption works end-to-end.
+4. **🟡 Mobile App — App Shell:** Implement production tab/stack structure to replace demo home screen
+5. **🟡 Mobile App — Processing UX:** Status polling/SSE UI for queued/processing/completed states
+6. **🟡 Mobile App — Subtitle Player:** Bilingual playback + Karaoke word-highlight effect
+7. **🟡 Mobile App — Two-Tier Streaming Consumption:** Poll `chunks/` → render source subtitles (Tier 1), poll `translated_batches/` → merge bilingual data (Tier 2), switch to `final.json` when complete
+8. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`
+9. **🟡 AI Engine — Integration Test:** End-to-end test with real Ollama + MinIO to verify Two-Tier Streaming in a live environment
+10. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
+11. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
+12. **🟢 VAD Performance:** Investigate VAD processing time on long music files
+13. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
 
 ---
 

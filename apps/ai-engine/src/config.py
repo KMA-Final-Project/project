@@ -110,11 +110,9 @@ class Settings(BaseSettings):
 
     # --- Translation Config ---
     TRANSLATOR_PROVIDER: str = "google"
-
-    # --- V2 Pipeline Feature Flag ---
     USE_V2_PIPELINE: bool = Field(
         default=False,
-        description="Use V2 async NMT pipeline. Set USE_V2_PIPELINE=true in .env to activate.",
+        description="Legacy flag kept for .env compat. V2 is now the only pipeline.",
     )
 
     # --- NMT (NLLB via CTranslate2) ---

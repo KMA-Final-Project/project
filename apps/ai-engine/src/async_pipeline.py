@@ -1,8 +1,7 @@
 """
 V2 Async Pipeline — asyncio producer-consumer with NMT translation.
 
-Replaces the ThreadPoolExecutor-based IncrementalPipeline with a clean
-asyncio design:
+Architecture:
   - Producer: SmartAligner transcription → asyncio.Queue
   - Consumer: CJK branch (SemanticMerger) / non-CJK bypass → NMTTranslator → Tier 2 upload
 
@@ -26,7 +25,13 @@ from src.core.semantic_merger import SemanticMerger
 from src.db import update_media_status
 from src.events import publish_batch_ready, publish_chunk_ready, publish_progress
 from src.minio_client import MinioClient
-from src.schemas import Sentence, SubtitleMetadata, SubtitleOutput, TranslatedBatch
+from src.schemas import (
+    ContextAnalysisResult,
+    Sentence,
+    SubtitleMetadata,
+    SubtitleOutput,
+    TranslatedBatch,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -242,11 +247,14 @@ async def run_v2_pipeline_async(
         """Consume chunks from queue: CJK branch / non-CJK → NMT → Tier 2 upload."""
         nmt = NMTTranslator.get_instance()
         merger = pipeline.merger
+        llm = pipeline.llm
 
         all_sentences: list[Sentence] = []
         cjk_buffer: list[Sentence] = []
         batch_index: int = 0
         chunks_since_cjk_flush: int = 0
+        context_result: ContextAnalysisResult | None = None
+        context_analyzed: bool = False
 
         def _source_lang() -> str:
             return source_lang_holder[0] or "en"
@@ -283,31 +291,71 @@ async def run_v2_pipeline_async(
                 return result
 
         def _translate_and_upload(sentences: list[Sentence]) -> list[Sentence]:
-            """Translate a batch of sentences via NMT and upload as Tier 2."""
-            nonlocal batch_index
+            """Translate via NMT, optionally refine with LLM, and upload as Tier 2."""
+            nonlocal batch_index, context_result, context_analyzed
             if not sentences:
                 return []
 
             src = _source_lang()
             tgt = target_lang
+            texts = [s.text for s in sentences]
 
-            # Skip NMT if source == target
+            # ── Step A: NMT translation (always runs — fast, deterministic) ──
             t0 = _time.time()
             if src == tgt:
-                for s in sentences:
-                    s.translation = s.text
+                nmt_translations = list(texts)
                 logger.debug(
                     f"⏭️ NMT skipped (source == target): {len(sentences)} segments"
                 )
             else:
-                texts = [s.text for s in sentences]
-                translations = nmt.translate_batch(texts, src, tgt)
-                for s, t in zip(sentences, translations):
-                    s.translation = t
+                nmt_translations = nmt.translate_batch(texts, src, tgt)
                 logger.info(
                     f"🌐 NMT batch {batch_index}: {len(sentences)} segments "
                     f"{src}→{tgt} in {_time.time() - t0:.2f}s"
                 )
+
+            # ── Step B: Context analysis (once per job, on first chunk) ──
+            if not context_analyzed:
+                context_analyzed = True
+                try:
+                    sample = texts[:10]
+                    ctx = llm.analyze_context(sample, tgt)
+                    context_result = ctx
+                    logger.info(
+                        f"📊 Context analysis: style={ctx.detected_style}, "
+                        f"pronouns={ctx.detected_pronouns}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Context analysis failed (continuing without): {e}")
+                    context_result = None
+
+            # ── Step C: LLM refinement (optional, best-effort) ──
+            final_translations = nmt_translations
+            if context_result is not None and src != tgt:
+                try:
+                    t1 = _time.time()
+                    refined = llm.refine_batch(
+                        texts, nmt_translations, context_result, tgt
+                    )
+                    if refined is not None:
+                        final_translations = refined
+                        logger.info(
+                            f"✨ LLM refinement batch {batch_index}: "
+                            f"{len(sentences)} segments in {_time.time() - t1:.2f}s"
+                        )
+                    else:
+                        logger.debug(
+                            f"⏭️ Refinement returned None for batch {batch_index} "
+                            f"— using NMT output"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Refinement failed for batch {batch_index} — using NMT: {e}"
+                    )
+
+            # Apply translations to sentences
+            for s, t in zip(sentences, final_translations):
+                s.translation = t
 
             # Upload Tier 2 batch
             tb = TranslatedBatch(batch_index=batch_index, segments=sentences)

@@ -4,7 +4,10 @@ import ollama
 from loguru import logger
 from typing import List, Dict, Any, Optional
 from src.schemas import ContextAnalysisResult, TranslationStyle, VietnamesePronoun
-from .prompts import ANALYSIS_SYSTEM_PROMPT, TRANSLATION_SYSTEM_PROMPT
+from .prompts import (
+    ANALYSIS_SYSTEM_PROMPT,
+    NMT_REFINEMENT_PROMPT,
+)
 
 
 class LLMProvider:
@@ -172,163 +175,6 @@ class LLMProvider:
 
         return None
 
-    def translate_batch(
-        self,
-        texts: List[str],
-        source_lang: str,
-        target_lang: str,
-        context: ContextAnalysisResult,
-    ) -> List[str]:
-        """
-        Translates a batch of texts using the provided context.
-        Includes Retry Logic (Max 3 attempts).
-        """
-        logger.info(f"Sending Translation Batch ({len(texts)} items) to LLM...")
-
-        if target_lang.lower() == "vi":
-            pronoun_enforcement = (
-                "STRICTLY use the provided Pronouns for 'I' and 'You'."
-            )
-        else:
-            pronoun_enforcement = (
-                "Adapt pronouns to fit the Context Summary relationships."
-            )
-
-        system_msg = TRANSLATION_SYSTEM_PROMPT.format(
-            source_lang=source_lang,
-            target_lang=target_lang,
-            style=context.detected_style.value,
-            pronouns=(
-                context.detected_pronouns.value if context.detected_pronouns else "N/A"
-            ),
-            summary=context.summary,
-            pronoun_enforcement=pronoun_enforcement,
-        )
-
-        user_msg = json.dumps(texts, ensure_ascii=False)
-
-        max_retries = 3
-        best_partial: Optional[List[str]] = None
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Translation Attempt {attempt+1}/{max_retries}...")
-                response = self._client.chat(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    format="json",
-                    options={"temperature": 0.3},
-                )
-
-                content = response["message"]["content"]
-                logger.debug(f"LLM Response (Attempt {attempt+1}) received.")
-
-                translated_list = self._parse_list_output(content, len(texts))
-
-                if not translated_list:
-                    logger.warning(
-                        f"Could not extract list from LLM response (Attempt {attempt+1})"
-                    )
-                    continue  # Retry
-
-                if len(translated_list) == len(texts):
-                    return translated_list  # Success!
-
-                logger.warning(
-                    f"Count mismatch (Attempt {attempt+1}): Sent {len(texts)}, Got {len(translated_list)}"
-                )
-                if best_partial is None or len(translated_list) > len(best_partial):
-                    best_partial = translated_list
-
-            except Exception as e:
-                logger.error(f"LLM Translation Error (Attempt {attempt+1}): {e}")
-
-        # Use best partial if available
-        if best_partial and len(best_partial) > 0:
-            logger.warning(
-                f"Using best partial result ({len(best_partial)}/{len(texts)} items). "
-                f"Padding remaining with '[Translation Pending]'."
-            )
-            padded = best_partial + ["[Translation Pending]"] * (
-                len(texts) - len(best_partial)
-            )
-            return padded[: len(texts)]
-
-        logger.error("All translation attempts failed.")
-        return []  # Return empty list on failure
-
-    def translate_raw(
-        self,
-        texts: List[str],
-        system_prompt: str,
-    ) -> List[str]:
-        """
-        Translate a batch of texts using a fully-constructed system prompt.
-
-        This method owns retry logic and JSON parsing but delegates prompt
-        construction to the caller (TranslatorEngine builds language-specific
-        prompts with sliding context).
-
-        Returns an empty list on complete failure.
-        """
-        logger.info(f"Sending raw translation batch ({len(texts)} items) to LLM...")
-        user_msg = json.dumps(texts, ensure_ascii=False)
-
-        max_retries = 3
-        best_partial: Optional[List[str]] = None
-
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Raw translation attempt {attempt + 1}/{max_retries}...")
-                response = self._client.chat(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    format="json",
-                    options={"temperature": 0.3},
-                )
-
-                content = response["message"]["content"]
-                logger.debug(f"LLM raw response (attempt {attempt + 1}) received.")
-
-                translated_list = self._parse_list_output(content, len(texts))
-
-                if not translated_list:
-                    logger.warning(f"Could not extract list (attempt {attempt + 1})")
-                    continue
-
-                if len(translated_list) == len(texts):
-                    return translated_list
-
-                # Count mismatch — keep as best partial if it's the longest so far
-                logger.warning(
-                    f"Count mismatch (attempt {attempt + 1}): "
-                    f"sent {len(texts)}, got {len(translated_list)}"
-                )
-                if best_partial is None or len(translated_list) > len(best_partial):
-                    best_partial = translated_list
-
-            except Exception as e:
-                logger.error(f"Raw translation error (attempt {attempt + 1}): {e}")
-
-        # All retries exhausted — use best partial if available
-        if best_partial and len(best_partial) > 0:
-            logger.warning(
-                f"Using best partial result ({len(best_partial)}/{len(texts)} items). "
-                f"Padding remaining with '[Translation Pending]'."
-            )
-            padded = best_partial + ["[Translation Pending]"] * (
-                len(texts) - len(best_partial)
-            )
-            return padded[: len(texts)]
-
-        logger.error("All raw translation attempts failed.")
-        return []
-
     def generate(self, prompt: str, system_prompt: str = None) -> str:
         """
         Generic generation method for flexible tasks.
@@ -347,3 +193,111 @@ class LLMProvider:
         except Exception as e:
             logger.error(f"LLM Generation Failed: {e}")
             raise e
+
+    # ------------------------------------------------------------------
+    # Phase 4: NMT refinement
+    # ------------------------------------------------------------------
+
+    def _parse_string_list(self, content: str) -> Optional[List[str]]:
+        """Parse a JSON array of strings from LLM output.
+
+        Handles markdown code fences and embedded JSON arrays.
+        Returns None on any parse failure.
+        """
+        cleaned = self._strip_markdown_fences(content)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, list) and all(isinstance(i, str) for i in parsed):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        # Regex fallback: extract first JSON array
+        match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, list) and all(isinstance(i, str) for i in parsed):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        return None
+
+    def refine_batch(
+        self,
+        sources: List[str],
+        nmt_translations: List[str],
+        context: ContextAnalysisResult,
+        target_lang: str,
+    ) -> Optional[List[str]]:
+        """Refine NMT translations using LLM context awareness.
+
+        Returns a list of refined translations (same length as *sources*)
+        on success, or **None** on any failure. Callers MUST fall back to
+        *nmt_translations* when this returns None.
+        """
+        if len(sources) != len(nmt_translations):
+            logger.error(
+                f"refine_batch: length mismatch — "
+                f"{len(sources)} sources vs {len(nmt_translations)} translations"
+            )
+            return None
+
+        count = len(sources)
+
+        # Build pronoun section
+        if target_lang.lower() == "vi" and context.detected_pronouns:
+            pronoun_pair = context.detected_pronouns.value
+            parts = pronoun_pair.split(" / ")
+            first_p = parts[0] if parts else pronoun_pair
+            second_p = parts[1] if len(parts) > 1 else ""
+            pronoun_section = (
+                f'- Pronouns: STRICTLY use "{pronoun_pair}" '
+                f'(I = "{first_p}", You = "{second_p}").'
+            )
+            pronoun_rule = (
+                f'- Vietnamese pronoun enforcement: Every "I" must be "{first_p}" '
+                f'and every "You" must be "{second_p}". This is NON-NEGOTIABLE.'
+            )
+        else:
+            pronoun_section = (
+                "- Pronouns: Adapt to fit the context and speaker relationships."
+            )
+            pronoun_rule = "- Adapt pronouns naturally for the target language."
+
+        system_msg = NMT_REFINEMENT_PROMPT.format(
+            style=context.detected_style.value,
+            summary=context.summary,
+            keywords=", ".join(context.keywords) if context.keywords else "(none)",
+            pronoun_section=pronoun_section,
+            count=count,
+            pronoun_rule=pronoun_rule,
+        )
+
+        # Build numbered source/draft pairs
+        lines = []
+        for i, (src, draft) in enumerate(zip(sources, nmt_translations)):
+            lines.append(f"[{i}] SOURCE: {src} / DRAFT: {draft}")
+        user_msg = "\n".join(lines)
+
+        try:
+            raw = self.generate(user_msg, system_prompt=system_msg)
+            refined = self._parse_string_list(raw)
+
+            if refined is None:
+                logger.warning(
+                    "refine_batch: failed to parse LLM output as string list"
+                )
+                return None
+
+            if len(refined) != count:
+                logger.warning(
+                    f"refine_batch: count mismatch — "
+                    f"expected {count}, got {len(refined)}"
+                )
+                return None
+
+            return refined
+
+        except Exception as e:
+            logger.error(f"refine_batch failed: {e}")
+            return None

@@ -68,7 +68,7 @@ class SemanticMerger:
 
         Returns a list of batch groups — each group is a list of merged
         Sentence objects at sentence boundaries.  These groups feed directly
-        into TranslatorEngine as translation batches (Tier 2).
+        into NMT translation as translation batches.
         """
         if not sentences:
             return []
