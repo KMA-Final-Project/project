@@ -57,7 +57,7 @@
   - Verify: `cd apps/ai-engine && ./venv/Scripts/python.exe -m pytest tests/test_streaming_contracts.py -q`
   - Done when: partial outputs can be matched by explicit contract fields, and the mirrored subtitle types reflect that truth.
 
-- [ ] **T03: Mirror the durable contract into downstream typed surfaces** `est:45m`
+- [x] **T03: Mirror the durable contract into downstream typed surfaces** `est:45m`
   - Why: AI Engine is the source of truth, but downstream typed surfaces still carry stale assumptions.
   - Files: `apps/mobile-app/src/types/subtitle.ts`, `apps/mobile-app/src/hooks/useProcessingSubtitles.ts`, `apps/ai-engine/ARCHITECTURE_CONTEXT.md`
   - Do: Update the mirrored subtitle types and the documented consumer assumptions so they stop implying blind index-only matching, while keeping full downstream behavior rewrites out of scope.
