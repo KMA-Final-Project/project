@@ -1,39 +1,38 @@
 # S03: Event and persistence discipline
 
-**Goal:** Readiness events (`chunk_ready`, `batch_ready`, `completed`) only fire after the corresponding artifacts are durably persisted in MinIO, and failure events only fire after status is recorded. This discipline is mechanically proven at both the fake-only and live-infrastructure levels.
-**Demo:** `pytest tests/test_event_discipline.py` passes proving call ordering, and the live harness `--live-infra` run logs a successful MinIO re-read for every readiness event before allowing the publish to proceed.
+**Goal:** Event/persistence discipline remains part of the engine contract, but under `.gsd/OVERRIDES.md` the milestone no longer requires additional AI-run live verification before completion. The slice should preserve the already-established fake-only ordering proof and leave any further runtime confirmation to manual user follow-up.
+**Demo:** Review the completed fake-only ordering proof from T01 and the implementation surfaces intended for live-harness interception. Do not run new automated verification loops; if runtime confirmation is needed later, the user handles it manually.
 
 ## Must-Haves
 
-- Fake-only tests prove `upload_chunk` strictly precedes `publish_chunk_ready`, `upload_translated_batch` strictly precedes `publish_batch_ready`, `upload_final_result` strictly precedes `publish_completed`, and `update_media_status(status="FAILED")` strictly precedes `publish_failed`
-- Live harness interceptors perform a synchronous MinIO `stat_object` inside the publish wrapper, proving the artifact is fetchable at the exact moment the readiness event fires
+- The structural rule remains unchanged: `upload_chunk` precedes `publish_chunk_ready`, `upload_translated_batch` precedes `publish_batch_ready`, `upload_final_result` precedes `publish_completed`, and `update_media_status(status="FAILED")` precedes `publish_failed`
+- Any live-harness persistence checks are an optional manual inspection surface, not a required AI-run gate for milestone completion
 - Progress events (`publish_progress`) remain unblocked and are not gated on persistence — only availability events are disciplined
-- Failure path proof: the worker exception handler records `status=FAILED` before publishing the failed event
+- Failure-path behavior still records `status=FAILED` before publishing the failed event
 
 ## Proof Level
 
-- This slice proves: contract + integration
-- Real runtime required: yes (live harness exercises real MinIO/Redis)
-- Human/UAT required: no
+- This slice proves: contract/implementation alignment under the override
+- Real runtime required: no for agent completion
+- Human/UAT required: yes, if the user wants runtime confirmation later
 
 ## Verification
 
-- `cd apps/ai-engine && ./venv/Scripts/python.exe -m pytest tests/test_event_discipline.py -v` — all ordering assertions pass
-- `cd apps/ai-engine && ./venv/Scripts/python.exe -m pytest tests/test_first_batch_streaming.py tests/test_streaming_contracts.py -q` — existing tests still pass (no regressions)
-- `cd apps/ai-engine && ./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline demo_audio_3.mp3 --lang vi --live-infra` — harness logs persistence-before-event verification for every readiness event and includes results in the saved harness report
+- No further AI-run verification should be performed for this slice under `.gsd/OVERRIDES.md`
+- If a future human verification pass is desired, inspect `apps/ai-engine/src/scripts/test_v2_pipeline.py` manually and let the user run any live harness checks themselves
 
 ## Observability / Diagnostics
 
-- Runtime signals: each intercepted publish logs `[EventDiscipline] verified {object_key} exists before {event_type}` at the moment of assertion
-- Inspection surfaces: harness report JSON includes `persistence_before_event_checks` array with per-event verification results
-- Failure visibility: if a MinIO stat fails inside the interceptor, the harness raises immediately with the missing object key and event type
+- Existing inspection surface: `apps/ai-engine/tests/test_event_discipline.py` remains the cheap historical proof for structural ordering from T01
+- Optional runtime inspection surface: live harness logging/report fields may still exist in `apps/ai-engine/src/scripts/test_v2_pipeline.py`, but they are not required to be re-run by the agent
+- Failure visibility still matters: if runtime checks are ever exercised manually, missing artifacts should surface with the object key and event type
 - Redaction constraints: presigned MinIO URLs must remain redacted per KNOWLEDGE.md rules
 
 ## Integration Closure
 
-- Upstream surfaces consumed: `apps/ai-engine/src/async_pipeline.py` (upload→publish sequences), `apps/ai-engine/src/main.py` (final upload→completed, failure→publish_failed), `apps/ai-engine/src/scripts/test_v2_pipeline.py` (live harness infrastructure)
-- New wiring introduced in this slice: event interceptors in `_prepare_live_runtime` that wrap publish functions with synchronous MinIO verification
-- What remains before the milestone is truly usable end-to-end: S04 partial-availability playback contract, S05 end-to-end worker proof
+- Upstream surfaces consumed: `apps/ai-engine/src/async_pipeline.py` (upload→publish sequences), `apps/ai-engine/src/main.py` (final upload→completed, failure→publish_failed), `apps/ai-engine/src/scripts/test_v2_pipeline.py` (optional manual harness surface)
+- New wiring introduced in this slice should remain implementation-only unless the user explicitly chooses to run manual verification
+- What remains before later milestones: Backend and Mobile can consume the engine-side discipline assumptions without requiring additional AI-run proof loops here
 
 ## Tasks
 

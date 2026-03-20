@@ -90,6 +90,118 @@ export class SubmitYoutubeResponseDto {
   jobId: string;
 }
 
+// ==================== Artifact Inventory ====================
+
+export class MediaArtifactsSummaryDto {
+  @ApiProperty({ example: 3 })
+  chunkCount: number;
+
+  @ApiProperty({ example: 2 })
+  translatedBatchCount: number;
+
+  @ApiProperty({ example: true })
+  hasFinal: boolean;
+
+  @ApiProperty({ example: 2, nullable: true })
+  latestChunkIndex: number | null;
+
+  @ApiProperty({ example: 1, nullable: true })
+  latestBatchIndex: number | null;
+
+  @ApiProperty({
+    description: 'Canonical object key for final.json when available',
+    example: '15209337-61c8-4a67-9f71-990475f394a4/final.json',
+    nullable: true,
+  })
+  finalObjectKey: string | null;
+}
+
+export class MediaChunkArtifactDto {
+  @ApiProperty({ example: 0 })
+  chunkIndex: number;
+
+  @ApiProperty({
+    example: '15209337-61c8-4a67-9f71-990475f394a4/chunks/0.json',
+  })
+  objectKey: string;
+
+  @ApiProperty({
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/chunks/0.json?X-Amz-...',
+  })
+  url: string;
+
+  @ApiProperty({ example: 2048 })
+  size: number;
+
+  @ApiProperty({ nullable: true })
+  lastModified: Date | null;
+}
+
+export class MediaTranslatedBatchArtifactDto {
+  @ApiProperty({ example: 0 })
+  batchIndex: number;
+
+  @ApiProperty({
+    example: '15209337-61c8-4a67-9f71-990475f394a4/translated_batches/0.json',
+  })
+  objectKey: string;
+
+  @ApiProperty({
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/translated_batches/0.json?X-Amz-...',
+  })
+  url: string;
+
+  @ApiProperty({ example: 4096 })
+  size: number;
+
+  @ApiProperty({ nullable: true })
+  lastModified: Date | null;
+}
+
+export class MediaFinalArtifactDto {
+  @ApiProperty({
+    example: '15209337-61c8-4a67-9f71-990475f394a4/final.json',
+  })
+  objectKey: string;
+
+  @ApiProperty({
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/final.json?X-Amz-...',
+  })
+  url: string;
+
+  @ApiProperty({ example: 8192 })
+  size: number;
+
+  @ApiProperty({ nullable: true })
+  lastModified: Date | null;
+}
+
+export class MediaArtifactsResponseDto {
+  @ApiProperty({ example: '15209337-61c8-4a67-9f71-990475f394a4' })
+  mediaId: string;
+
+  @ApiProperty({
+    enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
+    example: 'PROCESSING',
+  })
+  status: string;
+
+  @ApiProperty({ type: MediaArtifactsSummaryDto })
+  summary: MediaArtifactsSummaryDto;
+
+  @ApiProperty({ type: [MediaChunkArtifactDto] })
+  chunks: MediaChunkArtifactDto[];
+
+  @ApiProperty({ type: [MediaTranslatedBatchArtifactDto] })
+  translatedBatches: MediaTranslatedBatchArtifactDto[];
+
+  @ApiProperty({ type: MediaFinalArtifactDto, nullable: true })
+  final: MediaFinalArtifactDto | null;
+}
+
 // ==================== Media Status (Progress Tracking) ====================
 
 export class MediaStatusResponseDto {
@@ -113,7 +225,7 @@ export class MediaStatusResponseDto {
 
   @ApiProperty({
     enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
-    example: 'TRANSCRIBE',
+    example: 'TRANSCRIBE_TRANSLATE',
   })
   processingMode: string;
 
@@ -150,13 +262,21 @@ export class MediaStatusResponseDto {
   estimatedTimeRemaining: number | null;
 
   @ApiProperty({
-    description: 'S3 key of the final transcript/subtitle output',
+    description:
+      'Compatibility field for the canonical final object key stored on the MediaItem row when available.',
     nullable: true,
   })
   transcriptS3Key: string | null;
 
   @ApiProperty({ nullable: true })
   subtitleS3Key: string | null;
+
+  @ApiProperty({
+    type: MediaArtifactsSummaryDto,
+    description:
+      'Durable partial/final artifact availability discovered from MinIO for reconnect-safe resume.',
+  })
+  artifacts: MediaArtifactsSummaryDto;
 
   @ApiProperty()
   createdAt: Date;
@@ -166,7 +286,7 @@ export class MediaStatusResponseDto {
 
 export class DownloadUrlResponseDto {
   @ApiProperty({
-    description: 'Presigned GET URL for the processed transcript/subtitle file',
+    description: 'Presigned GET URL for the canonical final processed artifact',
     example:
       'https://bilingual-minio.sondndev.id.vn/processed/media-id/final.json?X-Amz-...',
   })

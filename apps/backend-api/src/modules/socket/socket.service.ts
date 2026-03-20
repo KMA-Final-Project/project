@@ -1,14 +1,19 @@
 import {
   Injectable,
   Logger,
-  OnModuleInit,
   OnModuleDestroy,
+  OnModuleInit,
+  Inject,
 } from '@nestjs/common';
+import { Redis } from 'ioredis';
 import { SocketGateway } from './socket.gateway';
 import { REDIS_CLIENT } from '../redis/redis.constants';
-import { Inject } from '@nestjs/common';
-import { Redis } from 'ioredis';
-import type { MediaEvent } from './socket.types';
+import {
+  type MediaEvent,
+  getSocketEventName,
+  parseMediaEvent,
+  redactMediaPayload,
+} from './socket.types';
 
 @Injectable()
 export class SocketService implements OnModuleInit, OnModuleDestroy {
@@ -29,47 +34,11 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
     await this.subscriber.subscribe('media_updates');
 
     this.subscriber.on('message', (channel: string, message: string) => {
-      if (channel !== 'media_updates') return;
-
-      try {
-        const event = JSON.parse(message) as MediaEvent;
-
-        if (!event.mediaId || !event.userId) {
-          this.logger.warn('Received invalid media_updates payload:', event);
-          return;
-        }
-
-        const room = `user_${event.userId}`;
-
-        switch (event.type) {
-          case 'progress':
-            this.socketGateway.server.to(room).emit('media_progress', event);
-            break;
-          case 'chunk_ready':
-            this.socketGateway.server.to(room).emit('media_chunk_ready', event);
-            break;
-          case 'batch_ready':
-            this.socketGateway.server.to(room).emit('media_batch_ready', event);
-            break;
-          case 'completed':
-            this.socketGateway.server.to(room).emit('media_completed', event);
-            break;
-          case 'failed':
-            this.socketGateway.server.to(room).emit('media_failed', event);
-            break;
-          default:
-            this.logger.warn(
-              `Unknown media event type: ${(event as MediaEvent & { type: string }).type}`,
-            );
-        }
-
-        this.logger.debug(
-          `Forwarded "${event.type}" event for media ${event.mediaId} → ${room}`,
-        );
-      } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`Failed to process media_updates message: ${msg}`);
+      if (channel !== 'media_updates') {
+        return;
       }
+
+      this.handleMediaUpdate(message);
     });
   }
 
@@ -77,5 +46,47 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
     if (this.subscriber) {
       await this.subscriber.quit();
     }
+  }
+
+  private handleMediaUpdate(message: string): void {
+    try {
+      const parsedPayload: unknown = JSON.parse(message);
+      const event = parseMediaEvent(parsedPayload);
+
+      if (!event) {
+        this.logger.warn(
+          `Received invalid media_updates payload: ${JSON.stringify(redactMediaPayload(parsedPayload))}`,
+        );
+        return;
+      }
+
+      this.forwardEvent(event);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to process media_updates message: ${msg}`);
+    }
+  }
+
+  private forwardEvent(event: MediaEvent): void {
+    const socketEventName = getSocketEventName(event);
+    const userRoom = this.getUserRoom(event.userId);
+    const mediaRoom = this.getMediaRoom(event.mediaId);
+
+    this.socketGateway.server
+      .to(userRoom)
+      .to(mediaRoom)
+      .emit(socketEventName, event);
+
+    this.logger.debug(
+      `Forwarded "${event.type}" event for media ${event.mediaId} → ${userRoom}, ${mediaRoom}`,
+    );
+  }
+
+  getUserRoom(userId: string): string {
+    return `user_${userId}`;
+  }
+
+  getMediaRoom(mediaId: string): string {
+    return `media_${mediaId}`;
   }
 }
