@@ -58,3 +58,9 @@ The existing test files `test_first_batch_streaming.py` and `test_streaming_cont
 ## Expected Output
 
 - `apps/ai-engine/tests/test_event_discipline.py` — new test file with 4+ ordering tests covering chunk, batch, final, and failure paths
+
+## Observability Impact
+
+- Signals changed: the test suite gains explicit, index-based evidence that each upload call happens before its corresponding publish call, and that failure status persistence happens before `publish_failed`.
+- How a future agent inspects this: run `pytest tests/test_event_discipline.py -v` and inspect the failing assertion to see which event pair inverted and which chunk/batch index or failure path violated the discipline.
+- Failure state now visible: regressions that silently reorder persistence and publish steps become deterministic test failures instead of only surfacing later as flaky runtime behavior.

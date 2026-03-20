@@ -37,7 +37,7 @@
 
 ## Tasks
 
-- [ ] **T01: Add fake-only deterministic tests for upload-before-publish call ordering** `est:45m`
+- [x] **T01: Add fake-only deterministic tests for upload-before-publish call ordering** `est:45m`
   - Why: Mechanically proves the structural discipline that `async_pipeline.py` and `main.py` call upload functions before their corresponding publish functions, locking the ordering so future changes cannot accidentally invert it without breaking the test suite.
   - Files: `apps/ai-engine/tests/test_event_discipline.py`
   - Do: Write a new test file with monkeypatched recorders on upload and publish functions inside `src.async_pipeline` and `src.main`. For each success-path event (`chunk_ready`, `batch_ready`, `completed`), assert the corresponding upload call index is strictly less than the publish call index. For the failure path, simulate a pipeline exception in `process_job()` and assert `update_media_status(status="FAILED")` precedes `publish_failed`. Reuse the existing `FakePipeline`, `FakeMinioClient`, and `FakeNMT` patterns from `test_first_batch_streaming.py`. Important: monkeypatch on the `src.async_pipeline` and `src.main` module references, not on the `src.events` module directly, so the recorded sequence reflects the real call sites.
