@@ -791,14 +791,28 @@ def _prepare_fake_runtime() -> tuple[Any, Any, Callable[[], FakeMinioClient], An
 
 def _prepare_live_runtime(
     db_fixture: LiveDbFixture,
-) -> tuple[Any, Any, Callable[[], TracingMinioClient], Any, Any, list[dict[str, Any]]]:
+) -> tuple[
+    Any,
+    Any,
+    Callable[[], TracingMinioClient],
+    Any,
+    Any,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[TracingMinioClient],
+]:
     db_traces: list[dict[str, Any]] = []
+    persistence_checks: list[dict[str, Any]] = []
+    minio_client_holder: list[TracingMinioClient] = []
 
     db_mod = importlib.import_module("src.db")
     events_mod = importlib.import_module("src.events")
     minio_mod = importlib.import_module("src.minio_client")
 
     real_update_media_status = db_mod.update_media_status
+    real_publish_chunk_ready = events_mod.publish_chunk_ready
+    real_publish_batch_ready = events_mod.publish_batch_ready
+    real_publish_completed = events_mod.publish_completed
 
     def _traced_update_media_status(media_id: str, **kwargs):
         real_update_media_status(media_id, **kwargs)
@@ -813,16 +827,126 @@ def _prepare_live_runtime(
             }
         )
 
+    def _require_live_minio_client() -> TracingMinioClient:
+        if not minio_client_holder:
+            raise RuntimeError(
+                "Live harness publish interceptor fired before TracingMinioClient was initialized"
+            )
+        return minio_client_holder[0]
+
+    def _uploaded_object_key(upload_type: str, index: int) -> str:
+        minio_client = _require_live_minio_client()
+        for upload in reversed(minio_client.uploads):
+            if upload["type"] == upload_type and upload.get("index") == index:
+                return str(upload["object_key"])
+        raise RuntimeError(
+            f"Missing traced {upload_type} upload for index={index} before publish"
+        )
+
+    def _verify_persistence_before_event(*, event_type: str, object_key: str) -> None:
+        minio_client = _require_live_minio_client()
+        try:
+            minio_client.client.stat_object(minio_client.bucket_processed, object_key)
+        except Exception as exc:
+            raise RuntimeError(
+                f"[EventDiscipline] missing {object_key} before {event_type}"
+            ) from exc
+        logger.info(
+            f"[EventDiscipline] verified {object_key} exists before {event_type}"
+        )
+        persistence_checks.append(
+            {
+                "event_type": event_type,
+                "object_key": object_key,
+                "verified": True,
+            }
+        )
+
+    def _intercept_publish_chunk_ready(
+        *, media_id, user_id, chunk_index, url, sentence_count
+    ) -> None:
+        object_key = _uploaded_object_key("chunk", chunk_index)
+        _verify_persistence_before_event(
+            event_type="chunk_ready",
+            object_key=object_key,
+        )
+        real_publish_chunk_ready(
+            media_id=media_id,
+            user_id=user_id,
+            chunk_index=chunk_index,
+            url=url,
+            sentence_count=sentence_count,
+        )
+
+    def _intercept_publish_batch_ready(
+        *, media_id, user_id, batch_index, url, segment_count, progress
+    ) -> None:
+        object_key = _uploaded_object_key("batch", batch_index)
+        _verify_persistence_before_event(
+            event_type="batch_ready",
+            object_key=object_key,
+        )
+        real_publish_batch_ready(
+            media_id=media_id,
+            user_id=user_id,
+            batch_index=batch_index,
+            url=url,
+            segment_count=segment_count,
+            progress=progress,
+        )
+
+    def _intercept_publish_completed(
+        *,
+        media_id,
+        user_id,
+        final_url,
+        segment_count,
+        source_lang,
+        target_lang,
+        s3_key,
+    ) -> None:
+        _verify_persistence_before_event(
+            event_type="completed",
+            object_key=s3_key,
+        )
+        real_publish_completed(
+            media_id=media_id,
+            user_id=user_id,
+            final_url=final_url,
+            segment_count=segment_count,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            s3_key=s3_key,
+        )
+
     db_mod.update_media_status = _traced_update_media_status
+    events_mod.publish_chunk_ready = _intercept_publish_chunk_ready
+    events_mod.publish_batch_ready = _intercept_publish_batch_ready
+    events_mod.publish_completed = _intercept_publish_completed
 
     async_mod = importlib.import_module("src.async_pipeline")
     async_mod = importlib.reload(async_mod)
+    async_mod.publish_chunk_ready = _intercept_publish_chunk_ready
+    async_mod.publish_batch_ready = _intercept_publish_batch_ready
+
+    main_mod = importlib.import_module("src.main")
+    main_mod.publish_completed = _intercept_publish_completed
+
     pipeline_mod = importlib.import_module("src.core.pipeline")
 
     def _factory() -> TracingMinioClient:
         return TracingMinioClient(minio_mod.MinioClient())
 
-    return async_mod, pipeline_mod, _factory, db_mod, events_mod, db_traces
+    return (
+        async_mod,
+        pipeline_mod,
+        _factory,
+        db_mod,
+        events_mod,
+        db_traces,
+        persistence_checks,
+        minio_client_holder,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -855,6 +979,8 @@ async def run_test(audio_filename: str, target_lang: str, *, live_infra: bool) -
     redis_events: list[dict[str, Any]] = []
     preflight: dict[str, Any] = {}
     db_traces: list[dict[str, Any]] = []
+    persistence_checks: list[dict[str, Any]] = []
+    minio_client_holder: list[TracingMinioClient] = []
     db_final_snapshot: dict[str, Any] | None = None
     output = None
     final_url = ""
@@ -886,9 +1012,16 @@ async def run_test(audio_filename: str, target_lang: str, *, live_infra: bool) -
                 audio_filename=audio_filename,
                 target_lang=target_lang,
             )
-            async_mod, pipeline_mod, minio_factory, db_mod, events_mod, db_traces = (
-                _prepare_live_runtime(db_fixture)
-            )
+            (
+                async_mod,
+                pipeline_mod,
+                minio_factory,
+                db_mod,
+                events_mod,
+                db_traces,
+                persistence_checks,
+                minio_client_holder,
+            ) = _prepare_live_runtime(db_fixture)
         else:
             async_mod, pipeline_mod, minio_factory, db_mod, events_mod, db_traces = (
                 _prepare_fake_runtime()
@@ -897,6 +1030,8 @@ async def run_test(audio_filename: str, target_lang: str, *, live_infra: bool) -
         trace: list[dict[str, Any]] = []
         pipeline = pipeline_mod.PipelineOrchestrator()
         minio_client = minio_factory()
+        if live_infra:
+            minio_client_holder.append(minio_client)
 
         logger.info("Loading models (this may take a moment on first run)...")
         t0 = time.time()
@@ -1041,6 +1176,7 @@ async def run_test(audio_filename: str, target_lang: str, *, live_infra: bool) -
             "db_traces": db_traces,
             "db_final_snapshot": db_final_snapshot,
             "artifact_keys": sorted(artifacts.keys()),
+            "persistence_before_event_checks": persistence_checks,
             "local_output_file": str(output_file),
         }
         report_file = OUTPUT_DIR / f"{audio_path.stem}_{target_lang}_{media_id}.harness.json"
