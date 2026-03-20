@@ -26,6 +26,7 @@
 - `cd apps/mobile-app && npx tsc --noEmit -p tsconfig.json`
 - `cd apps/ai-engine && ./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline demo_audio_3.mp3 --lang vi --live-infra`
 - `cd apps/ai-engine && ./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline demo_audio_4.mp3 --lang vi --live-infra`
+- `cd apps/ai-engine && ./venv/Scripts/python.exe -m pytest tests/test_streaming_contracts.py -v --tb=short 2>&1` — failure-path diagnostic: shows per-test PASSED/FAILED breakdown with short tracebacks for contract drift triage (missing fields, wrong types, coherence violations)
 
 ## Observability / Diagnostics
 
@@ -49,7 +50,7 @@
   - Verify: `cd apps/ai-engine && ./venv/Scripts/python.exe -m pytest tests/test_streaming_contracts.py -q`
   - Done when: contract drift breaks mechanically in one place instead of leaking silently across the stack.
 
-- [ ] **T02: Add explicit segment identity and matching metadata** `est:1h`
+- [x] **T02: Add explicit segment identity and matching metadata** `est:1h`
   - Why: The current mobile-side index overlay is fragile and not a durable contract.
   - Files: `apps/ai-engine/src/schemas.py`, `apps/ai-engine/src/async_pipeline.py`, `apps/mobile-app/src/types/subtitle.ts`
   - Do: Introduce the minimal explicit identity/mapping metadata needed to match chunks, translated batches, and final segments without relying only on array position.

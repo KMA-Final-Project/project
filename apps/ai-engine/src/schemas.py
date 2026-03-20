@@ -41,6 +41,15 @@ class Sentence(BaseModel):
         default="",
         description="Detected source language code for this sentence. Always present on serialized artifacts, but may be empty.",
     )  # ISO code from Whisper per-segment detection
+    segment_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "0-indexed global position of this segment in the complete transcript. "
+            "Absent (null) on Tier 1 raw chunks where global ordering is not yet known. "
+            "Always present as an integer on Tier 2 translated batches and final.json. "
+            "Enables matching across artifact layers without relying on array position alone."
+        ),
+    )
 
 
 class TranslationStyle(str, Enum):
@@ -196,6 +205,14 @@ class TranslatedBatch(BaseModel):
 
     batch_index: int = Field(
         ..., description="0-indexed translated batch number used in the durable MinIO key."
+    )
+    first_segment_index: int = Field(
+        ...,
+        description=(
+            "0-indexed global position of the first segment in this batch within the "
+            "complete transcript. Provides a cheap range anchor for matching this batch "
+            "against Tier 1 chunks and the final output without scanning segment arrays."
+        ),
     )
     segments: List[Sentence] = Field(
         ..., description="Translated subtitle segments included in this durable Tier 2 batch."

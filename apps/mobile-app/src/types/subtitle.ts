@@ -20,6 +20,14 @@ export interface Sentence {
   words: Word[];
   translation: string;
   phonetic: string;
+  detected_lang: string;
+  /**
+   * 0-indexed global position of this segment in the complete transcript.
+   * Null on Tier 1 raw chunks (global ordering not yet known).
+   * Always present as a number on Tier 2 translated batches and final.json.
+   * Use this for cross-artifact matching instead of relying on array position.
+   */
+  segment_index: number | null;
 }
 
 export interface SubtitleMetadata {
@@ -37,5 +45,11 @@ export interface SubtitleOutput {
 
 export interface TranslatedBatch {
   batch_index: number;
+  /**
+   * 0-indexed global position of the first segment in this batch.
+   * Cheap range anchor: the batch covers [first_segment_index, first_segment_index + segments.length).
+   * Use to correlate this batch against Tier 1 chunks or final.json without scanning segment arrays.
+   */
+  first_segment_index: number;
   segments: Sentence[];
 }

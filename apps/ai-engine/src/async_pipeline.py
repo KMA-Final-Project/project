@@ -321,6 +321,11 @@ async def run_v2_pipeline_async(
             if not sentences:
                 return []
 
+            # Capture the global start index for this batch before any segments are
+            # appended to all_sentences. Used to assign segment_index and
+            # first_segment_index for durable cross-artifact matching.
+            batch_start_index: int = len(all_sentences)
+
             src = _source_lang()
             tgt = target_lang
             texts = [s.text for s in sentences]
@@ -382,8 +387,18 @@ async def run_v2_pipeline_async(
             for s, t in zip(sentences, final_translations):
                 s.translation = t
 
+            # Assign explicit global segment indices for durable cross-artifact matching.
+            # segment_index is absent (None) on raw Tier 1 chunks; always set here on
+            # the translated batch so consumers can match by identity, not array position.
+            for i, s in enumerate(sentences):
+                s.segment_index = batch_start_index + i
+
             # Upload Tier 2 batch
-            tb = TranslatedBatch(batch_index=batch_index, segments=sentences)
+            tb = TranslatedBatch(
+                batch_index=batch_index,
+                first_segment_index=batch_start_index,
+                segments=sentences,
+            )
             _batch_key, batch_url = minio_client.upload_translated_batch(media_id, tb)
             _trace(
                 "batch_uploaded",
