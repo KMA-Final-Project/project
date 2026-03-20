@@ -310,12 +310,12 @@ These are worth knowing even if you do not clean them up immediately.
 Automated pytest coverage is minimal and contract-focused.
 
 Current automated test file:
-- `tests/test_two_tier_streaming.py`
+- `tests/test_streaming_contracts.py`
 
 What it covers:
-- MinIO path conventions
-- final JSON structure
-- `translation` / `phonetic` fields are non-`None`
+- MinIO path conventions via canonical key helpers
+- Tier 1 chunk array shape, Tier 2 batch wrapper shape, and `final.json` metadata shape
+- required sentence-field presence, including intentionally empty string defaults and nullable word phonemes
 
 What it does **not** cover well:
 - BullMQ worker behavior
@@ -330,7 +330,7 @@ Useful commands:
 
 ```bash
 cd apps/ai-engine
-./venv/Scripts/python.exe -m pytest tests/test_two_tier_streaming.py -q
+./venv/Scripts/python.exe -m pytest tests/test_streaming_contracts.py -q
 ```
 
 Manual local harness:

@@ -20,6 +20,21 @@ from src.schemas import SubtitleOutput, TranslatedBatch
 class MinioClient:
     """MinIO operations for the AI Engine pipeline."""
 
+    @staticmethod
+    def chunk_object_key(media_id: str, chunk_index: int) -> str:
+        """Return the canonical Tier 1 artifact key for a chunk upload."""
+        return f"{media_id}/chunks/{chunk_index}.json"
+
+    @staticmethod
+    def translated_batch_object_key(media_id: str, batch_index: int) -> str:
+        """Return the canonical Tier 2 artifact key for a translated batch upload."""
+        return f"{media_id}/translated_batches/{batch_index}.json"
+
+    @staticmethod
+    def final_result_object_key(media_id: str) -> str:
+        """Return the canonical final artifact key for a completed subtitle output."""
+        return f"{media_id}/final.json"
+
     def __init__(self):
         self.client = Minio(
             endpoint=f"{settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}",
@@ -93,7 +108,7 @@ class MinioClient:
         Returns:
             Tuple of (s3_key, presigned_get_url)
         """
-        object_key = f"{media_id}/chunks/{chunk_index}.json"
+        object_key = self.chunk_object_key(media_id, chunk_index)
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
         self.client.put_object(
@@ -119,7 +134,7 @@ class MinioClient:
         Returns:
             Tuple of (s3_key, presigned_get_url)
         """
-        object_key = f"{media_id}/final.json"
+        object_key = self.final_result_object_key(media_id)
         data = output.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -148,7 +163,7 @@ class MinioClient:
         Returns:
             Tuple of (s3_key, presigned_get_url)
         """
-        object_key = f"{media_id}/translated_batches/{batch.batch_index}.json"
+        object_key = self.translated_batch_object_key(media_id, batch.batch_index)
         data = batch.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 

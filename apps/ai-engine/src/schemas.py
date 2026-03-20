@@ -29,9 +29,18 @@ class Sentence(BaseModel):
     start: float
     end: float
     words: List[Word]  # Crucial for Karaoke
-    translation: str = ""
-    phonetic: str = ""
-    detected_lang: str = ""  # ISO code from Whisper per-segment detection
+    translation: str = Field(
+        default="",
+        description="Translated text. Always present on serialized artifacts, but may be empty on Tier 1 chunks.",
+    )
+    phonetic: str = Field(
+        default="",
+        description="Sentence-level phonetic string. Always present on serialized artifacts, but may be empty.",
+    )
+    detected_lang: str = Field(
+        default="",
+        description="Detected source language code for this sentence. Always present on serialized artifacts, but may be empty.",
+    )  # ISO code from Whisper per-segment detection
 
 
 class TranslationStyle(str, Enum):
@@ -174,12 +183,20 @@ class SubtitleMetadata(BaseModel):
 class SubtitleOutput(BaseModel):
     """Complete subtitle output — the canonical final.json payload."""
 
-    metadata: SubtitleMetadata
-    segments: List[Sentence]
+    metadata: SubtitleMetadata = Field(
+        ..., description="Pipeline metadata. Always required on final.json, even when segments is empty."
+    )
+    segments: List[Sentence] = Field(
+        ..., description="Canonical ordered subtitle segments for the completed job."
+    )
 
 
 class TranslatedBatch(BaseModel):
     """A batch of translated segments for Tier 2 streaming uploads."""
 
-    batch_index: int
-    segments: List[Sentence]
+    batch_index: int = Field(
+        ..., description="0-indexed translated batch number used in the durable MinIO key."
+    )
+    segments: List[Sentence] = Field(
+        ..., description="Translated subtitle segments included in this durable Tier 2 batch."
+    )
