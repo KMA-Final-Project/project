@@ -377,6 +377,36 @@ cd apps/ai-engine
 ./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline
 ```
 
+### Live-infra contract harness
+
+Use `--live-infra` when you need to validate the durable artifact contract against the local compose-backed Redis, PostgreSQL, and MinIO services instead of the in-memory doubles.
+
+Local service expectations:
+- Redis: `localhost:6379`
+- MinIO: `localhost:9000`
+- PostgreSQL: `localhost:5432`
+- Credentials come from `apps/ai-engine/.env` and the service-side `infra/*/.env` files. Do not print or copy those secrets into logs.
+
+Live mode behavior:
+- uses the real `MinioClient` and then re-reads `processed/{mediaId}/...` objects from MinIO for serialized contract validation
+- subscribes to Redis `media_updates` and captures matching events for the harness media id
+- creates a scratch `users` row and `media_items` row in PostgreSQL so `update_media_status(...)` and `mark_quota_counted(...)` hit a real table, snapshots the row state, then cleans up the scratch records
+- writes a local harness report beside the JSON output under `outputs/test_v2/`
+
+Representative media matrix for live validation:
+- `demo_audio_3.mp3` — **technical talkshow baseline**. Judge this as the standard path: Tier 1 chunk totals, Tier 2 translated totals, and `final.json` totals should stay aligned.
+- `demo_audio_4.mp3` — **English speech baseline**. Same standard-path expectation as `demo_audio_3.mp3`.
+- `demo_audio_2.mp3` — **hard CJK music edge**. Do **not** use this as the generic 1:1 baseline. Tier 1 chunk totals may exceed Tier 2/final totals because semantic merge can collapse fragments before translation. The durable checks here are `segment_index`, `first_segment_index`, and final ordering — not blind chunk-to-batch count equality.
+
+Useful commands:
+
+```bash
+cd apps/ai-engine
+./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline demo_audio_3.mp3 --lang vi --live-infra
+./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline demo_audio_4.mp3 --lang vi --live-infra
+./venv/Scripts/python.exe -m src.scripts.test_v2_pipeline demo_audio_2.mp3 --lang vi --live-infra
+```
+
 One-off utilities:
 - `src/scripts/convert_nllb.py`
 - `src/scripts/eval_nllb.py`

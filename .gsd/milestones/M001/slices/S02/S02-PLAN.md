@@ -64,7 +64,7 @@
   - Verify: `cd apps/mobile-app && npx tsc --noEmit -p tsconfig.json`
   - Done when: the typed consumer surface matches the durable AI artifact contract even if later slices still improve player/runtime behavior.
 
-- [ ] **T04: Add live-infra contract validation across representative media** `est:1h`
+- [x] **T04: Add live-infra contract validation across representative media** `est:1h`
   - Why: You already have Redis, Postgres, and MinIO in `infra/`, so contract judgment should be possible against live services instead of fake-only harnesses.
   - Files: `apps/ai-engine/src/scripts/test_v2_pipeline.py`, `apps/ai-engine/tests/test_first_batch_streaming.py`, `infra/minio/docker-compose.yml`, `infra/postgres/docker-compose.yml`, `infra/redis/docker-compose.yml`
   - Do: Add an optional live-infra validation mode and use the three demo media files to judge contract behavior across hard CJK music, technical talkshow, and English speech paths.

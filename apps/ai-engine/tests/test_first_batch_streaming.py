@@ -1,3 +1,11 @@
+"""Fake-only first-batch streaming tests.
+
+These tests intentionally keep Redis/Postgres/MinIO fake and focus on ordering
+and upload sequencing. Live infrastructure contract validation now lives in
+`src.scripts.test_v2_pipeline --live-infra` so this file stays fast and
+fully deterministic.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -280,3 +288,11 @@ def test_worker_process_persists_batch_before_final_completion(monkeypatch) -> N
         kind == "status" and payload.get("status") == "COMPLETED"
         for kind, payload in worker_events
     )
+
+
+def test_representative_media_matrix_keeps_demo_audio_2_out_of_standard_baselines() -> None:
+    from src.scripts.test_v2_pipeline import get_media_expectation
+
+    assert get_media_expectation("demo_audio_2.mp3").enforce_chunk_count_equality is False
+    assert get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is True
+    assert get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is True
