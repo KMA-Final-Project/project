@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import time as _time
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from loguru import logger
 
@@ -100,6 +100,7 @@ async def run_v2_pipeline_async(
     started_at: float,
     target_lang: str = "vi",
     duration_seconds: float = 0.0,
+    debug_trace: list[dict[str, Any]] | None = None,
 ) -> SubtitleOutput:
     """
     V2 bilingual subtitle pipeline using asyncio producer-consumer.
@@ -119,6 +120,16 @@ async def run_v2_pipeline_async(
         elapsed = _time.time() - started_at
         return max(0, int((elapsed / progress) - elapsed))
 
+    def _trace(event: str, **payload: Any) -> None:
+        if debug_trace is None:
+            return
+        entry: dict[str, Any] = {
+            "event": event,
+            "t": round(_time.time() - started_at, 3),
+        }
+        entry.update(payload)
+        debug_trace.append(entry)
+
     logger.info("🚀 V2 Pipeline: async NMT-based bilingual subtitle generation")
 
     # ── Step 1: Audio prep (sync, fast) ──────────────────────────────────
@@ -132,6 +143,7 @@ async def run_v2_pipeline_async(
     publish_progress(media_id, user_id, 0.05, "AUDIO_PREP", _eta(0.05))
     meta = await asyncio.to_thread(pipeline.audio_processor.process, audio_path)
     standardized_path = meta.path
+    _trace("audio_prep_done", standardized_path=str(standardized_path))
 
     # ── Step 2: Audio inspection ──────────────────────────────────────────
     update_media_status(
@@ -146,6 +158,7 @@ async def run_v2_pipeline_async(
         pipeline.audio_inspector.inspect, standardized_path
     )
     logger.info(f"Audio profile: {profile}")
+    _trace("inspect_done", profile=profile)
     context_style = "Song/Music Lyrics" if profile == "music" else "Speech/Dialogue"
 
     # ── Step 3: VAD ───────────────────────────────────────────────────────
@@ -160,8 +173,14 @@ async def run_v2_pipeline_async(
     segments, clean_audio_path = await asyncio.to_thread(
         pipeline.vad_manager.process, standardized_path, profile=profile
     )
+    _trace(
+        "vad_done",
+        segment_count=len(segments),
+        clean_audio_path=str(clean_audio_path),
+    )
     if not segments:
         logger.warning("No speech detected — returning empty result")
+        _trace("no_speech")
         update_media_status(media_id, user_id=user_id, progress=1.0, clear_step=True)
         return SubtitleOutput(
             metadata=SubtitleMetadata(
@@ -195,6 +214,12 @@ async def run_v2_pipeline_async(
         idx = tier1_chunk_index[0]
         batch_data = [s.model_dump() for s in batch]
         _chunk_key, chunk_url = minio_client.upload_chunk(media_id, idx, batch_data)
+        _trace(
+            "chunk_uploaded",
+            chunk_index=idx,
+            sentence_count=len(batch),
+            total_so_far=total_so_far,
+        )
         publish_chunk_ready(
             media_id=media_id,
             user_id=user_id,
@@ -245,7 +270,7 @@ async def run_v2_pipeline_async(
 
     async def consumer() -> list[Sentence]:
         """Consume chunks from queue: CJK branch / non-CJK → NMT → Tier 2 upload."""
-        nmt = NMTTranslator.get_instance()
+        nmt = await nmt_prefetch_task
         merger = pipeline.merger
         llm = pipeline.llm
 
@@ -360,6 +385,13 @@ async def run_v2_pipeline_async(
             # Upload Tier 2 batch
             tb = TranslatedBatch(batch_index=batch_index, segments=sentences)
             _batch_key, batch_url = minio_client.upload_translated_batch(media_id, tb)
+            _trace(
+                "batch_uploaded",
+                batch_index=batch_index,
+                segment_count=len(sentences),
+                source_lang=src,
+                target_lang=tgt,
+            )
 
             # Calculate progress in 0.60-0.90 range
             total_so_far = len(all_sentences) + len(sentences)
@@ -395,6 +427,12 @@ async def run_v2_pipeline_async(
             if chunk is None:
                 # Sentinel received — flush remaining CJK buffer
                 if cjk_buffer:
+                    _trace(
+                        "batch_processing_started",
+                        batch_index=batch_index,
+                        buffered_sentences=len(cjk_buffer),
+                        path="cjk_final_flush",
+                    )
                     flushed = await asyncio.to_thread(_flush_cjk_buffer)
                     translated = await asyncio.to_thread(_translate_and_upload, flushed)
                     all_sentences.extend(translated)
@@ -406,14 +444,34 @@ async def run_v2_pipeline_async(
                 cjk_buffer.extend(chunk)
                 chunks_since_cjk_flush += 1
 
-                # Flush CJK buffer every CJK_MERGE_MULTIPLIER chunks
-                if chunks_since_cjk_flush >= CJK_MERGE_MULTIPLIER:
+                # Speed-first rule: flush the first CJK batch as soon as the first
+                # viable chunk exists, then return to the larger merge window for
+                # later batches.
+                should_flush = False
+                if batch_index == 0 and chunks_since_cjk_flush >= 1:
+                    should_flush = True
+                elif chunks_since_cjk_flush >= CJK_MERGE_MULTIPLIER:
+                    should_flush = True
+
+                if should_flush:
+                    _trace(
+                        "batch_processing_started",
+                        batch_index=batch_index,
+                        buffered_sentences=len(cjk_buffer),
+                        path="cjk",
+                    )
                     flushed = await asyncio.to_thread(_flush_cjk_buffer)
                     translated = await asyncio.to_thread(_translate_and_upload, flushed)
                     all_sentences.extend(translated)
                     chunks_since_cjk_flush = 0
             else:
                 # Non-CJK: translate directly (no merge needed)
+                _trace(
+                    "batch_processing_started",
+                    batch_index=batch_index,
+                    buffered_sentences=len(chunk),
+                    path="non_cjk",
+                )
                 translated = await asyncio.to_thread(_translate_and_upload, list(chunk))
                 all_sentences.extend(translated)
 
@@ -430,6 +488,7 @@ async def run_v2_pipeline_async(
     publish_progress(media_id, user_id, 0.15, "PROCESSING", _eta(0.15))
 
     producer_task = asyncio.create_task(producer())
+    nmt_prefetch_task = asyncio.create_task(asyncio.to_thread(NMTTranslator.get_instance))
     consumer_task = asyncio.create_task(consumer())
 
     try:
@@ -438,6 +497,7 @@ async def run_v2_pipeline_async(
     except Exception:
         producer_task.cancel()
         consumer_task.cancel()
+        nmt_prefetch_task.cancel()
         raise
 
     # ── Step 5: Final metadata + export ──────────────────────────────────
@@ -462,6 +522,12 @@ async def run_v2_pipeline_async(
     logger.success(
         f"✅ V2 Pipeline complete: {len(all_sentences)} bilingual segments | "
         f"source={detected_source_lang} target={target_lang}"
+    )
+    _trace(
+        "pipeline_completed",
+        segment_count=len(all_sentences),
+        source_lang=detected_source_lang,
+        target_lang=target_lang,
     )
 
     return SubtitleOutput(

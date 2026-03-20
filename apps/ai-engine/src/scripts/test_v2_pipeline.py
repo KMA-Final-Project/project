@@ -13,9 +13,9 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
-import sys
 import time
 import uuid
 from pathlib import Path
@@ -79,6 +79,7 @@ _events_mod.publish_batch_ready = _fake_publish_batch_ready
 import src.minio_client as _minio_mod
 
 _uploads: list[dict] = []
+_trace: list[dict] = []
 
 
 class FakeMinioClient:
@@ -120,6 +121,11 @@ OUTPUT_DIR = PROJECT_ROOT / "outputs" / "test_v2"
 
 
 async def run_test(audio_filename: str, target_lang: str) -> None:
+    _progress_log.clear()
+    _events.clear()
+    _uploads.clear()
+    _trace.clear()
+
     audio_path = TEST_MEDIA / audio_filename
     if not audio_path.exists():
         logger.error(f"Audio file not found: {audio_path}")
@@ -151,12 +157,14 @@ async def run_test(audio_filename: str, target_lang: str) -> None:
             user_id=user_id,
             started_at=t0,
             target_lang=target_lang,
+            debug_trace=_trace,
         )
     except Exception:
         logger.exception("Pipeline failed!")
         return
 
     elapsed = time.time() - t0
+    final_key, _final_url = fake_minio.upload_final_result(media_id, output)
 
     # ── Print results ─────────────────────────────────────────────────
     logger.info(f"\n{'=' * 60}")
@@ -171,6 +179,31 @@ async def run_test(audio_filename: str, target_lang: str) -> None:
         f"  Tier 2 batches uploaded: {sum(1 for u in _uploads if u['type'] == 'batch')}"
     )
     logger.info(f"  Events fired: {len(_events)}")
+    logger.info(f"  Final upload key: {final_key}")
+
+    first_batch = next((item for item in _trace if item["event"] == "batch_uploaded"), None)
+    pipeline_done = next(
+        (item for item in _trace if item["event"] == "pipeline_completed"), None
+    )
+    if first_batch:
+        logger.info(
+            f"  First translated batch at: {first_batch['t']:.3f}s "
+            f"(batch #{first_batch['batch_index']})"
+        )
+    if pipeline_done:
+        logger.info(f"  Pipeline completed at:   {pipeline_done['t']:.3f}s")
+    if first_batch and pipeline_done:
+        logger.info(
+            f"  First-batch lead time:    {pipeline_done['t'] - first_batch['t']:.3f}s"
+        )
+
+    if _trace:
+        logger.info(f"\n{'─' * 60}")
+        logger.info("Timing checkpoints:")
+        logger.info(f"{'─' * 60}")
+        for entry in _trace:
+            extras = {k: v for k, v in entry.items() if k not in {"event", "t"}}
+            logger.info(f"  {entry['t']:>7.3f}s  {entry['event']}  {extras}")
 
     if output.segments:
         logger.info(f"\n{'─' * 60}")
@@ -194,17 +227,24 @@ async def run_test(audio_filename: str, target_lang: str) -> None:
 
 
 def main():
-    audio_file = "demo_audio_2.mp3"
-    target_lang = "vi"
+    parser = argparse.ArgumentParser(
+        description="Run the V2 async pipeline against a local test-media file"
+    )
+    parser.add_argument(
+        "audio_file",
+        nargs="?",
+        default="demo_audio_2.mp3",
+        help="Filename inside apps/ai-engine/test-media",
+    )
+    parser.add_argument(
+        "--lang",
+        default="vi",
+        dest="target_lang",
+        help="Target language code",
+    )
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--lang" and i + 1 < len(args):
-            target_lang = args[i + 1]
-        elif not arg.startswith("--"):
-            audio_file = arg
-
-    asyncio.run(run_test(audio_file, target_lang))
+    asyncio.run(run_test(args.audio_file, args.target_lang))
 
 
 if __name__ == "__main__":
