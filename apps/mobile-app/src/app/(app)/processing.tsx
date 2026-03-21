@@ -1,13 +1,13 @@
 /**
  * Processing Status Screen — Kapter
  *
- * Tracks the bilingual subtitle generation pipeline in real time via polling.
- * Navigated to immediately after a successful upload or YouTube submission.
+ * Tracks the bilingual subtitle generation pipeline and serves as the current
+ * detail screen for completed jobs until the dedicated player screen exists.
  *
  * States handled:
  *   QUEUED      → "Waiting to start..." with spinner
  *   PROCESSING  → Circular ring + live pipeline stepper
- *   COMPLETED   → "Subtitles Ready!" card + "Open Player" CTA
+ *   COMPLETED   → output summary + return to library
  *   FAILED      → Error message + "Back to Library"
  */
 import React from "react";
@@ -17,6 +17,8 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Alert,
+  Linking,
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -24,11 +26,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
-import { useMediaStatus } from "@/hooks/useMedia";
-import { useProcessingSubtitles } from "@/hooks/useProcessingSubtitles";
+import { useMediaArtifacts, useMediaStatus } from "@/hooks/useMedia";
 import { useThrottle } from "@/hooks/useThrottle";
 import { PipelineStepper } from "@/components/media/PipelineStepper";
-import { SubtitlePreview } from "@/components/media/SubtitlePreview";
 import { ROUTES } from "@/constants/routes";
 import type { MediaStatus } from "@/types/media";
 import { ProcessingProgressRing } from "@/components/media/ProcessingProgressRing";
@@ -43,12 +43,19 @@ function formatEta(seconds: number | null | undefined): string {
 }
 
 function getStatusLabel(status: MediaStatus | undefined, t: any): string {
-  if (!status || status === "QUEUED" || status === "VALIDATING")
-    return t("status.queued");
+  if (!status || status === "QUEUED") return t("status.queued");
+  if (status === "VALIDATING") return t("status.validating");
   if (status === "PROCESSING") return t("status.processing");
   if (status === "COMPLETED") return t("status.completed");
   if (status === "FAILED") return t("status.failed");
   return "";
+}
+
+function formatLanguageLabel(
+  language: string | null | undefined,
+  t: any,
+): string {
+  return language ? language.toUpperCase() : t("artifactSummary.unknown");
 }
 
 // ─── Circular Progress Ring (SVG) ────────────────────────────────
@@ -64,6 +71,8 @@ export default function ProcessingScreen() {
   const insets = useSafeAreaInsets();
 
   const { data: media, isLoading } = useMediaStatus(id ?? null);
+  const { data: artifacts, isFetching: artifactsRefreshing } =
+    useMediaArtifacts(id ?? null);
 
   // Throttle raw progress to reduce re-renders on the ring (bypass for terminal states)
   const rawProgress = media?.progress ?? 0;
@@ -73,19 +82,29 @@ export default function ProcessingScreen() {
     (v) => v === 0 || v === 1,
   );
 
-  // Progressive subtitle preview during processing
-  const { sentences, isLoading: subtitlesLoading } = useProcessingSubtitles(
-    id ?? null,
-  );
-
-  const goToLibrary = () => router.replace("/");
+  const goToLibrary = () => router.replace(ROUTES.HOME);
   const goToPlayer = () =>
-    router.replace({ pathname: ROUTES.PLAYER, params: { id } } as any);
+    router.push({ pathname: ROUTES.PLAYER, params: { id } } as any);
+  const openFinalArtifact = async () => {
+    const finalUrl = artifacts?.final?.url;
+    if (!finalUrl) {
+      return;
+    }
+
+    try {
+      await Linking.openURL(finalUrl);
+    } catch {
+      Alert.alert(t("download.errorTitle"), t("download.errorMessage"));
+    }
+  };
 
   const progress = throttledProgress;
   const status = media?.status;
   const isDone = status === "COMPLETED";
   const isFailed = status === "FAILED";
+  const hasTranslatedOutput =
+    (artifacts?.summary.translatedBatchCount ?? 0) > 0;
+  const hasFinalArtifact = Boolean(artifacts?.final?.url);
   const statusAccent = isFailed
     ? theme.colors.error
     : isDone
@@ -200,7 +219,7 @@ export default function ProcessingScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Pipeline Stepper (hide on completed for cleaner look) ── */}
+        {/* ── Pipeline Stepper ───────────────────────────────── */}
         {!isFailed && (
           <View
             style={[
@@ -218,13 +237,99 @@ export default function ProcessingScreen() {
           </View>
         )}
 
-        {/* ── Live Subtitle Preview (during PROCESSING) ────────── */}
-        {!isDone && !isFailed && (
-          <View style={styles.previewSection}>
-            <SubtitlePreview
-              sentences={sentences}
-              isLoading={subtitlesLoading}
-            />
+        {isDone && media && artifacts && (
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View style={styles.summaryHeader}>
+              <Text style={[styles.summaryTitle, { color: theme.colors.text }]}>
+                {t("artifactSummary.title")}
+              </Text>
+              {artifactsRefreshing ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : null}
+            </View>
+
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.sourceLanguage")}
+                </Text>
+                <Text
+                  style={[styles.summaryValue, { color: theme.colors.text }]}
+                >
+                  {formatLanguageLabel(media.sourceLanguage, t)}
+                </Text>
+              </View>
+
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.chunks")}
+                </Text>
+                <Text
+                  style={[styles.summaryValue, { color: theme.colors.text }]}
+                >
+                  {artifacts.summary.chunkCount}
+                </Text>
+              </View>
+
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.batches")}
+                </Text>
+                <Text
+                  style={[styles.summaryValue, { color: theme.colors.text }]}
+                >
+                  {artifacts.summary.translatedBatchCount}
+                </Text>
+              </View>
+
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.finalArtifact")}
+                </Text>
+                <Text
+                  style={[
+                    styles.summaryValue,
+                    {
+                      color: hasFinalArtifact
+                        ? theme.colors.success
+                        : theme.colors.text,
+                    },
+                  ]}
+                >
+                  {hasFinalArtifact
+                    ? t("artifactSummary.ready")
+                    : t("artifactSummary.pending")}
+                </Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -264,39 +369,78 @@ export default function ProcessingScreen() {
       >
         {isDone ? (
           <>
-            <Pressable
-              style={[
-                styles.btnPrimary,
-                { backgroundColor: theme.colors.primary },
-              ]}
-              onPress={goToPlayer}
-            >
-              <Ionicons
-                name="play-circle"
-                size={20}
-                color={theme.colors.textOnPrimary}
-                style={{ marginRight: 8 }}
-              />
-              <Text
+            {hasTranslatedOutput && (
+              <Pressable
                 style={[
-                  styles.btnPrimaryText,
-                  { color: theme.colors.textOnPrimary },
+                  styles.btnPrimary,
+                  { backgroundColor: theme.colors.primary },
                 ]}
+                onPress={goToPlayer}
               >
-                {t("openPlayer")}
-              </Text>
-            </Pressable>
+                <Ionicons
+                  name="play-circle-outline"
+                  size={18}
+                  color={theme.colors.textOnPrimary}
+                  style={styles.btnIcon}
+                />
+                <Text
+                  style={[
+                    styles.btnPrimaryText,
+                    { color: theme.colors.textOnPrimary },
+                  ]}
+                >
+                  {t("openPlayer")}
+                </Text>
+              </Pressable>
+            )}
+
+            {hasFinalArtifact && (
+              <Pressable
+                style={[
+                  styles.btnSecondary,
+                  { borderColor: theme.colors.border },
+                ]}
+                onPress={openFinalArtifact}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={18}
+                  color={theme.colors.textSecondary}
+                  style={styles.btnIcon}
+                />
+                <Text
+                  style={[
+                    styles.btnSecondaryText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("download.action")}
+                </Text>
+              </Pressable>
+            )}
+
             <Pressable
               style={[
-                styles.btnSecondary,
-                { borderColor: theme.colors.border },
+                hasTranslatedOutput || hasFinalArtifact
+                  ? styles.btnSecondary
+                  : styles.btnPrimary,
+                hasTranslatedOutput || hasFinalArtifact
+                  ? { borderColor: theme.colors.border }
+                  : { backgroundColor: theme.colors.primary },
               ]}
               onPress={goToLibrary}
             >
               <Text
                 style={[
-                  styles.btnSecondaryText,
-                  { color: theme.colors.textSecondary },
+                  hasTranslatedOutput || hasFinalArtifact
+                    ? styles.btnSecondaryText
+                    : styles.btnPrimaryText,
+                  {
+                    color:
+                      hasTranslatedOutput || hasFinalArtifact
+                        ? theme.colors.textSecondary
+                        : theme.colors.textOnPrimary,
+                  },
                 ]}
               >
                 {t("backLibrary")}
@@ -326,6 +470,30 @@ export default function ProcessingScreen() {
                   {formatEta(media.estimatedTimeRemaining)}
                 </Text>
               </Text>
+            )}
+            {hasTranslatedOutput && (
+              <Pressable
+                style={[
+                  styles.btnPrimary,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+                onPress={goToPlayer}
+              >
+                <Ionicons
+                  name="play-circle-outline"
+                  size={18}
+                  color={theme.colors.textOnPrimary}
+                  style={styles.btnIcon}
+                />
+                <Text
+                  style={[
+                    styles.btnPrimaryText,
+                    { color: theme.colors.textOnPrimary },
+                  ]}
+                >
+                  {t("openPlayer")}
+                </Text>
+              </Pressable>
             )}
             <Pressable
               style={[
@@ -455,8 +623,36 @@ const styles = StyleSheet.create((theme) => ({
     borderWidth: 1,
     borderRadius: theme.radii.xl,
   },
-  previewSection: {
-    minHeight: 120,
+  summaryCard: {
+    borderWidth: 1,
+    borderRadius: theme.radii.xl,
+    padding: theme.spacing[5],
+    gap: theme.spacing[4],
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  summaryTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[3],
+  },
+  summaryTile: {
+    width: "47%",
+    gap: theme.spacing[1],
+  },
+  summaryLabel: {
+    fontSize: 12,
+  },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: "700",
   },
   // ── Error card
   errorCard: {
@@ -492,6 +688,9 @@ const styles = StyleSheet.create((theme) => ({
   btnPrimaryText: {
     fontSize: 16,
     fontWeight: "700",
+  },
+  btnIcon: {
+    marginRight: 8,
   },
   btnSecondary: {
     height: 52,

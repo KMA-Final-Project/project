@@ -237,14 +237,16 @@ def _assert_batch_payload(payload: Any, batch_key: str, batch_index: int) -> lis
     )
     assert isinstance(payload["first_segment_index"], int)
     assert isinstance(payload["segments"], list)
-    assert payload["segments"], f"{batch_key} must contain at least one translated segment"
+    assert payload[
+        "segments"
+    ], f"{batch_key} must contain at least one translated segment"
 
     segment_indices: list[int] = []
     for offset, sentence in enumerate(payload["segments"]):
         _assert_sentence_contract(sentence)
-        assert isinstance(sentence["segment_index"], int), (
-            f"{batch_key} segment at offset {offset} must have non-null segment_index"
-        )
+        assert isinstance(
+            sentence["segment_index"], int
+        ), f"{batch_key} segment at offset {offset} must have non-null segment_index"
         expected_index = payload["first_segment_index"] + offset
         assert sentence["segment_index"] == expected_index, (
             f"{batch_key} segment at offset {offset}: expected segment_index={expected_index}, "
@@ -252,17 +254,18 @@ def _assert_batch_payload(payload: Any, batch_key: str, batch_index: int) -> lis
         )
         segment_indices.append(sentence["segment_index"])
 
-    assert payload["first_segment_index"] == segment_indices[0], (
-        f"{batch_key} first_segment_index must equal first segment's segment_index"
-    )
+    assert (
+        payload["first_segment_index"] == segment_indices[0]
+    ), f"{batch_key} first_segment_index must equal first segment's segment_index"
     return segment_indices
 
 
 def _assert_final_payload(payload: Any, final_key: str) -> list[int]:
     assert isinstance(payload, dict), f"{final_key} must be an object"
-    assert set(payload.keys()) == {"metadata", "segments"}, (
-        f"{final_key} must contain metadata and segments only"
-    )
+    assert set(payload.keys()) == {
+        "metadata",
+        "segments",
+    }, f"{final_key} must contain metadata and segments only"
     assert set(payload["metadata"].keys()) == REQUIRED_METADATA_KEYS, (
         f"{final_key} metadata contract drift: expected {sorted(REQUIRED_METADATA_KEYS)}, "
         f"got {sorted(payload['metadata'].keys())}"
@@ -329,15 +332,15 @@ def validate_uploaded_artifacts(
     final_segment_total = len(final_indices)
     batch_segment_total = len(batch_indices_from_payload)
 
-    assert batch_segment_total == final_segment_total, (
-        "Tier 2 translated segment total must match final.json segment total"
-    )
-    assert final_segment_total == output_segments_count, (
-        "Serialized final.json segment count must match the in-process SubtitleOutput"
-    )
-    assert sorted(batch_indices_from_payload) == final_indices, (
-        "Tier 2 segment_index coverage must match final.json ordering"
-    )
+    assert (
+        batch_segment_total == final_segment_total
+    ), "Tier 2 translated segment total must match final.json segment total"
+    assert (
+        final_segment_total == output_segments_count
+    ), "Serialized final.json segment count must match the in-process SubtitleOutput"
+    assert (
+        sorted(batch_indices_from_payload) == final_indices
+    ), "Tier 2 segment_index coverage must match final.json ordering"
 
     if expectation.enforce_chunk_count_equality:
         assert chunk_sentence_total == batch_segment_total == final_segment_total, (
@@ -355,15 +358,17 @@ def validate_uploaded_artifacts(
                 "That is allowed, but do not treat it as the generic baseline."
             )
 
-    first_batch = next((item for item in trace if item["event"] == "batch_uploaded"), None)
+    first_batch = next(
+        (item for item in trace if item["event"] == "batch_uploaded"), None
+    )
     pipeline_done = next(
         (item for item in trace if item["event"] == "pipeline_completed"), None
     )
     assert first_batch is not None, "Trace missing batch_uploaded event"
     assert pipeline_done is not None, "Trace missing pipeline_completed event"
-    assert first_batch["t"] <= pipeline_done["t"], (
-        "First translated batch must be available before pipeline completion"
-    )
+    assert (
+        first_batch["t"] <= pipeline_done["t"]
+    ), "First translated batch must be available before pipeline completion"
 
     final_payload = artifacts[final_key]
     return ArtifactValidationSummary(
@@ -568,7 +573,6 @@ class LiveDbFixture:
                         user_id,
                         title,
                         origin_type,
-                        processing_mode,
                         audio_s3_key,
                         duration_seconds,
                         status,
@@ -579,7 +583,6 @@ class LiveDbFixture:
                         %s,
                         %s,
                         %s::"MediaOriginType",
-                        %s::"ProcessingMode",
                         %s,
                         %s,
                         %s::"MediaStatus",
@@ -591,7 +594,6 @@ class LiveDbFixture:
                         user_id,
                         title,
                         "LOCAL",
-                        "TRANSCRIBE_TRANSLATE",
                         audio_key,
                         0,
                         "PROCESSING",
@@ -674,7 +676,9 @@ class RedisEventCapture:
             self.pubsub.subscribe("media_updates")
             self._subscribed = True
 
-    def drain_media_events(self, media_id: str, timeout_seconds: float = 1.0) -> list[dict[str, Any]]:
+    def drain_media_events(
+        self, media_id: str, timeout_seconds: float = 1.0
+    ) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         deadline = time.time() + timeout_seconds
         while time.time() < deadline:
@@ -703,7 +707,9 @@ class RedisEventCapture:
 # ---------------------------------------------------------------------------
 
 
-def _prepare_fake_runtime() -> tuple[Any, Any, Callable[[], FakeMinioClient], Any, Any, list[dict[str, Any]]]:
+def _prepare_fake_runtime() -> (
+    tuple[Any, Any, Callable[[], FakeMinioClient], Any, Any, list[dict[str, Any]]]
+):
     global _progress_log, _events
     _progress_log = []
     _events = []
@@ -739,7 +745,9 @@ def _prepare_fake_runtime() -> tuple[Any, Any, Callable[[], FakeMinioClient], An
             }
         )
 
-    def _fake_publish_chunk_ready(*, media_id, user_id, chunk_index, url, sentence_count):
+    def _fake_publish_chunk_ready(
+        *, media_id, user_id, chunk_index, url, sentence_count
+    ):
         _events.append(
             {
                 "type": "chunk_ready",
@@ -750,7 +758,9 @@ def _prepare_fake_runtime() -> tuple[Any, Any, Callable[[], FakeMinioClient], An
                 "sentenceCount": sentence_count,
             }
         )
-        logger.info(f"  [Event] chunk_ready #{chunk_index} ({sentence_count} sentences)")
+        logger.info(
+            f"  [Event] chunk_ready #{chunk_index} ({sentence_count} sentences)"
+        )
 
     def _fake_publish_batch_ready(
         *, media_id, user_id, batch_index, url, segment_count, progress
@@ -1104,7 +1114,9 @@ async def run_test(audio_filename: str, target_lang: str, *, live_infra: bool) -
         )
         logger.info(f"  Final URL:     {_redact_url(final_url)}")
 
-        first_batch = next((item for item in trace if item["event"] == "batch_uploaded"), None)
+        first_batch = next(
+            (item for item in trace if item["event"] == "batch_uploaded"), None
+        )
         pipeline_done = next(
             (item for item in trace if item["event"] == "pipeline_completed"), None
         )
@@ -1179,7 +1191,9 @@ async def run_test(audio_filename: str, target_lang: str, *, live_infra: bool) -
             "persistence_before_event_checks": persistence_checks,
             "local_output_file": str(output_file),
         }
-        report_file = OUTPUT_DIR / f"{audio_path.stem}_{target_lang}_{media_id}.harness.json"
+        report_file = (
+            OUTPUT_DIR / f"{audio_path.stem}_{target_lang}_{media_id}.harness.json"
+        )
         report_file.write_text(
             json.dumps(harness_report, ensure_ascii=False, indent=2),
             encoding="utf-8",

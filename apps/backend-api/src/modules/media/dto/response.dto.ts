@@ -223,12 +223,6 @@ export class MediaStatusResponseDto {
   })
   progress: number;
 
-  @ApiProperty({
-    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
-    example: 'TRANSCRIBE_TRANSLATE',
-  })
-  processingMode: string;
-
   @ApiProperty({ example: 'en', nullable: true })
   sourceLanguage: string | null;
 
@@ -247,7 +241,7 @@ export class MediaStatusResponseDto {
 
   @ApiProperty({
     description: 'Current pipeline stage (null when idle or completed)',
-    example: 'TRANSCRIBING',
+    example: 'PROCESSING',
     nullable: true,
     enum: PipelineStage,
   })
@@ -308,9 +302,6 @@ export class MediaListItemDto {
   @ApiProperty()
   progress: number;
 
-  @ApiProperty({ enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'] })
-  processingMode: string;
-
   @ApiProperty({ enum: ['LOCAL', 'YOUTUBE'] })
   originType: string;
 
@@ -319,6 +310,9 @@ export class MediaListItemDto {
 
   @ApiProperty()
   durationSeconds: number;
+
+  @ApiProperty({ type: MediaArtifactsSummaryDto })
+  artifacts: MediaArtifactsSummaryDto;
 
   @ApiProperty({
     description: 'Current pipeline stage (null when idle or completed)',

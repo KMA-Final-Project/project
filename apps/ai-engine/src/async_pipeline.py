@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import time as _time
 from pathlib import Path
+from threading import Lock
 from typing import Any, List
 
 from loguru import logger
@@ -46,6 +47,15 @@ _CJK_LANGUAGES: frozenset[str] = frozenset({"zh", "ja", "ko", "yue"})
 # (more context = better merge quality). Results in ~24 sentences per merge batch
 # when CHUNK_SIZE=8.
 CJK_MERGE_MULTIPLIER: int = 3
+
+_PIPELINE_STAGE_ORDER: dict[str, int] = {
+    "AUDIO_PREP": 0,
+    "INSPECTING": 1,
+    "VAD": 2,
+    "PROCESSING": 3,
+    "TRANSLATING": 4,
+    "EXPORTING": 5,
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,30 +140,61 @@ async def run_v2_pipeline_async(
         entry.update(payload)
         debug_trace.append(entry)
 
+    progress_lock = Lock()
+    progress_state: dict[str, float | str | None] = {
+        "progress": 0.0,
+        "step": None,
+    }
+
+    def _reserve_progress(
+        progress: float, current_step: str
+    ) -> tuple[float, str, int | None]:
+        with progress_lock:
+            last_progress = float(progress_state["progress"] or 0.0)
+            last_step = progress_state["step"]
+            last_rank = (
+                _PIPELINE_STAGE_ORDER.get(str(last_step), -1)
+                if last_step is not None
+                else -1
+            )
+            incoming_rank = _PIPELINE_STAGE_ORDER.get(current_step, last_rank)
+
+            effective_progress = max(last_progress, progress)
+            effective_step = (
+                current_step if incoming_rank >= last_rank else str(last_step)
+            )
+
+            progress_state["progress"] = effective_progress
+            progress_state["step"] = effective_step
+
+            return effective_progress, effective_step, _eta(effective_progress)
+
     logger.info("🚀 V2 Pipeline: async NMT-based bilingual subtitle generation")
 
     # ── Step 1: Audio prep (sync, fast) ──────────────────────────────────
+    progress, step, eta = _reserve_progress(0.05, "AUDIO_PREP")
     update_media_status(
         media_id,
         user_id=user_id,
-        progress=0.05,
-        current_step="AUDIO_PREP",
-        estimated_time_remaining=_eta(0.05),
+        progress=progress,
+        current_step=step,
+        estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, 0.05, "AUDIO_PREP", _eta(0.05))
+    publish_progress(media_id, user_id, progress, step, eta)
     meta = await asyncio.to_thread(pipeline.audio_processor.process, audio_path)
     standardized_path = meta.path
     _trace("audio_prep_done", standardized_path=str(standardized_path))
 
     # ── Step 2: Audio inspection ──────────────────────────────────────────
+    progress, step, eta = _reserve_progress(0.10, "INSPECTING")
     update_media_status(
         media_id,
         user_id=user_id,
-        progress=0.10,
-        current_step="INSPECTING",
-        estimated_time_remaining=_eta(0.10),
+        progress=progress,
+        current_step=step,
+        estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, 0.10, "INSPECTING", _eta(0.10))
+    publish_progress(media_id, user_id, progress, step, eta)
     profile = await asyncio.to_thread(
         pipeline.audio_inspector.inspect, standardized_path
     )
@@ -162,14 +203,15 @@ async def run_v2_pipeline_async(
     context_style = "Song/Music Lyrics" if profile == "music" else "Speech/Dialogue"
 
     # ── Step 3: VAD ───────────────────────────────────────────────────────
+    progress, step, eta = _reserve_progress(0.15, "VAD")
     update_media_status(
         media_id,
         user_id=user_id,
-        progress=0.15,
-        current_step="VAD",
-        estimated_time_remaining=_eta(0.15),
+        progress=progress,
+        current_step=step,
+        estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, 0.15, "VAD", _eta(0.15))
+    publish_progress(media_id, user_id, progress, step, eta)
     segments, clean_audio_path = await asyncio.to_thread(
         pipeline.vad_manager.process, standardized_path, profile=profile
     )
@@ -238,14 +280,15 @@ async def run_v2_pipeline_async(
         # Progress: scale 0.15-0.60 based on transcription
         trans_frac = total_so_far / max(total_so_far + 20, 1)
         progress = min(0.60, 0.15 + trans_frac * 0.45)
+        progress, step, eta = _reserve_progress(progress, "PROCESSING")
         update_media_status(
             media_id,
             user_id=user_id,
             progress=progress,
-            current_step="PROCESSING",
-            estimated_time_remaining=_eta(progress),
+            current_step=step,
+            estimated_time_remaining=eta,
         )
-        publish_progress(media_id, user_id, progress, "PROCESSING", _eta(progress))
+        publish_progress(media_id, user_id, progress, step, eta)
         logger.info(
             f"📤 V2 chunk {tier1_chunk_index[0]} ({len(batch)} sentences, "
             f"{total_so_far} total) | queue={queue.qsize()}/{queue.maxsize}"
@@ -413,6 +456,7 @@ async def run_v2_pipeline_async(
             progress = min(
                 0.90, 0.60 + (total_so_far / max(total_so_far + 30, 1)) * 0.30
             )
+            progress, step, eta = _reserve_progress(progress, "TRANSLATING")
             publish_batch_ready(
                 media_id=media_id,
                 user_id=user_id,
@@ -425,10 +469,10 @@ async def run_v2_pipeline_async(
                 media_id,
                 user_id=user_id,
                 progress=progress,
-                current_step="TRANSLATING",
-                estimated_time_remaining=_eta(progress),
+                current_step=step,
+                estimated_time_remaining=eta,
             )
-            publish_progress(media_id, user_id, progress, "TRANSLATING", _eta(progress))
+            publish_progress(media_id, user_id, progress, step, eta)
 
             batch_index += 1
             logger.info(
@@ -493,17 +537,20 @@ async def run_v2_pipeline_async(
         return all_sentences
 
     # ── Run producer and consumer concurrently ────────────────────────────
+    progress, step, eta = _reserve_progress(0.15, "PROCESSING")
     update_media_status(
         media_id,
         user_id=user_id,
-        progress=0.15,
-        current_step="PROCESSING",
-        estimated_time_remaining=_eta(0.15),
+        progress=progress,
+        current_step=step,
+        estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, 0.15, "PROCESSING", _eta(0.15))
+    publish_progress(media_id, user_id, progress, step, eta)
 
     producer_task = asyncio.create_task(producer())
-    nmt_prefetch_task = asyncio.create_task(asyncio.to_thread(NMTTranslator.get_instance))
+    nmt_prefetch_task = asyncio.create_task(
+        asyncio.to_thread(NMTTranslator.get_instance)
+    )
     consumer_task = asyncio.create_task(consumer())
 
     try:
@@ -525,14 +572,15 @@ async def run_v2_pipeline_async(
         else settings.WHISPER_MODEL_TURBO
     )
 
+    progress, step, eta = _reserve_progress(0.98, "EXPORTING")
     update_media_status(
         media_id,
         user_id=user_id,
-        progress=0.98,
-        current_step="EXPORTING",
-        estimated_time_remaining=_eta(0.98),
+        progress=progress,
+        current_step=step,
+        estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, 0.98, "EXPORTING", _eta(0.98))
+    publish_progress(media_id, user_id, progress, step, eta)
 
     logger.success(
         f"✅ V2 Pipeline complete: {len(all_sentences)} bilingual segments | "

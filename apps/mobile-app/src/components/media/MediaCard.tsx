@@ -36,6 +36,7 @@ function formatDuration(seconds?: number | null) {
 export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation("common");
+  const isPlayerReady = (item.artifacts?.translatedBatchCount ?? 0) > 0;
 
   // Build subtitle text
   const subtitleLine = (() => {
@@ -99,6 +100,29 @@ export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
           {isYoutube && !thumbnailUrl && !isProcessing && (
             <View style={styles.youtubeLabel}>
               <Text style={styles.youtubeText}>YouTube</Text>
+            </View>
+          )}
+
+          {isPlayerReady && (
+            <View
+              style={[
+                styles.readyBadge,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            >
+              <Ionicons
+                name="play"
+                size={10}
+                color={theme.colors.textOnPrimary}
+              />
+              <Text
+                style={[
+                  styles.readyBadgeText,
+                  { color: theme.colors.textOnPrimary },
+                ]}
+              >
+                {t("library.playerReady")}
+              </Text>
             </View>
           )}
         </View>
@@ -226,6 +250,21 @@ const styles = StyleSheet.create({
     color: "#E24F4F",
     fontSize: 9,
     fontWeight: "bold",
+  },
+  readyBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  readyBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
   },
 
   // ── Info Column ────────────────────────────────────────────────

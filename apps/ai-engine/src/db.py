@@ -75,7 +75,7 @@ def update_media_status(
         set_clauses.append('status = %s::"MediaStatus"')
         values.append(status)
     if progress is not None:
-        set_clauses.append("progress = %s")
+        set_clauses.append("progress = GREATEST(COALESCE(progress, 0), %s)")
         values.append(progress)
     if current_step is not None:
         set_clauses.append("current_step = %s")

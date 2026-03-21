@@ -20,13 +20,9 @@
       "label": "Tách giọng nói",
       "sublabel": "Phát hiện đoạn hội thoại"
     },
-    "transcribe": {
-      "label": "Nhận diện (Transcription)",
-      "sublabel": "Chuyển đổi giọng nói thành văn bản"
-    },
-    "grouping": {
-      "label": "Gộp câu",
-      "sublabel": "Đồng bộ các đoạn phụ đề"
+    "processing": {
+      "label": "Tạo câu phụ đề",
+      "sublabel": "Nhận diện và sắp xếp các dòng phụ đề"
     },
     "translate": {
       "label": "Dịch thuật",
@@ -50,8 +46,31 @@
   "untitled": "Chưa có tiêu đề",
   "originYoutube": "YouTube",
   "originLocal": "Tệp cục bộ",
+  "artifactSummary": {
+    "title": "Tóm tắt đầu ra",
+    "sourceLanguage": "Ngôn ngữ nguồn",
+    "chunks": "Chunk",
+    "batches": "Lô đã dịch",
+    "finalArtifact": "Tệp cuối cùng",
+    "ready": "Sẵn sàng",
+    "pending": "Đang chờ",
+    "unknown": "Không rõ"
+  },
+  "download": {
+    "action": "Mở JSON cuối cùng",
+    "errorTitle": "Không thể mở tệp",
+    "errorMessage": "Không thể mở liên kết tệp cuối cùng trên thiết bị này."
+  },
+  "playerPlaceholder": {
+    "title": "Trình phát",
+    "heading": "Màn hình trình phát tạm thời",
+    "description": "Dữ liệu phụ đề đã có, nhưng trải nghiệm trình phát đầy đủ vẫn chưa được triển khai.",
+    "mediaId": "Mã media",
+    "back": "Quay lại màn hình xử lý"
+  },
   "subtitlePreview": {
     "title": "Xem trước trực tiếp",
+    "completedTitle": "Xem trước phụ đề",
     "loading": "Đang tải phụ đề..."
   }
 }

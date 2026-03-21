@@ -16,6 +16,8 @@ type ChunkReadyCb = (e: MediaChunkReadyEvent) => void;
 type BatchReadyCb = (e: MediaBatchReadyEvent) => void;
 type CompletedCb = (e: MediaCompletedEvent) => void;
 type FailedCb = (e: MediaFailedEvent) => void;
+type ConnectCb = () => void;
+type DisconnectCb = () => void;
 
 class SocketService {
   private socket: Socket | null = null;
@@ -25,6 +27,8 @@ class SocketService {
   private batchReadyListeners = new Set<BatchReadyCb>();
   private completedListeners = new Set<CompletedCb>();
   private failedListeners = new Set<FailedCb>();
+  private connectListeners = new Set<ConnectCb>();
+  private disconnectListeners = new Set<DisconnectCb>();
 
   /**
    * Calculates the origin of the backend WebSocket server based on API_BASE_URL.
@@ -58,10 +62,12 @@ class SocketService {
 
     this.socket.on("connect", () => {
       console.log("[Socket] Connected to server", this.socket?.id);
+      this.connectListeners.forEach((cb) => cb());
     });
 
     this.socket.on("disconnect", (reason) => {
       console.log("[Socket] Disconnected:", reason);
+      this.disconnectListeners.forEach((cb) => cb());
     });
 
     this.socket.on("connect_error", (error) => {
@@ -98,6 +104,10 @@ class SocketService {
     }
   }
 
+  isConnected() {
+    return Boolean(this.socket?.connected);
+  }
+
   // ─── Typed subscription methods (each returns an unsubscribe fn) ──
 
   onProgress(cb: ProgressCb) {
@@ -132,6 +142,20 @@ class SocketService {
     this.failedListeners.add(cb);
     return () => {
       this.failedListeners.delete(cb);
+    };
+  }
+
+  onConnect(cb: ConnectCb) {
+    this.connectListeners.add(cb);
+    return () => {
+      this.connectListeners.delete(cb);
+    };
+  }
+
+  onDisconnect(cb: DisconnectCb) {
+    this.disconnectListeners.add(cb);
+    return () => {
+      this.disconnectListeners.delete(cb);
     };
   }
 }

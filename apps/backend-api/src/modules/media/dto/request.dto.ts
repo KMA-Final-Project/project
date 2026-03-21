@@ -7,7 +7,6 @@ import {
   Matches,
   IsUrl,
   IsOptional,
-  IsIn,
 } from 'class-validator';
 
 // ==================== LOCAL UPLOAD FLOW ====================
@@ -65,18 +64,10 @@ export class ConfirmUploadDto {
   @IsNotEmpty()
   objectKey!: string;
 
-  @ApiProperty({
-    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
-    default: 'TRANSCRIBE',
-    description: 'Processing mode: transcribe only or transcribe + translate',
-  })
-  @IsOptional()
-  @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
-  processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
-
   @ApiPropertyOptional({
     example: 'vi',
-    description: 'Target language for translation (defaults to vi)',
+    description:
+      'Target language for bilingual subtitle generation (defaults to vi)',
   })
   @IsOptional()
   @IsString()
@@ -116,18 +107,10 @@ export class SubmitYoutubeDto {
   @IsString()
   title?: string;
 
-  @ApiProperty({
-    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
-    default: 'TRANSCRIBE',
-    description: 'Processing mode: transcribe only or transcribe + translate',
-  })
-  @IsOptional()
-  @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
-  processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
-
   @ApiPropertyOptional({
     example: 'vi',
-    description: 'Target language for translation (defaults to vi)',
+    description:
+      'Target language for bilingual subtitle generation (defaults to vi)',
   })
   @IsOptional()
   @IsString()

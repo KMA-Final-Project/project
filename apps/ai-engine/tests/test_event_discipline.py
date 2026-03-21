@@ -70,7 +70,6 @@ def worker_job() -> SimpleNamespace:
         data={
             "mediaId": "media-123",
             "audioS3Key": "raw/input.mp3",
-            "processingMode": "TRANSCRIBE_TRANSLATE",
             "durationSeconds": 120,
             "userId": "user-123",
             "targetLanguage": "vi",
@@ -149,10 +148,9 @@ def test_upload_before_publish_chunk_ready(monkeypatch, tmp_path) -> None:
     assert publish_indices, "expected publish_chunk_ready calls"
     assert upload_indices.keys() == publish_indices.keys()
     for chunk_index in sorted(upload_indices):
-        assert upload_indices[chunk_index] < publish_indices[chunk_index], (
-            f"chunk {chunk_index}: upload_chunk must precede publish_chunk_ready"
-        )
-
+        assert (
+            upload_indices[chunk_index] < publish_indices[chunk_index]
+        ), f"chunk {chunk_index}: upload_chunk must precede publish_chunk_ready"
 
 
 def test_upload_before_publish_batch_ready(monkeypatch, tmp_path) -> None:
@@ -197,10 +195,43 @@ def test_upload_before_publish_batch_ready(monkeypatch, tmp_path) -> None:
     assert publish_indices, "expected publish_batch_ready calls"
     assert upload_indices.keys() == publish_indices.keys()
     for batch_index in sorted(upload_indices):
-        assert upload_indices[batch_index] < publish_indices[batch_index], (
-            f"batch {batch_index}: upload_translated_batch must precede publish_batch_ready"
-        )
+        assert (
+            upload_indices[batch_index] < publish_indices[batch_index]
+        ), f"batch {batch_index}: upload_translated_batch must precede publish_batch_ready"
 
+
+def test_publish_progress_is_monotonic(monkeypatch, tmp_path) -> None:
+    progress_values: list[float] = []
+
+    def _record_progress(*args: Any, **kwargs: Any) -> None:
+        if "progress" in kwargs:
+            progress_values.append(float(kwargs["progress"]))
+            return
+        progress_values.append(float(args[2]))
+
+    monkeypatch.setattr(async_mod, "update_media_status", _noop)
+    monkeypatch.setattr(async_mod, "publish_progress", _record_progress)
+    monkeypatch.setattr(async_mod, "publish_chunk_ready", _noop)
+    monkeypatch.setattr(async_mod, "publish_batch_ready", _noop)
+    monkeypatch.setattr(async_mod, "NMTTranslator", FakeNMTTranslatorHolder)
+
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    asyncio.run(
+        async_mod.run_v2_pipeline_async(
+            FakePipeline(),
+            FakeMinioClient(),
+            audio_path,
+            "media-123",
+            user_id="user-123",
+            started_at=0.0,
+            target_lang="vi",
+        )
+    )
+
+    assert progress_values, "expected progress events"
+    assert progress_values == sorted(progress_values)
 
 
 def test_upload_final_before_publish_completed(monkeypatch, worker_job) -> None:
@@ -230,7 +261,6 @@ def test_upload_final_before_publish_completed(monkeypatch, worker_job) -> None:
     publish_completed_index = recorder.first_index("publish_completed")
 
     assert upload_final_index < publish_completed_index
-
 
 
 def test_failed_status_before_publish_failed(monkeypatch, worker_job) -> None:

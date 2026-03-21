@@ -83,15 +83,24 @@ class FakeMerger:
     def needs_merge(self, sentences: list[Sentence], source_lang: str = "en") -> bool:
         return False
 
-    def process(self, sentences: list[Sentence], source_lang: str = "en", context_style: str = "Speech/Dialogue"):
+    def process(
+        self,
+        sentences: list[Sentence],
+        source_lang: str = "en",
+        context_style: str = "Speech/Dialogue",
+    ):
         return [sentences]
 
-    def correct_homophones(self, sentences: list[Sentence], context_style: str = "Speech/Dialogue") -> list[Sentence]:
+    def correct_homophones(
+        self, sentences: list[Sentence], context_style: str = "Speech/Dialogue"
+    ) -> list[Sentence]:
         return list(sentences)
 
 
 class FakeLLM:
-    def analyze_context(self, text_samples: list[str], target_lang: str) -> ContextAnalysisResult:
+    def analyze_context(
+        self, text_samples: list[str], target_lang: str
+    ) -> ContextAnalysisResult:
         return ContextAnalysisResult(
             detected_style=TranslationStyle.NEUTRAL,
             detected_pronouns=VietnamesePronoun.TOI_BAN,
@@ -149,10 +158,15 @@ class FakeMinioClient:
 
     def upload_chunk(self, media_id: str, chunk_index: int, data: list[dict]):
         self.uploads.append({"type": "chunk", "index": chunk_index, "count": len(data)})
-        return f"{media_id}/chunks/{chunk_index}.json", f"http://fake/chunks/{chunk_index}.json"
+        return (
+            f"{media_id}/chunks/{chunk_index}.json",
+            f"http://fake/chunks/{chunk_index}.json",
+        )
 
     def upload_translated_batch(self, media_id: str, batch):
-        self.uploads.append({"type": "batch", "index": batch.batch_index, "count": len(batch.segments)})
+        self.uploads.append(
+            {"type": "batch", "index": batch.batch_index, "count": len(batch.segments)}
+        )
         return (
             f"{media_id}/translated_batches/{batch.batch_index}.json",
             f"http://fake/batches/{batch.batch_index}.json",
@@ -269,7 +283,6 @@ def test_worker_process_persists_batch_before_final_completion(monkeypatch) -> N
         data={
             "mediaId": "media-123",
             "audioS3Key": "raw/input.mp3",
-            "processingMode": "TRANSCRIBE_TRANSLATE",
             "durationSeconds": 120,
             "userId": "user-123",
             "targetLanguage": "vi",
@@ -290,9 +303,17 @@ def test_worker_process_persists_batch_before_final_completion(monkeypatch) -> N
     )
 
 
-def test_representative_media_matrix_keeps_demo_audio_2_out_of_standard_baselines() -> None:
+def test_representative_media_matrix_keeps_demo_audio_2_out_of_standard_baselines() -> (
+    None
+):
     from src.scripts.test_v2_pipeline import get_media_expectation
 
-    assert get_media_expectation("demo_audio_2.mp3").enforce_chunk_count_equality is False
-    assert get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is True
-    assert get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is True
+    assert (
+        get_media_expectation("demo_audio_2.mp3").enforce_chunk_count_equality is False
+    )
+    assert (
+        get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is True
+    )
+    assert (
+        get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is True
+    )

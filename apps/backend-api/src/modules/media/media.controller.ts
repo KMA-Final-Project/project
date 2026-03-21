@@ -64,7 +64,7 @@ export class MediaController {
     summary: 'Confirm file upload and start processing',
     description:
       'Verifies the file exists in object storage, creates a media record, ' +
-      'and dispatches a background transcription job.',
+      'and dispatches a background bilingual subtitle-generation job.',
   })
   @ApiResponse({
     status: 200,
@@ -81,7 +81,7 @@ export class MediaController {
 
   @Post('youtube')
   @ApiOperation({
-    summary: 'Submit a YouTube URL for transcription',
+    summary: 'Submit a YouTube URL for subtitle generation',
     description:
       'Creates a media record and dispatches a background job. ' +
       'The worker will download the audio and process it asynchronously.',

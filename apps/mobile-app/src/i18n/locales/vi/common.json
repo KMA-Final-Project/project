@@ -99,7 +99,8 @@
       "failed": "Lỗi"
     },
     "empty": "Media trống",
-    "generating": "Đang tạo phụ đề..."
+    "generating": "Đang tạo phụ đề...",
+    "playerReady": "Sẵn sàng"
   },
   "upload": {
     "tab": "Tải lên",

@@ -47,20 +47,19 @@ async def process_job(job, token):
     Job data structure (from NestJS Worker):
         mediaId: str
         audioS3Key: str
-        processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE"
         durationSeconds: int
         userId: str
+        targetLanguage?: str
     """
     job_data = job.data
     media_id = job_data["mediaId"]
     audio_s3_key = job_data["audioS3Key"]
-    processing_mode = job_data["processingMode"]
     duration_seconds = job_data.get("durationSeconds", 0)
     user_id = job_data["userId"]
 
     logger.info(
         f"🚀 Job {job.id} started | media: {media_id} | "
-        f"mode: {processing_mode} | duration: {duration_seconds}s"
+        f"duration: {duration_seconds}s"
     )
 
     # Initialize clients

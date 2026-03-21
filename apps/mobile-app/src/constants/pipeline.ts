@@ -19,14 +19,9 @@ export const PIPELINE_STEPS = [
     sublabelKey: "steps.vad.sublabel",
   },
   {
-    key: "TRANSCRIBING",
-    labelKey: "steps.transcribe.label",
-    sublabelKey: "steps.transcribe.sublabel",
-  },
-  {
-    key: "MERGING",
-    labelKey: "steps.grouping.label",
-    sublabelKey: "steps.grouping.sublabel",
+    key: "PROCESSING",
+    labelKey: "steps.processing.label",
+    sublabelKey: "steps.processing.sublabel",
   },
   {
     key: "TRANSLATING",
