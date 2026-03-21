@@ -17,8 +17,8 @@
 ## Repository shape and ownership
 
 - `apps/backend-api` is a NestJS v11 modular monolith with Prisma, BullMQ, Redis, MinIO, and JWT auth.
-- `apps/ai-engine` is a Python worker with the pipeline order:
-  `AudioProcessor -> AudioInspector -> VADManager -> SmartAligner -> SemanticMerger -> TranslatorEngine`
+- `apps/ai-engine` is a Python worker whose active V2 path is:
+  `AudioProcessor -> AudioInspector -> VADManager -> SmartAligner -> SemanticMerger -> NMTTranslator (+ optional LLM refinement)`
 - `apps/mobile-app` is an Expo Router app using Zustand, Axios, Zod, i18next, and `react-native-unistyles`.
 - Infra is not managed by a single root compose file in this clone. Instead, compose files live here:
   - `infra/postgres/docker-compose.yml`
@@ -31,6 +31,7 @@
 - Scope your changes to the relevant app; avoid touching multiple apps unless the feature crosses boundaries.
 - Prefer the instruction files and existing implementation patterns over starter-template README guidance.
 - Search `checkpoint.md` before guessing service names, queue names, pipeline stages, or commands.
+- Treat `processingMode` as removed. The active cross-app contract is bilingual-by-default and carries `targetLanguage` only.
 - There are no standard repository GitHub workflow files checked in under `.github/workflows`, so local validation is especially important.
 
 ## App-specific rules that matter
@@ -52,6 +53,7 @@
   - use `PrismaService`
   - preserve soft-delete behavior
   - keep BullMQ payloads typed and compatible with the Python worker
+  - artifact inventory is now part of the media contract: `/media/:id/artifacts` and media list `artifacts` summaries are used by mobile
 
 ### AI engine (`apps/ai-engine`)
 
@@ -61,6 +63,8 @@
   - use `settings` from `src.config`
   - keep all Pydantic models in `src/schemas.py`
   - `SmartAligner` and `VADManager` are singleton-style classes
+- Active translation runtime is `core/nmt_translator.py` via CTranslate2; do not reintroduce the deleted `translator_engine.py` path
+- Progress writes are expected to be monotonic across events and DB updates
 - Fast sanity/test commands once the environment is ready:
   - `python -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"`
   - `python -m pytest tests/ -v`
@@ -76,6 +80,8 @@
   - route all API calls through centralized Axios services
   - keep auth/session state in Zustand
   - mobile should extract audio client-side before upload when the source is video
+  - processing/detail flows are socket-first; avoid reintroducing aggressive polling on status/artifact queries
+  - durable output state comes from `/media/:id/artifacts`, not temporary preview caches
 
 ## Bootstrap and validation checklist
 
@@ -83,6 +89,7 @@
 2. Validate only the app you touch first, then broader integration if needed.
 3. Use the existing scripts instead of inventing new tooling.
 4. If your change touches queues, processing payloads, or output contracts, inspect both backend and AI engine expectations before editing.
+5. If your change touches live processing UX, inspect mobile socket sync and backend/AI event payloads together before changing query behavior.
 
 ## Errors encountered in a fresh clone and workarounds
 
@@ -110,3 +117,4 @@ These were reproduced in this repository during onboarding and are worth knowing
 - Treat generic starter docs as stale unless confirmed by code.
 - Prefer small, app-local changes with app-local validation.
 - If you touch AI output schemas or queue payloads, verify downstream consumers in the other apps before finalizing.
+- For media-processing work, verify both the status contract and the artifact contract; current mobile UX depends on both.
