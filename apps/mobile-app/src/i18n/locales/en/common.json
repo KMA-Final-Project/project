@@ -90,7 +90,9 @@
       "completed": "Completed",
       "failed": "Failed"
     },
-    "empty": "No media found"
+    "empty": "No media found",
+    "generating": "Generating subtitles...",
+    "playerReady": "Ready"
   },
   "upload": {
     "tab": "New Upload",

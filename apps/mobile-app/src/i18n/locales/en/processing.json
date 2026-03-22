@@ -20,13 +20,9 @@
       "label": "Voice Detection",
       "sublabel": "Detecting speech segments"
     },
-    "transcribe": {
-      "label": "Transcription",
-      "sublabel": "Converting speech to text"
-    },
-    "grouping": {
-      "label": "Line Grouping",
-      "sublabel": "Aligning subtitle segments"
+    "processing": {
+      "label": "Subtitle Assembly",
+      "sublabel": "Transcribing and grouping subtitle lines"
     },
     "translate": {
       "label": "Translation",
@@ -49,5 +45,32 @@
   "backLibrary": "Back to Library",
   "untitled": "Untitled",
   "originYoutube": "YouTube",
-  "originLocal": "Local File"
+  "originLocal": "Local File",
+  "artifactSummary": {
+    "title": "Output Summary",
+    "sourceLanguage": "Source language",
+    "chunks": "Chunks",
+    "batches": "Translated batches",
+    "finalArtifact": "Final artifact",
+    "ready": "Ready",
+    "pending": "Pending",
+    "unknown": "Unknown"
+  },
+  "download": {
+    "action": "Open Final JSON",
+    "errorTitle": "Unable to open file",
+    "errorMessage": "The final artifact link could not be opened on this device."
+  },
+  "playerPlaceholder": {
+    "title": "Player",
+    "heading": "Player screen placeholder",
+    "description": "Translated subtitle data is already available, but the full player experience has not been implemented yet.",
+    "mediaId": "Media ID",
+    "back": "Back to Processing"
+  },
+  "subtitlePreview": {
+    "title": "Live Preview",
+    "completedTitle": "Subtitle Preview",
+    "loading": "Loading subtitles..."
+  }
 }

@@ -1,13 +1,13 @@
 /**
  * Processing Status Screen — Kapter
  *
- * Tracks the bilingual subtitle generation pipeline in real time via polling.
- * Navigated to immediately after a successful upload or YouTube submission.
+ * Tracks the bilingual subtitle generation pipeline and serves as the current
+ * detail screen for completed jobs until the dedicated player screen exists.
  *
  * States handled:
  *   QUEUED      → "Waiting to start..." with spinner
  *   PROCESSING  → Circular ring + live pipeline stepper
- *   COMPLETED   → "Subtitles Ready!" card + "Open Player" CTA
+ *   COMPLETED   → output summary + return to library
  *   FAILED      → Error message + "Back to Library"
  */
 import React from "react";
@@ -17,18 +17,21 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Alert,
+  Linking,
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Circle } from "react-native-svg";
 import { useTranslation } from "react-i18next";
 
-import { useMediaStatus } from "@/hooks/useMedia";
+import { useMediaArtifacts, useMediaStatus } from "@/hooks/useMedia";
+import { useThrottle } from "@/hooks/useThrottle";
 import { PipelineStepper } from "@/components/media/PipelineStepper";
 import { ROUTES } from "@/constants/routes";
 import type { MediaStatus } from "@/types/media";
+import { ProcessingProgressRing } from "@/components/media/ProcessingProgressRing";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -40,62 +43,22 @@ function formatEta(seconds: number | null | undefined): string {
 }
 
 function getStatusLabel(status: MediaStatus | undefined, t: any): string {
-  if (!status || status === "QUEUED" || status === "VALIDATING")
-    return t("status.queued");
+  if (!status || status === "QUEUED") return t("status.queued");
+  if (status === "VALIDATING") return t("status.validating");
   if (status === "PROCESSING") return t("status.processing");
   if (status === "COMPLETED") return t("status.completed");
   if (status === "FAILED") return t("status.failed");
   return "";
 }
 
-// ─── Circular Progress Ring (SVG) ────────────────────────────────
-
-function CircularProgressRing({
-  progress,
-  size = 160,
-  strokeWidth = 10,
-  color,
-  trackColor,
-}: {
-  progress: number; // 0.0 – 1.0
-  size?: number;
-  strokeWidth?: number;
-  color: string;
-  trackColor: string;
-}) {
-  const r = (size - strokeWidth) / 2;
-  const cx = size / 2;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference * (1 - Math.min(1, Math.max(0, progress)));
-
-  return (
-    <Svg
-      width={size}
-      height={size}
-      style={{ transform: [{ rotate: "-90deg" }] }}
-    >
-      <Circle
-        cx={cx}
-        cy={cx}
-        r={r}
-        stroke={trackColor}
-        strokeWidth={strokeWidth}
-        fill="transparent"
-      />
-      <Circle
-        cx={cx}
-        cy={cx}
-        r={r}
-        stroke={color}
-        strokeWidth={strokeWidth}
-        fill="transparent"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
+function formatLanguageLabel(
+  language: string | null | undefined,
+  t: any,
+): string {
+  return language ? language.toUpperCase() : t("artifactSummary.unknown");
 }
+
+// ─── Circular Progress Ring (SVG) ────────────────────────────────
 
 // ─── Main Screen ──────────────────────────────────────────────────
 
@@ -108,15 +71,45 @@ export default function ProcessingScreen() {
   const insets = useSafeAreaInsets();
 
   const { data: media, isLoading } = useMediaStatus(id ?? null);
+  const { data: artifacts, isFetching: artifactsRefreshing } =
+    useMediaArtifacts(id ?? null);
 
-  const goToLibrary = () => router.replace("/");
+  // Throttle raw progress to reduce re-renders on the ring (bypass for terminal states)
+  const rawProgress = media?.progress ?? 0;
+  const throttledProgress = useThrottle(
+    rawProgress,
+    1500,
+    (v) => v === 0 || v === 1,
+  );
+
+  const goToLibrary = () => router.replace(ROUTES.HOME);
   const goToPlayer = () =>
-    router.replace({ pathname: ROUTES.PLAYER, params: { id } } as any);
+    router.push({ pathname: ROUTES.PLAYER, params: { id } } as any);
+  const openFinalArtifact = async () => {
+    const finalUrl = artifacts?.final?.url;
+    if (!finalUrl) {
+      return;
+    }
 
-  const progress = media?.progress ?? 0;
+    try {
+      await Linking.openURL(finalUrl);
+    } catch {
+      Alert.alert(t("download.errorTitle"), t("download.errorMessage"));
+    }
+  };
+
+  const progress = throttledProgress;
   const status = media?.status;
   const isDone = status === "COMPLETED";
   const isFailed = status === "FAILED";
+  const hasTranslatedOutput =
+    (artifacts?.summary.translatedBatchCount ?? 0) > 0;
+  const hasFinalArtifact = Boolean(artifacts?.final?.url);
+  const statusAccent = isFailed
+    ? theme.colors.error
+    : isDone
+      ? theme.colors.success
+      : theme.colors.primary;
 
   // ── Loading skeleton ──────────────────────────────────────────
   if (isLoading && !media) {
@@ -140,77 +133,27 @@ export default function ProcessingScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <View
+        style={[
+          styles.stickyHero,
+          {
+            backgroundColor: theme.colors.background,
+            borderBottomColor: theme.colors.divider,
+          },
+        ]}
       >
         {/* ── Progress Ring + Status Text ───────────────────── */}
         <View style={styles.ringSection}>
-          <View style={styles.ringWrapper}>
-            <CircularProgressRing
-              progress={isDone ? 1 : progress}
-              size={160}
-              strokeWidth={10}
-              color={
-                isFailed
-                  ? theme.colors.error
-                  : isDone
-                    ? theme.colors.success
-                    : theme.colors.primary
-              }
-              trackColor={theme.colors.surface}
-            />
-
-            {/* Centre label */}
-            <View style={styles.ringCenter}>
-              {isDone ? (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={48}
-                  color={theme.colors.success}
-                />
-              ) : isFailed ? (
-                <Ionicons
-                  name="close-circle"
-                  size={48}
-                  color={theme.colors.error}
-                />
-              ) : (
-                <>
-                  <Text
-                    style={[styles.ringPercent, { color: theme.colors.text }]}
-                  >
-                    {Math.round(progress * 100)}%
-                  </Text>
-                  <Text
-                    style={[
-                      styles.ringLabel,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    {t("progress")}
-                  </Text>
-                </>
-              )}
-            </View>
-          </View>
+          <ProcessingProgressRing
+            progress={isDone ? 1 : progress}
+            status={status}
+            progressLabel={t("progress")}
+          />
 
           {/* Status text */}
-          <Text
-            style={[
-              styles.statusText,
-              {
-                color: isFailed
-                  ? theme.colors.error
-                  : isDone
-                    ? theme.colors.success
-                    : theme.colors.primary,
-              },
-            ]}
-          >
+          <Text style={[styles.statusText, { color: statusAccent }]}>
             {getStatusLabel(status, t)}
           </Text>
-
           {/* Media title card */}
           {media && (
             <View
@@ -237,7 +180,7 @@ export default function ProcessingScreen() {
                   size={24}
                   color={
                     media.originType === "YOUTUBE"
-                      ? "#EF4444"
+                      ? theme.colors.error
                       : theme.colors.primary
                   }
                 />
@@ -269,19 +212,124 @@ export default function ProcessingScreen() {
             </View>
           )}
         </View>
+      </View>
 
-        {/* ── Pipeline Stepper (hide on completed for cleaner look) ── */}
+      <ScrollView
+        style={styles.detailsScroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Pipeline Stepper ───────────────────────────────── */}
         {!isFailed && (
           <View
             style={[
               styles.stepperSection,
-              { borderTopColor: theme.colors.border },
+              {
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surface,
+              },
             ]}
           >
             <PipelineStepper
               currentStep={isDone ? "EXPORTING" : (media?.currentStep ?? null)}
               status={status ?? "QUEUED"}
             />
+          </View>
+        )}
+
+        {isDone && media && artifacts && (
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View style={styles.summaryHeader}>
+              <Text style={[styles.summaryTitle, { color: theme.colors.text }]}>
+                {t("artifactSummary.title")}
+              </Text>
+              {artifactsRefreshing ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : null}
+            </View>
+
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.sourceLanguage")}
+                </Text>
+                <Text
+                  style={[styles.summaryValue, { color: theme.colors.text }]}
+                >
+                  {formatLanguageLabel(media.sourceLanguage, t)}
+                </Text>
+              </View>
+
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.chunks")}
+                </Text>
+                <Text
+                  style={[styles.summaryValue, { color: theme.colors.text }]}
+                >
+                  {artifacts.summary.chunkCount}
+                </Text>
+              </View>
+
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.batches")}
+                </Text>
+                <Text
+                  style={[styles.summaryValue, { color: theme.colors.text }]}
+                >
+                  {artifacts.summary.translatedBatchCount}
+                </Text>
+              </View>
+
+              <View style={styles.summaryTile}>
+                <Text
+                  style={[
+                    styles.summaryLabel,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("artifactSummary.finalArtifact")}
+                </Text>
+                <Text
+                  style={[
+                    styles.summaryValue,
+                    {
+                      color: hasFinalArtifact
+                        ? theme.colors.success
+                        : theme.colors.text,
+                    },
+                  ]}
+                >
+                  {hasFinalArtifact
+                    ? t("artifactSummary.ready")
+                    : t("artifactSummary.pending")}
+                </Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -321,32 +369,78 @@ export default function ProcessingScreen() {
       >
         {isDone ? (
           <>
+            {hasTranslatedOutput && (
+              <Pressable
+                style={[
+                  styles.btnPrimary,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+                onPress={goToPlayer}
+              >
+                <Ionicons
+                  name="play-circle-outline"
+                  size={18}
+                  color={theme.colors.textOnPrimary}
+                  style={styles.btnIcon}
+                />
+                <Text
+                  style={[
+                    styles.btnPrimaryText,
+                    { color: theme.colors.textOnPrimary },
+                  ]}
+                >
+                  {t("openPlayer")}
+                </Text>
+              </Pressable>
+            )}
+
+            {hasFinalArtifact && (
+              <Pressable
+                style={[
+                  styles.btnSecondary,
+                  { borderColor: theme.colors.border },
+                ]}
+                onPress={openFinalArtifact}
+              >
+                <Ionicons
+                  name="download-outline"
+                  size={18}
+                  color={theme.colors.textSecondary}
+                  style={styles.btnIcon}
+                />
+                <Text
+                  style={[
+                    styles.btnSecondaryText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("download.action")}
+                </Text>
+              </Pressable>
+            )}
+
             <Pressable
               style={[
-                styles.btnPrimary,
-                { backgroundColor: theme.colors.primary },
-              ]}
-              onPress={goToPlayer}
-            >
-              <Ionicons
-                name="play-circle"
-                size={20}
-                color="#fff"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={styles.btnPrimaryText}>{t("openPlayer")}</Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.btnSecondary,
-                { borderColor: theme.colors.border },
+                hasTranslatedOutput || hasFinalArtifact
+                  ? styles.btnSecondary
+                  : styles.btnPrimary,
+                hasTranslatedOutput || hasFinalArtifact
+                  ? { borderColor: theme.colors.border }
+                  : { backgroundColor: theme.colors.primary },
               ]}
               onPress={goToLibrary}
             >
               <Text
                 style={[
-                  styles.btnSecondaryText,
-                  { color: theme.colors.textSecondary },
+                  hasTranslatedOutput || hasFinalArtifact
+                    ? styles.btnSecondaryText
+                    : styles.btnPrimaryText,
+                  {
+                    color:
+                      hasTranslatedOutput || hasFinalArtifact
+                        ? theme.colors.textSecondary
+                        : theme.colors.textOnPrimary,
+                  },
                 ]}
               >
                 {t("backLibrary")}
@@ -376,6 +470,30 @@ export default function ProcessingScreen() {
                   {formatEta(media.estimatedTimeRemaining)}
                 </Text>
               </Text>
+            )}
+            {hasTranslatedOutput && (
+              <Pressable
+                style={[
+                  styles.btnPrimary,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+                onPress={goToPlayer}
+              >
+                <Ionicons
+                  name="play-circle-outline"
+                  size={18}
+                  color={theme.colors.textOnPrimary}
+                  style={styles.btnIcon}
+                />
+                <Text
+                  style={[
+                    styles.btnPrimaryText,
+                    { color: theme.colors.textOnPrimary },
+                  ]}
+                >
+                  {t("openPlayer")}
+                </Text>
+              </Pressable>
             )}
             <Pressable
               style={[
@@ -444,40 +562,31 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: "700",
   },
   // ── Scroll content
+  detailsScroll: {
+    flex: 1,
+  },
   scrollContent: {
-    paddingBottom: theme.spacing[4],
+    paddingHorizontal: theme.spacing[6],
+    paddingTop: theme.spacing[5],
+    paddingBottom: theme.spacing[6],
+    gap: theme.spacing[4],
+  },
+  stickyHero: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: theme.spacing[5],
+    shadowColor: theme.colors.primary,
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 18,
+    elevation: 3,
+    zIndex: 1,
   },
   // ── Ring section
   ringSection: {
     alignItems: "center",
     paddingHorizontal: theme.spacing[6],
-    paddingTop: theme.spacing[4],
-    paddingBottom: theme.spacing[6],
+    paddingTop: theme.spacing[3],
     gap: theme.spacing[4],
-  },
-  ringWrapper: {
-    position: "relative",
-    width: 160,
-    height: 160,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ringCenter: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ringPercent: {
-    fontSize: 36,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  ringLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginTop: 2,
   },
   statusText: {
     fontSize: 17,
@@ -510,17 +619,46 @@ const styles = StyleSheet.create((theme) => ({
   },
   // ── Stepper
   stepperSection: {
-    paddingHorizontal: theme.spacing[6],
-    paddingTop: theme.spacing[5],
-    borderTopWidth: StyleSheet.hairlineWidth,
+    padding: theme.spacing[5],
+    borderWidth: 1,
+    borderRadius: theme.radii.xl,
+  },
+  summaryCard: {
+    borderWidth: 1,
+    borderRadius: theme.radii.xl,
+    padding: theme.spacing[5],
+    gap: theme.spacing[4],
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  summaryTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[3],
+  },
+  summaryTile: {
+    width: "47%",
+    gap: theme.spacing[1],
+  },
+  summaryLabel: {
+    fontSize: 12,
+  },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: "700",
   },
   // ── Error card
   errorCard: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: theme.spacing[2],
-    marginHorizontal: theme.spacing[6],
-    marginTop: theme.spacing[4],
     padding: theme.spacing[4],
     borderRadius: theme.radii.lg,
     borderWidth: 1,
@@ -548,9 +686,11 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   btnPrimaryText: {
-    color: "#fff",
     fontSize: 16,
     fontWeight: "700",
+  },
+  btnIcon: {
+    marginRight: 8,
   },
   btnSecondary: {
     height: 52,

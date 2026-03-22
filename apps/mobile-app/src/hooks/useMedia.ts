@@ -2,18 +2,67 @@
  * useMedia — Kapter
  *
  * TanStack Query hooks for all media-related operations.
- * processingMode is always TRANSCRIBE_TRANSLATE (full bilingual subtitle generation).
  */
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { mediaService } from "@/services/media.services";
-import { useMediaStore } from "@/stores/media.store";
+import type {
+  ConfirmUploadResponse,
+  MediaItem,
+  MediaOriginType,
+  SubmitYouTubeResponse,
+} from "@/types/media";
+
+function upsertLibraryItem(
+  queryClient: ReturnType<typeof useQueryClient>,
+  item: MediaItem,
+) {
+  queryClient.setQueryData(
+    mediaKeys.all,
+    (oldData: MediaItem[] | undefined) => {
+      if (!oldData) return [item];
+      return [item, ...oldData.filter((entry) => entry.id !== item.id)];
+    },
+  );
+}
+
+function buildQueuedMediaItem(
+  response: ConfirmUploadResponse | SubmitYouTubeResponse,
+  originType: MediaOriginType,
+  originUrl: string | null = null,
+): MediaItem {
+  return {
+    id: response.id,
+    title: response.title,
+    status: response.status,
+    progress: 0,
+    originType,
+    originUrl,
+    durationSeconds: null,
+    currentStep: null,
+    createdAt: new Date().toISOString(),
+    estimatedTimeRemaining: null,
+    failReason: null,
+    sourceLanguage: null,
+    transcriptS3Key: null,
+    subtitleS3Key: null,
+  };
+}
 
 // ─── Query Keys ──────────────────────────────────────────────────
 
 export const mediaKeys = {
   all: ["media"] as const,
   status: (id: string) => ["media-status", id] as const,
+  artifacts: (id: string) => ["media-artifacts", id] as const,
 };
+
+const socketFirstQueryOptions = {
+  staleTime: Infinity,
+  refetchOnMount: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const;
 
 // ─── Queries ─────────────────────────────────────────────────────
 
@@ -38,6 +87,16 @@ export function useMediaStatus(id: string | null) {
     queryKey: mediaKeys.status(id ?? ""),
     queryFn: () => mediaService.getStatus(id!),
     enabled: !!id,
+    ...socketFirstQueryOptions,
+  });
+}
+
+export function useMediaArtifacts(id: string | null) {
+  return useQuery({
+    queryKey: mediaKeys.artifacts(id ?? ""),
+    queryFn: () => mediaService.getArtifacts(id!),
+    enabled: !!id,
+    ...socketFirstQueryOptions,
   });
 }
 
@@ -49,16 +108,22 @@ export function useMediaStatus(id: string | null) {
  */
 export function useSubmitYouTube() {
   const queryClient = useQueryClient();
-  const addItemLocally = useMediaStore((s) => s.addItemLocally);
+  const { i18n } = useTranslation();
 
   return useMutation({
     mutationFn: (url: string) =>
       mediaService.submitYouTube({
         url,
-        processingMode: "TRANSCRIBE_TRANSLATE",
+        targetLanguage: i18n.language,
       }),
-    onSuccess: (newItem) => {
-      addItemLocally(newItem);
+    onSuccess: (response) => {
+      const queuedItem = buildQueuedMediaItem(
+        response,
+        "YOUTUBE",
+        response.originUrl,
+      );
+      upsertLibraryItem(queryClient, queuedItem);
+      queryClient.setQueryData(mediaKeys.status(response.id), queuedItem);
       queryClient.invalidateQueries({ queryKey: mediaKeys.all });
     },
   });
@@ -72,7 +137,7 @@ export function useSubmitYouTube() {
  */
 export function useUploadMedia() {
   const queryClient = useQueryClient();
-  const addItemLocally = useMediaStore((s) => s.addItemLocally);
+  const { i18n } = useTranslation();
 
   return useMutation({
     mutationFn: async (file: {
@@ -102,11 +167,13 @@ export function useUploadMedia() {
       return mediaService.confirmUpload({
         title,
         objectKey: objectKey,
-        processingMode: "TRANSCRIBE_TRANSLATE",
+        targetLanguage: i18n.language,
       });
     },
-    onSuccess: (newItem) => {
-      addItemLocally(newItem);
+    onSuccess: (response) => {
+      const queuedItem = buildQueuedMediaItem(response, "LOCAL");
+      upsertLibraryItem(queryClient, queuedItem);
+      queryClient.setQueryData(mediaKeys.status(response.id), queuedItem);
       queryClient.invalidateQueries({ queryKey: mediaKeys.all });
     },
   });

@@ -98,7 +98,9 @@
       "completed": "Hoàn tất",
       "failed": "Lỗi"
     },
-    "empty": "Chưa có tài liệu nào"
+    "empty": "Media trống",
+    "generating": "Đang tạo phụ đề...",
+    "playerReady": "Sẵn sàng"
   },
   "upload": {
     "tab": "Tải lên",

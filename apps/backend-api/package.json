@@ -21,6 +21,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "pgen": "prisma generate",
+    "sync:schema": "tsx scripts/sync-schema.ts",
     "pmigrate:dev": "prisma migrate dev --name",
     "start:local": "cd ../../infra && docker-compose up -d && cd - && npm run start:dev",
     "clean:env": "tsx scripts/clean-test-env.ts"

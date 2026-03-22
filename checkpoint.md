@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-02-26
+> **Last Updated:** 2026-03-21
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -55,38 +55,46 @@ bilingual-subtitle-system/
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma       # 12 models, ~280 lines
 │   │   │   ├── seed.ts             # Seeds 3 plans (Free/Basic/Pro) with 6 variants
-│   │   │   ├── migrations/         # 5 migrations applied (latest: add_processing_fields)
+│   │   │   ├── migrations/         # 7 migrations applied (latest: remove_processing_mode)
 │   │   │   └── generated/          # Prisma Client output
 │   │   ├── scripts/
 │   │   │   └── clean-test-env.ts   # Flush queues + MinIO + DB media items
 │   │   └── package.json            # Scripts: start:dev, worker:dev, clean:env, pgen, pmigrate:dev
 │   │
-│   ├── ai-engine/               # Python 3.11/3.12 (CUDA) — AI Processing Worker
+│   ├── ai-engine/               # Python 3.12 (CUDA) — AI Processing Worker
 │   │   ├── src/
-│   │   │   ├── main.py              # BullMQ consumer entry point (ai-processing queue)
-│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, Redis, MinIO, DB
-│   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/results)
-│   │   │   ├── schemas.py           # Pydantic: VADSegment, Word, Sentence, SegmentType
+│   │   │   ├── main.py              # Thin BullMQ consumer entry point (process_job + main)
+│   │   │   ├── db.py                # Direct PostgreSQL helpers (update_media_status, mark_quota_counted)
+│   │   │   ├── events.py            # Redis Pub/Sub event publishers (progress, chunk_ready, batch_ready, etc.)
+│   │   │   ├── pipelines.py         # V2 pipeline entry point (run_v2_pipeline only)
+│   │   │   ├── async_pipeline.py    # V2 asyncio producer-consumer (NMT translation + LLM refinement)
+│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, NMT_*, Redis, MinIO, DB
+│   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/batches/final)
+│   │   │   ├── schemas.py           # ALL Pydantic models (Sentence, SubtitleOutput, TranslatedBatch, etc.)
 │   │   │   ├── core/
-│   │   │   │   ├── pipeline.py           # PipelineOrchestrator (7-step E2E flow)
+│   │   │   │   ├── pipeline.py           # PipelineOrchestrator (component registry only — no business logic)
 │   │   │   │   ├── audio_inspector.py    # AudioInspector (multi-segment AST: music vs standard)
 │   │   │   │   ├── vad_manager.py        # VADManager (Silero VAD + greedy merge)
-│   │   │   │   ├── smart_aligner.py      # SmartAligner (dual-model, batched inference, streaming chunks)
-│   │   │   │   ├── semantic_merger.py    # SemanticMerger (LLM-based line grouping + homophone fix)
-│   │   │   │   ├── translator_engine.py  # TranslatorEngine (2-pass: Analyze→Correct→Translate)
-│   │   │   │   ├── llm_provider.py       # LLMProvider (Ollama — qwen2.5:7b-instruct)
-│   │   │   │   └── prompts.py            # System prompts for LLM tasks
+│   │   │   │   ├── smart_aligner.py      # SmartAligner (dual-model, batched inference, Tier 1 chunk streaming)
+│   │   │   │   ├── semantic_merger.py    # SemanticMerger (language-aware line grouping + CJK homophone fix + needs_merge)
+│   │   │   │   ├── nmt_translator.py     # NMTTranslator (NLLB-200-3.3B via CTranslate2, singleton)
+│   │   │   │   ├── llm_provider.py       # LLMProvider (Ollama — qwen2.5:7b-instruct, NMT refinement + merge + analysis)
+│   │   │   │   └── prompts.py            # LLM prompt templates (analysis, merge CJK/non-CJK, phonetic correction, NMT refinement)
 │   │   │   ├── utils/
 │   │   │   │   ├── audio_processor.py    # AudioProcessor (FFmpeg → 16kHz WAV mono)
 │   │   │   │   ├── vocal_isolator.py     # VocalIsolator (BS-Roformer / MDX ONNX)
 │   │   │   │   └── hardware_profiler.py  # HardwareProfiler (background CPU/RAM/GPU sampler)
 │   │   │   └── scripts/                  # Test/debug scripts
+│   │   ├── tests/                        # Unit tests (pytest)
+│   │   │   ├── test_two_tier_streaming.py # MinIO paths + output contract
+│   │   │   └── test_event_discipline.py  # Event ordering + monotonic progress
+│   │   ├── outputs/debug/               # Per-batch debug JSON snapshots (auto-generated per job)
 │   │   ├── requirements.txt              # 25+ deps (faster-whisper, bullmq, minio, psycopg2, pynvml, etc.)
 │   │   ├── Dockerfile                    # CUDA 12.1 + cuDNN 8 image
 │   │   ├── docker-compose.yml            # Profile-based scaling (auto/turbo/full)
 │   │   └── venv/                         # Python virtual environment (local dev)
 │   │
-│   ├── mobile-app/             # 🟡 IN PROGRESS — React Native / Expo 54 (stable)
+│   ├── mobile-app/             # React Native / Expo 54 client
 │   │   ├── src/
 │   │   │   ├── entry.ts              # Custom entry: init Unistyles + i18n before routing
 │   │   │   ├── app/                  # Expo Router pages (auth-guarded route groups)
@@ -96,8 +104,13 @@ bilingual-subtitle-system/
 │   │   │   │   │   ├── index.tsx     # Segmented Login/Register screen
 │   │   │   │   │   └── verify-otp.tsx# OTP verify + resend countdown
 │   │   │   │   └── (app)/
-│   │   │   │       ├── _layout.tsx   # App group layout
-│   │   │   │       └── index.tsx     # Temporary home/demo screen + logout
+│   │   │   │       ├── _layout.tsx   # App shell + global socket sync
+│   │   │   │       ├── index.tsx     # Media library / home screen
+│   │   │   │       ├── upload.tsx    # Upload flow entry
+│   │   │   │       ├── media-picker.tsx # Local file / YouTube ingestion
+│   │   │   │       ├── processing.tsx# Live processing + completed detail screen
+│   │   │   │       ├── player.tsx    # Placeholder player route (real playback pending)
+│   │   │   │       └── settings.tsx  # Preferences + logout
 │   │   │   ├── components/
 │   │   │   │   ├── auth/             # LoginForm, RegisterForm
 │   │   │   │   ├── TextInput.tsx
@@ -176,25 +189,26 @@ bilingual-subtitle-system/
 
 ## 4. Database Schema (Prisma)
 
-**12 Models, 5 Migrations Applied (latest: `add_processing_fields`):**
+**12 Models, 7 Migrations Applied (latest: `remove_processing_mode`):**
 
-| Model              | Purpose                                     | Key Fields / Notes                                                                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `User`             | Core user with subscription tracking        | `email`, `passwordHash`, `role`, `quotaUsageCurrentMonth`, `currentSubscriptionId`                                                                                                                                                                      |
-| `SubscriptionPlan` | Product definition (FREE, BASIC, PRO)       | `code`, `name`, `features` (JSON), `tierLevel`, `isActive`                                                                                                                                                                                              |
-| `PlanVariant`      | Pricing/limits per plan                     | `price`, `billingCycleType`, `maxDurationPerFile`, `monthlyQuotaSeconds`                                                                                                                                                                                |
-| `Subscription`     | User↔Plan binding with price/quota SNAPSHOT | `priceSnapshot`, `monthlyQuotaSecondsSnapshot` (immutable)                                                                                                                                                                                              |
-| `UsageHistory`     | Monthly usage audit trail                   | `cycleStartDate`, `totalSecondsUsed`, `quotaLimitAtThatTime`                                                                                                                                                                                            |
-| `MediaItem`        | Media library entry                         | `originType`, `audioS3Key`, `subtitleS3Key`, `status` (QUEUED→VALIDATING→PROCESSING→COMPLETED/FAILED), `processingMode` (TRANSCRIBE/TRANSCRIBE_TRANSLATE), `progress`, `failReason`, `transcriptS3Key`, `sourceLanguage`, `countedInQuota`, soft delete |
-| `Vocabulary`       | Global word dictionary                      | `word` (unique), `meaning`, `pronunciation`, `lookupCount`                                                                                                                                                                                              |
-| `UserVocabulary`   | Per-user saved words                        | Links `User` ↔ `Vocabulary` ↔ `MediaItem` (context)                                                                                                                                                                                                     |
-| `Otp`              | OTP for registration & forgot password      | `email`, `code`, `type` (REGISTER/FORGOT_PASSWORD), `expiresAt`                                                                                                                                                                                         |
-| `RefreshToken`     | JWT refresh tokens with rotation            | `token` (unique), `deviceInfo`, `ip`, `expiresAt`, cascade delete                                                                                                                                                                                       |
+| Model              | Purpose                                     | Key Fields / Notes                                                                                                                                                                                                                           |
+| ------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `User`             | Core user with subscription tracking        | `email`, `passwordHash`, `role`, `quotaUsageCurrentMonth`, `currentSubscriptionId`                                                                                                                                                           |
+| `SubscriptionPlan` | Product definition (FREE, BASIC, PRO)       | `code`, `name`, `features` (JSON), `tierLevel`, `isActive`                                                                                                                                                                                   |
+| `PlanVariant`      | Pricing/limits per plan                     | `price`, `billingCycleType`, `maxDurationPerFile`, `monthlyQuotaSeconds`                                                                                                                                                                     |
+| `Subscription`     | User↔Plan binding with price/quota SNAPSHOT | `priceSnapshot`, `monthlyQuotaSecondsSnapshot` (immutable)                                                                                                                                                                                   |
+| `UsageHistory`     | Monthly usage audit trail                   | `cycleStartDate`, `totalSecondsUsed`, `quotaLimitAtThatTime`                                                                                                                                                                                 |
+| `MediaItem`        | Media library entry                         | `originType`, `audioS3Key`, `subtitleS3Key`, `status` (QUEUED→VALIDATING→PROCESSING→COMPLETED/FAILED), `progress`, `currentStep`, `estimatedTimeRemaining`, `failReason`, `transcriptS3Key`, `sourceLanguage`, `countedInQuota`, soft delete |
+| `Vocabulary`       | Global word dictionary                      | `word` (unique), `meaning`, `pronunciation`, `lookupCount`                                                                                                                                                                                   |
+| `UserVocabulary`   | Per-user saved words                        | Links `User` ↔ `Vocabulary` ↔ `MediaItem` (context)                                                                                                                                                                                          |
+| `Otp`              | OTP for registration & forgot password      | `email`, `code`, `type` (REGISTER/FORGOT_PASSWORD), `expiresAt`                                                                                                                                                                              |
+| `RefreshToken`     | JWT refresh tokens with rotation            | `token` (unique), `deviceInfo`, `ip`, `expiresAt`, cascade delete                                                                                                                                                                            |
 
-**Enums Added:**
+**Enums / Status Fields:**
 
-- `ProcessingMode`: `TRANSCRIBE` | `TRANSCRIBE_TRANSLATE`
 - `MediaStatus`: `QUEUED` | `VALIDATING` | `PROCESSING` | `COMPLETED` | `FAILED`
+- `MediaItem.currentStep` stores the active pipeline stage string: `AUDIO_PREP`, `INSPECTING`, `VAD`, `PROCESSING`, `TRANSLATING`, `EXPORTING`
+- Legacy `processingMode` was removed in migration `20260321103000_remove_processing_mode`
 
 **Seed Data:** 3 plans × 6 variants (Free Monthly, Basic Monthly/Yearly, Pro Monthly/Yearly/Lifetime). Currency: VND.
 
@@ -222,10 +236,12 @@ bilingual-subtitle-system/
   - `POST /media/presigned-url` — Generate presigned PUT URL (optimistic quota check)
   - `POST /media/confirm-upload` — Verify file in MinIO → create `MediaItem` → dispatch BullMQ job
   - `POST /media/youtube` — Submit YouTube URL → create `MediaItem` → dispatch job
-  - `GET /media/:id/status` — Poll processing progress (progress %, status, failReason)
+  - `GET /media/:id/status` — Hydrate processing progress (progress, `currentStep`, ETA, failReason)
+  - `GET /media/:id/artifacts` — Durable processed-object inventory (`chunks/`, `translated_batches/`, `final.json`)
   - `GET /media` — User's media library listing
 - **Quota Logic:** Aggregates `durationSeconds` of `MediaItem` for current month, checks against subscription snapshot
-- **Processing Modes:** Both `TRANSCRIBE` and `TRANSCRIBE_TRANSLATE` are supported, but in the mobile app, `TRANSCRIBE_TRANSLATE` is hardcoded for all API calls as bilingual rendering is the core value proposition.
+- **Translation Contract:** Active flows are bilingual subtitle generation only. Backend carries `targetLanguage` where needed; `processingMode` is no longer part of the API or queue payloads.
+- **Library DTOs:** List/detail responses include MinIO artifact summaries so the mobile app can show readiness state without re-deriving storage inventory client-side.
 
 ### ✅ Worker — Validation Pipeline (`MediaProcessor`) — DONE
 
@@ -253,20 +269,23 @@ bilingual-subtitle-system/
 
 ### ✅ Full Pipeline — PRODUCTION READY (connected via BullMQ)
 
-**Entry Point:** `main.py` — Python BullMQ consumer listening on `ai-processing` queue.
+**Entry Point:** `main.py` — thin BullMQ consumer (~175 lines) listening on `ai-processing` queue. Delegates to `pipelines.py` for pipeline execution.
 
-**7-Step Pipeline (`PipelineOrchestrator`):**
+**7-Step Pipeline (`PipelineOrchestrator`) — V2 Async NMT-based:**
 
-| Step | Class              | Description                                                                                       | Status  |
-| ---- | ------------------ | ------------------------------------------------------------------------------------------------- | ------- |
-| 1    | `AudioProcessor`   | Convert input to 16kHz WAV mono (FFmpeg)                                                          | ✅ Done |
-| 2    | `AudioInspector`   | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                          | ✅ Done |
-| 3    | `VADManager`       | Silero VAD → speech segments → greedy merge (5-15s targets)                                       | ✅ Done |
-| 3b   | `VocalIsolator`    | Separate vocals for music (BS-Roformer / MDX ONNX)                                                | ✅ Done |
-| 4    | `SmartAligner`     | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **streaming chunk callback** | ✅ Done |
-| 5    | `SemanticMerger`   | LLM-based line grouping + homophone correction (safe version: preserves char count)               | ✅ Done |
-| 6    | `TranslatorEngine` | 2-pass: Analyze context→Correct ASR→Translate (via LLMProvider/Ollama qwen2.5:7b)                 | ✅ Done |
-| 7    | Export             | Upload final JSON to MinIO `processed` bucket                                                     | ✅ Done |
+> **V1→V2 Migration:** The original V1 pipeline used `TranslatorEngine` (LLM-only, Ollama qwen2.5:7b) + `IncrementalPipeline` (threaded merge→translate). V2 replaces this with an asyncio producer-consumer architecture using NLLB-200-3.3B via CTranslate2 for fast GPU-native translation, with optional LLM refinement for quality. This eliminated the serial TranslatorEngine bottleneck and removed ~700 lines of dead code.
+
+| Step | Class            | Description                                                                                                                | Status       |
+| ---- | ---------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| 1    | `AudioProcessor` | Convert input to 16kHz WAV mono (FFmpeg)                                                                                   | ✅ Done      |
+| 2    | `AudioInspector` | Multi-segment AST classification (3 samples at 10/50/90%, weighted vote)                                                   | ✅ Done      |
+| 3    | `VADManager`     | Silero VAD → speech segments → greedy merge (5-15s targets)                                                                | ✅ Done      |
+| 3b   | `VocalIsolator`  | Separate vocals for music (BS-Roformer / MDX ONNX)                                                                         | ✅ Done      |
+| 4    | `SmartAligner`   | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **Tier 1 chunk streaming**                            | ✅ Done      |
+| 5    | `SemanticMerger` | Language-aware LLM line grouping (CJK: grouping + homophone fix; non-CJK: grouping only), via `needs_merge()` heuristic    | ✅ Done      |
+| 6    | `NMTTranslator`  | **V2:** NLLB-200-3.3B via CTranslate2 (GPU, float16). Singleton with async `translate_batch()`. Replaces TranslatorEngine. | ✅ V2 Active |
+| 6b   | LLM Refinement   | **V2:** Optional post-NMT pass via Ollama (`NMT_REFINEMENT_PROMPT`). Fixes NMT artifacts for CJK/complex text.             | ✅ V2 Active |
+| 7    | Export           | Upload `SubtitleOutput` as `final.json` to MinIO `processed` bucket                                                        | ✅ Done      |
 
 **BullMQ Consumer (`main.py`):**
 
@@ -277,12 +296,32 @@ bilingual-subtitle-system/
 - Progress updates: direct PostgreSQL via `psycopg2` (strips Prisma's `?schema=public` from DSN)
 - MinIO integration: `minio_client.py` handles download/upload of audio and subtitle data
 
-**Streaming Chunk Uploads:**
+**Two-Tier Streaming Protocol:**
+
+Tier 1 — Raw Transcription (during SmartAligner):
 
 - `SmartAligner.process()` accepts `on_chunk(batch, total_so_far)` callback
 - Flushes every 20 sentences during alignment — client sees partial results in real-time
-- TRANSCRIBE mode: chunks are final
-- TRANSCRIBE_TRANSLATE mode: preview chunks during alignment → overwritten with translated results
+- Uploads to `processed/{mediaId}/chunks/{chunkIndex}.json`
+- Mobile app can hydrate durable progress data from chunk artifacts before `final.json` exists
+
+Tier 2 — Bilingual Translation (during V2 async consumer):
+
+- `async_pipeline.py` consumer reads from asyncio.Queue, runs NMT translation + optional LLM refinement
+- Each completed batch uploaded to `processed/{mediaId}/translated_batches/{batchIndex}.json`
+- Mobile app uses translated-batch availability to unlock the Player CTA and completed-job readiness indicators
+- CJK languages: batches pass through SemanticMerger before NMT; non-CJK bypass merge entirely
+
+Final — Complete Output:
+
+- `processed/{mediaId}/final.json` — full `SubtitleOutput` with metadata + all bilingual segments
+- Uploaded once pipeline finishes; mobile uses this as the canonical source
+
+Progress semantics (V2 pipeline): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0.15` VAD → `0.15–0.60` PROCESSING → `0.60–0.90` TRANSLATING → `0.98` EXPORTING → `1.00` COMPLETED. Both the in-memory reservation logic and DB writes keep progress monotonic to avoid client-side rollback.
+
+**Debug Output:**
+
+- V2 async consumer writes per-batch debug snapshots to `outputs/debug/{mediaId}/` for diagnosing NMT/LLM quality issues
 
 **Key Design Decisions:**
 
@@ -292,7 +331,12 @@ bilingual-subtitle-system/
 - **Batched Inference:** `BatchedInferencePipeline` wraps each model; `batch_size` driven by `AI_PERF_MODE` (LOW=1, MEDIUM=4, HIGH=8)
 - **Model Routing:** First segment detects anchor language → routes subsequent segments to correct model; logs which model was selected
 - **Performance Profiles:** LOW/MEDIUM/HIGH → controls `compute_type`, `beam_size`, `batch_size`
-- **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, correction, and translation
+- **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, and optional NMT refinement
+- **NMTTranslator (V2):** NLLB-200-3.3B via CTranslate2 (`float16`, singleton). Async `translate_batch()` method. Settings: `NMT_MODEL_DIR`, `NMT_TOKENIZER_NAME`, `NMT_COMPUTE_TYPE`, `NMT_BEAM_SIZE`. Replaces V1 `TranslatorEngine`.
+- **V2 Async Pipeline (`async_pipeline.py`):** asyncio producer-consumer. Producer = SmartAligner transcription → `asyncio.Queue`. Consumer = [CJK: SemanticMerger] → NMTTranslator → [LLM Refinement] → Tier 2 upload. Natural backpressure via bounded queue. Replaces V1 `IncrementalPipeline` + `ThreadPoolExecutor`.
+- **LLM Refinement:** Optional post-NMT pass using `NMT_REFINEMENT_PROMPT`. Fixes CJK particle errors, pronoun consistency, style drift. Controlled per-batch in the async consumer.
+- **SemanticMerger `needs_merge()` heuristic:** Skips merge when <20% of sentences are fragments (<6 words for non-CJK, <8 chars for CJK). Constants: `MERGE_MIN_WORD_COUNT=6`, `MERGE_FRAGMENT_RATIO=0.2`.
+- **Output Contract:** `SubtitleOutput` = `SubtitleMetadata` + `List[Sentence]`. Every `Sentence` has `translation: str` (never None, `""` default) and `phonetic: str` (CJK pinyin from word phonemes, empty for non-CJK).
 - **Multi-Segment Inspector:** Samples 3 positions (10%, 50%, 90%) with weighted voting to prevent music intro bias
 - **Graceful Fallback:** All steps catch exceptions and fall back (e.g., vocal isolation fails → use original audio)
 - **Hardware Profiler:** `HardwareProfiler` runs as background thread per job — writes CPU/RAM/GPU stats to `outputs/profiles/` as `.txt` + `.csv`
@@ -358,6 +402,80 @@ graph TD
 
 ---
 
+## 7. AI Engine — Refactoring Progress (Translation Step Cleanup)
+
+**Plan:** `plan-refactorAiEngineTranslationStepCleanup.prompt.md`
+
+| Phase | Description                                       | Status      | Files Modified                                                                                      |
+| ----- | ------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| 1     | Cleanup — remove dead code & legacy paths         | ✅ Complete | `pipeline.py`, `translator_engine.py` (deleted), `llm_provider.py`, `prompts.py`, `schemas.py`      |
+| 2     | Refactor SemanticMerger (language-aware)          | ✅ Complete | `semantic_merger.py`, `prompts.py`, `main.py`                                                       |
+| 3     | Build new TranslatorEngine                        | ✅ Complete | New `translator_engine.py`, `llm_provider.py`, `prompts.py`, `schemas.py`, `pipeline.py`, `main.py` |
+| 4     | Fix output contract                               | ✅ Complete | `schemas.py`, `minio_client.py`, `main.py`                                                          |
+| 5     | Backend job payload update                        | ✅ Complete | `queue.types.ts`, `request.dto.ts`, `media.service.ts`, `media.processor.ts`, `main.py`             |
+| 6     | Incremental Merge+Translate Pipeline (Option B+D) | ✅ Complete | `semantic_merger.py`, `translator_engine.py`, `llm_provider.py`, `main.py`                          |
+| 7     | Module Refactor — split monolithic `main.py`      | ✅ Complete | New `db.py`, `events.py`, `pipelines.py`, `incremental_pipeline.py`; rewritten `main.py`            |
+
+**V2 Pipeline Rebuild (plan-v2-pipeline-architecture.prompt.md):**
+
+| Phase | Description                        | Status      | Files Modified                                                                                                                                                                          |
+| ----- | ---------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | NLLB Evaluation Scripts            | ✅ Complete | `scripts/eval_nllb.py`, `scripts/eval_nllb_bilingual.py`                                                                                                                                |
+| 1     | NMTTranslator Singleton            | ✅ Complete | New `core/nmt_translator.py`                                                                                                                                                            |
+| 2     | Async Pipeline (producer-consumer) | ✅ Complete | New `async_pipeline.py`, `pipelines.py` updated                                                                                                                                         |
+| 3     | LLM Refinement Wiring              | ✅ Complete | `llm_provider.py`, `prompts.py` (NMT_REFINEMENT_PROMPT), `async_pipeline.py`                                                                                                            |
+| 4     | Test Script                        | ✅ Complete | `scripts/test_v2_pipeline.py`                                                                                                                                                           |
+| 5     | V1 Dead Code Cleanup               | ✅ Complete | Deleted: `translator_engine.py`, `incremental_pipeline.py`, V1 test scripts. Cleaned: `prompts.py`, `llm_provider.py`, `pipeline.py`, `pipelines.py`, `main.py`, `schemas.py`, `tests/` |
+
+**Key Changes Summary (V1 Refactor — Phases 1-7):**
+
+- **`schemas.py`:** `Sentence` now has `translation: str = ""` and `phonetic: str = ""`. Models: `SubtitleMetadata`, `SubtitleOutput`, `TranslatedBatch`, `ContextAnalysisResult`.
+- **`minio_client.py`:** Typed uploads: `upload_chunk()` (Tier 1), `upload_translated_batch(TranslatedBatch)` (Tier 2), `upload_final_result(SubtitleOutput)` (final). Path convention: `{mediaId}/chunks/`, `{mediaId}/translated_batches/`, `{mediaId}/final.json`.
+- **Backend DTOs:** `targetLanguage?: string` added to `ConfirmUploadDto`, `SubmitYoutubeDto`, both job payload types, and wired through `media.service.ts` → `media.processor.ts`.
+
+**Key Changes Summary (V2 Pipeline — Phases 0-5):**
+
+- **`nmt_translator.py` (NEW):** NLLB-200-3.3B via CTranslate2. Singleton with lazy model load. `translate_batch(texts, src_lang, tgt_lang)` async method. Settings: `NMT_MODEL_DIR`, `NMT_TOKENIZER_NAME`, `NMT_COMPUTE_TYPE` (float16), `NMT_BEAM_SIZE` (4).
+- **`async_pipeline.py` (NEW):** asyncio producer-consumer. Producer = SmartAligner → `asyncio.Queue`. Consumer = [CJK: SemanticMerger] → NMTTranslator → [LLM Refinement] → Tier 2 upload. Replaces `IncrementalPipeline` + `ThreadPoolExecutor`.
+- **`pipelines.py` (REWRITTEN):** Single entry point `run_v2_pipeline()` (~47 lines). Delegates to `async_pipeline.run_v2_pipeline_async()`.
+- **`main.py` (SIMPLIFIED):** Always calls V2 pipeline. No more `processingMode` branching or V1 imports.
+- **`prompts.py` (CLEANED):** V1 translation prompts (`TRANSLATION_SYSTEM_PROMPT`, per-language prompts) deleted. Kept: `ANALYSIS_SYSTEM_PROMPT`, `PHONETIC_CORRECTION_SYSTEM_PROMPT`, `SAFE_MERGE_CJK_PROMPT`, `SAFE_MERGE_NON_CJK_PROMPT`, `NMT_REFINEMENT_PROMPT`.
+- **`llm_provider.py` (CLEANED):** `translate_batch()` and `translate_raw()` deleted. `refine_nmt_translations()` is the only translation-related method.
+- **Deleted files:** `translator_engine.py`, `incremental_pipeline.py`, `scripts/test_phase1.py`, `scripts/test_phase2.py`, `scripts/test_phase2_real.py`.
+- **Tests (REWRITTEN):** 6 tests remain (MinIO paths + output contract). V1-specific tests (TranslatorEngine, sliding window, partial failure, phonetics) removed.
+
+**MinIO Storage Convention:**
+
+```
+processed/{mediaId}/
+├── chunks/                    # Tier 1: raw transcription (from SmartAligner)
+│   ├── 0.json
+│   └── ...
+├── translated_batches/        # Tier 2: bilingual batches (from NMTTranslator)
+│   ├── 0.json
+│   └── ...
+└── final.json                 # Complete SubtitleOutput (canonical)
+```
+
+**Verification Coverage:**
+
+- `tests/test_two_tier_streaming.py` validates MinIO path conventions and final output contract.
+- `tests/test_event_discipline.py` validates event publishing behavior, including monotonic progress expectations.
+
+Run: `cd apps/ai-engine && .\venv\Scripts\Activate.ps1 && python -m pytest tests/ -v`
+
+**AI Engine — Current V2 State:**
+
+The V2 pipeline is the only active production path.
+
+- `main.py` is a thin BullMQ consumer and delegates processing to `run_v2_pipeline()` in `pipelines.py`.
+- `async_pipeline.py` owns the producer-consumer flow, stage-progress publishing, and the Tier 1 / Tier 2 artifact uploads.
+- `core/nmt_translator.py` is the active translation runtime. The old `translator_engine.py` and `incremental_pipeline.py` paths are gone.
+- Queue payloads are bilingual-by-default and only carry `targetLanguage`; there is no runtime branching on `processingMode` anymore.
+- Progress is protected twice: `_reserve_progress()` prevents in-memory rollback, and `db.py` writes `progress = GREATEST(COALESCE(progress, 0), incoming)` to keep persisted status monotonic.
+
+---
+
 ## 8. Job Payload Contracts (Redis)
 
 ### Queue 1: `transcription` (API → NestJS Worker)
@@ -369,7 +487,7 @@ interface TranscriptionJobPayload {
   filePath?: string; // S3 key (LOCAL uploads)
   url?: string; // YouTube URL
   userId: string;
-  processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
+  targetLanguage?: string; // Default: "vi" — passed through to AI Engine
 }
 ```
 
@@ -379,15 +497,15 @@ interface TranscriptionJobPayload {
 interface AiProcessingJobPayload {
   mediaId: string;
   audioS3Key: string; // Validated audio in MinIO
-  processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
   durationSeconds: number;
   userId: string;
+  targetLanguage?: string; // Default: "vi" — target translation language
 }
 ```
 
 ---
 
-## 9. Mobile App — IN PROGRESS
+## 9. Mobile App — Current Status
 
 **Brand Name:** Kapter _(wordplay: "capture" + "chapter")_
 
@@ -443,12 +561,21 @@ interface AiProcessingJobPayload {
 
 - Extracted local upload (presigned URL PUT → Confirm)
 - Added YouTube modal ingestion
-- Wired TanStack Query for caching and auto-polling
+- Wired TanStack Query for library caching and socket-first status hydration
 - Fixed TypeScript differences with the backend APIs
 
-### 🔲 Phase 4: Processing Status
-- Processing status screen (polling/SSE progress)
-- Bilingual subtitle player with Karaoke word-highlight effect
+### ✅ Phase 4: Processing Detail + Artifact Flow — DONE
+
+- App layout mounts a global `useSocketSync()` listener that patches TanStack Query caches from live processing events
+- Processing screen hydrates status once via REST, then relies on socket updates instead of aggressive refetching
+- Durable artifact endpoint (`GET /media/:id/artifacts`) powers completed-output summary, final JSON access, and resumed state
+- Library cards show a small readiness badge when at least one translated batch exists
+- "Open Player" CTA appears as soon as translated output exists
+
+### 🟡 Still Pending
+
+- Real subtitle player implementation (the current `/(app)/player` route is only a placeholder)
+- Karaoke playback UI and subtitle rendering inside the player
 - Forgot-password and social login (future, optional)
 
 ---
@@ -469,33 +596,34 @@ interface AiProcessingJobPayload {
 | Run migration                | `pnpm pmigrate:dev <name>`                             | `apps/backend-api`      |
 | Seed database                | `npx tsx prisma/seed.ts`                               | `apps/backend-api`      |
 | Clean test environment       | `pnpm clean:env`                                       | `apps/backend-api`      |
-| Run AI pipeline (standalone) | `python -m src.scripts.test_pipeline`                  | `apps/ai-engine` (venv) |
+| Run AI pipeline (standalone) | `python -m src.scripts.test_v2_pipeline`               | `apps/ai-engine` (venv) |
 | Start infra (individual)     | `docker-compose up -d`                                 | `infra/{service}`       |
 
 ---
 
 ## 11. Priority TODO (Next Steps)
 
-1. **🟡 Mobile App — App Shell:** Implement production tab/stack structure to replace demo home screen
-2. **🟡 Mobile App — Media Submit Flow:** Local extraction + presigned upload + `/media/confirm-upload` integration
-3. **🟡 Mobile App — Processing UX:** Status polling/SSE UI for queued/processing/completed states
-4. **🟡 Mobile App — Subtitle Player:** Bilingual playback + Karaoke word-highlight effect
-5. **🟡 True Language-Based Routing:** Detect language during NestJS Worker validation → add `sourceLanguage` to `AiProcessingJobPayload` → route CJK jobs to `full_only` queue/worker and others to `turbo_only`
-6. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints
-7. **🟢 Inspector Tuning:** Further refinement of multi-segment audio inspector with real-world audio
-8. **🟢 VAD Performance:** Investigate VAD processing time on long music files
-9. **🟢 Monitoring:** Set up basic monitoring/alerting for AI Engine and Worker processes
+1. **🟡 Mobile App — Subtitle Player:** Replace the placeholder player route with real bilingual playback and Karaoke rendering.
+2. **🟡 Mobile App — Final Preview Cleanup:** Remove or repurpose any remaining unused preview-only helpers now that the processing screen is artifact-summary-first.
+3. **🟡 Backend — Artifact Summary Performance:** `GET /media` currently derives artifact summaries per item from MinIO; revisit if library latency becomes noticeable.
+4. **🟡 AI Engine — NMT Quality Tuning:** Continue tuning `NMT_BEAM_SIZE`, `NMT_COMPUTE_TYPE`, and refinement prompts per language pair.
+5. **🟡 True Language-Based Routing:** Detect language earlier and route CJK-heavy jobs to the appropriate worker profile when horizontal scaling becomes necessary.
+6. **🟡 AI Engine — Integration Test:** Add an end-to-end test with real Redis + MinIO + Ollama to validate the full streaming contract.
+7. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints.
+8. **🟢 Inspector Tuning:** Further refine the multi-segment audio inspector with real-world audio.
+9. **🟢 VAD Performance:** Investigate VAD processing time on long music files.
+10. **🟢 Monitoring:** Set up basic monitoring and alerting for AI Engine and Worker processes.
 
 ---
 
 ## 12. Tech Stack Summary
 
-| Layer         | Technology                                                                                                                                                                                |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Backend**   | NestJS v11, TypeScript, Prisma 7, BullMQ, ioredis, Passport JWT                                                                                                                           |
-| **AI Engine** | Python 3.11, CUDA 12.1, Faster-Whisper (large-v3 + large-v3-turbo), Silero VAD, BatchedInferencePipeline, BullMQ (Python), MinIO SDK, psycopg2, Ollama (qwen2.5:7b), nvidia-ml-py, psutil |
-| **Database**  | PostgreSQL 16                                                                                                                                                                             |
-| **Queue**     | Redis 7 + BullMQ (two queues: `transcription`, `ai-processing`)                                                                                                                           |
-| **Storage**   | MinIO (S3-compatible) + Cloudflare Tunnel                                                                                                                                                 |
-| **Mobile**    | React Native 0.81.5, Expo 54 (stable), expo-router, react-native-unistyles, i18next                                                                                                       |
-| **Infra**     | Docker Compose (per-service + AI Engine with NVIDIA GPU support)                                                                                                                          |
+| Layer         | Technology                                                                                                                                                                   |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backend**   | NestJS v11, TypeScript, Prisma 7, BullMQ, ioredis, Passport JWT                                                                                                              |
+| **AI Engine** | Python 3.12, CUDA 12.1, Faster-Whisper (large-v3 + large-v3-turbo), Silero VAD, CTranslate2, BullMQ (Python), MinIO SDK, psycopg2, Ollama (qwen2.5:7b), nvidia-ml-py, psutil |
+| **Database**  | PostgreSQL 16                                                                                                                                                                |
+| **Queue**     | Redis 7 + BullMQ (two queues: `transcription`, `ai-processing`)                                                                                                              |
+| **Storage**   | MinIO (S3-compatible) + Cloudflare Tunnel                                                                                                                                    |
+| **Mobile**    | React Native 0.81.5, Expo 54 (stable), expo-router, react-native-unistyles, i18next                                                                                          |
+| **Infra**     | Docker Compose (per-service + AI Engine with NVIDIA GPU support)                                                                                                             |

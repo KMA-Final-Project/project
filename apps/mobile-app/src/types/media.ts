@@ -1,7 +1,7 @@
 /**
  * Media Types — Kapter
  *
- * TypeScript interfaces mirroring the backend Prisma models and API DTOs.
+ * TypeScript interfaces mirroring the backend media DTOs.
  */
 
 export type MediaStatus =
@@ -13,71 +13,120 @@ export type MediaStatus =
 
 export type MediaOriginType = "LOCAL" | "YOUTUBE";
 
-export type ProcessingMode = "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE";
+export type MediaPipelineStage =
+  | "AUDIO_PREP"
+  | "INSPECTING"
+  | "VAD"
+  | "PROCESSING"
+  | "TRANSLATING"
+  | "EXPORTING";
+
+export interface MediaArtifactsSummary {
+  chunkCount: number;
+  translatedBatchCount: number;
+  hasFinal: boolean;
+  latestChunkIndex: number | null;
+  latestBatchIndex: number | null;
+  finalObjectKey: string | null;
+}
+
+export interface MediaChunkArtifact {
+  chunkIndex: number;
+  objectKey: string;
+  url: string;
+  size: number;
+  lastModified: string | null;
+}
+
+export interface MediaTranslatedBatchArtifact {
+  batchIndex: number;
+  objectKey: string;
+  url: string;
+  size: number;
+  lastModified: string | null;
+}
+
+export interface MediaFinalArtifact {
+  objectKey: string;
+  url: string;
+  size: number;
+  lastModified: string | null;
+}
 
 export interface MediaItem {
   id: string;
   title: string | null;
-  originType: MediaOriginType;
   status: MediaStatus;
-  processingMode: ProcessingMode;
-  progress: number | null; // 0.0 - 1.0
-  currentStep: string | null; // e.g. 'TRANSCRIBING', null when idle/completed
-  estimatedTimeRemaining: number | null; // seconds, null when idle/completed
-  failReason: string | null;
+  progress: number | null;
+  originType: MediaOriginType;
+  originUrl?: string | null;
   durationSeconds: number | null;
-  sourceLanguage: string | null;
-  languageCount?: number; // Added for subtitle string
-  subtitleS3Key: string | null;
-  audioS3Key: string | null;
-  thumbnailUrl?: string | null; // Added for thumbnail support
-  createdAt: string; // ISO date string
-  updatedAt: string;
+  currentStep: MediaPipelineStage | null;
+  createdAt: string;
+  estimatedTimeRemaining?: number | null;
+  failReason?: string | null;
+  sourceLanguage?: string | null;
+  transcriptS3Key?: string | null;
+  subtitleS3Key?: string | null;
+  artifacts?: MediaArtifactsSummary;
+  languageCount?: number;
+  thumbnailUrl?: string | null;
+  updatedAt?: string;
 }
-
-// ─── API Request / Response shapes ──────────────────────────────
 
 export interface PresignedUrlRequest {
   fileName: string;
   mimeType: string;
-  /** Backend field name is `fileSize` (not fileSizeBytes) */
   fileSize: number;
 }
 
 export interface PresignedUrlResponse {
   uploadUrl: string;
   objectKey: string;
-  expiresIn: string;
+  expiresIn: number;
 }
 
 export interface ConfirmUploadRequest {
-  /** User-visible title (worker auto-extracts if omitted for YouTube) */
   title: string;
-  /** S3 object key returned from presigned-url step */
   objectKey: string;
-  processingMode?: ProcessingMode;
+  targetLanguage?: string;
 }
 
 export interface SubmitYouTubeRequest {
   url: string;
-  /** Optional title — worker auto-extracts via yt-dlp if omitted */
   title?: string;
-  processingMode?: ProcessingMode;
+  targetLanguage?: string;
 }
 
-export interface MediaStatusResponse {
+export interface ConfirmUploadResponse {
   id: string;
-  title: string | null;
+  title: string;
   status: MediaStatus;
-  progress: number | null;
-  processingMode: ProcessingMode;
-  sourceLanguage: string | null;
-  durationSeconds: number | null;
-  originType: MediaOriginType;
-  currentStep: string | null;
-  estimatedTimeRemaining: number | null; // seconds
+  jobId: string;
+}
+
+export interface SubmitYouTubeResponse {
+  id: string;
+  title: string;
+  status: MediaStatus;
+  originUrl: string | null;
+  jobId: string;
+}
+
+export interface MediaStatusResponse extends MediaItem {
+  estimatedTimeRemaining: number | null;
   failReason: string | null;
+  sourceLanguage: string | null;
   transcriptS3Key: string | null;
   subtitleS3Key: string | null;
-  createdAt: string;
+  artifacts: MediaArtifactsSummary;
+}
+
+export interface MediaArtifactsResponse {
+  mediaId: string;
+  status: MediaStatus;
+  summary: MediaArtifactsSummary;
+  chunks: MediaChunkArtifact[];
+  translatedBatches: MediaTranslatedBatchArtifact[];
+  final: MediaFinalArtifact | null;
 }
