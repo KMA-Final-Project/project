@@ -24,7 +24,7 @@ from src.core.pipeline import PipelineOrchestrator
 from src.db import mark_quota_counted, update_media_status
 from src.events import publish_completed, publish_failed
 from src.minio_client import MinioClient
-from src.pipelines import run_transcribe_pipeline, run_transcribe_translate_pipeline
+from src.pipelines import run_v2_pipeline
 from src.utils.hardware_profiler import HardwareProfiler
 
 # ============================================================================
@@ -47,20 +47,19 @@ async def process_job(job, token):
     Job data structure (from NestJS Worker):
         mediaId: str
         audioS3Key: str
-        processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE"
         durationSeconds: int
         userId: str
+        targetLanguage?: str
     """
     job_data = job.data
     media_id = job_data["mediaId"]
     audio_s3_key = job_data["audioS3Key"]
-    processing_mode = job_data["processingMode"]
     duration_seconds = job_data.get("durationSeconds", 0)
     user_id = job_data["userId"]
 
     logger.info(
         f"🚀 Job {job.id} started | media: {media_id} | "
-        f"mode: {processing_mode} | duration: {duration_seconds}s"
+        f"duration: {duration_seconds}s"
     )
 
     # Initialize clients
@@ -80,31 +79,20 @@ async def process_job(job, token):
         local_audio = work_dir / f"input{ext}"
         minio_client.download_audio(audio_s3_key, local_audio)
 
-        # 2. Run the pipeline — record wall-clock start time for ETA
+        # 2. Run the V2 pipeline — record wall-clock start time for ETA
         started_at = _time.time()
 
-        if processing_mode == "TRANSCRIBE":
-            subtitle_output = run_transcribe_pipeline(
-                pipeline,
-                minio_client,
-                local_audio,
-                media_id,
-                user_id=user_id,
-                started_at=started_at,
-                duration_seconds=duration_seconds,
-            )
-        else:
-            target_lang = job_data.get("targetLanguage", "vi")
-            subtitle_output = run_transcribe_translate_pipeline(
-                pipeline,
-                minio_client,
-                local_audio,
-                media_id,
-                user_id=user_id,
-                started_at=started_at,
-                target_lang=target_lang,
-                duration_seconds=duration_seconds,
-            )
+        target_lang = job_data.get("targetLanguage", "vi")
+        subtitle_output = await run_v2_pipeline(
+            pipeline,
+            minio_client,
+            local_audio,
+            media_id,
+            user_id=user_id,
+            started_at=started_at,
+            target_lang=target_lang,
+            duration_seconds=duration_seconds,
+        )
 
         # 3. Upload final result
         transcript_key, final_url = minio_client.upload_final_result(

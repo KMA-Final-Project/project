@@ -13,11 +13,13 @@ import type { Sentence } from "@/types/subtitle";
 interface SubtitlePreviewProps {
   sentences: Sentence[];
   isLoading: boolean;
+  titleKey?: string;
 }
 
 export function SubtitlePreview({
   sentences,
   isLoading,
+  titleKey = "subtitlePreview.title",
 }: SubtitlePreviewProps) {
   const { t } = useTranslation("processing");
 
@@ -25,7 +27,7 @@ export function SubtitlePreview({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>{t("subtitlePreview.title")}</Text>
+      <Text style={styles.heading}>{t(titleKey)}</Text>
 
       {sentences.map((sentence, index) => (
         <View key={`${sentence.start}-${index}`} style={styles.sentenceCard}>

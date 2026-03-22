@@ -1,26 +1,26 @@
 /**
  * useProcessingSubtitles — Kapter
  *
- * Progressively accumulates subtitle sentences as chunk_ready and batch_ready
- * events arrive via the React Query cache (populated by useSocketSync).
- *
- * Chunks carry original transcription; batches carry translations.
- * Both are fetched from presigned URLs and merged by sentence index order.
+ * Hydrates subtitle preview data from the durable artifact inventory exposed by
+ * `/media/:id/artifacts`, while still benefiting from live socket cache updates
+ * because `useSocketSync` patches that same query cache in real time.
  */
 import { useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { mediaKeys } from "./useMedia";
-import type { Sentence, TranslatedBatch } from "@/types/subtitle";
+import { useQuery } from "@tanstack/react-query";
+import { useMediaArtifacts } from "./useMedia";
+import type {
+  Sentence,
+  SubtitleOutput,
+  TranslatedBatch,
+} from "@/types/subtitle";
 
-interface ChunkCacheEntry {
-  chunkIndex: number;
-  url: string;
-  sentenceCount: number;
-}
-interface BatchCacheEntry {
-  batchIndex: number;
-  url: string;
-  segmentCount: number;
+async function fetchArtifactJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch artifact: ${response.status}`);
+  }
+
+  return (await response.json()) as T;
 }
 
 /**
@@ -29,74 +29,73 @@ interface BatchCacheEntry {
  * Returns the first `limit` merged sentences (chunk transcriptions + batch translations).
  */
 export function useProcessingSubtitles(mediaId: string | null, limit = 5) {
-  const queryClient = useQueryClient();
+  const { data: artifactInventory, isLoading: artifactsLoading } =
+    useMediaArtifacts(mediaId);
 
-  // Read chunk / batch metadata from the cache (populated by useSocketSync)
-  const chunks: ChunkCacheEntry[] =
-    queryClient.getQueryData(mediaKeys.chunks(mediaId ?? "")) ?? [];
-  const batches: BatchCacheEntry[] =
-    queryClient.getQueryData(mediaKeys.batches(mediaId ?? "")) ?? [];
-
-  // Fetch all chunk JSONs (original transcription)
+  const finalUrl = artifactInventory?.final?.url ?? null;
   const chunkUrls = useMemo(
-    () => chunks.map((c) => c.url),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chunks.length],
+    () => artifactInventory?.chunks.map((chunk) => chunk.url) ?? [],
+    [artifactInventory?.chunks],
+  );
+  const batchUrls = useMemo(
+    () => artifactInventory?.translatedBatches.map((batch) => batch.url) ?? [],
+    [artifactInventory?.translatedBatches],
   );
 
-  const chunkQueries = useQuery({
-    queryKey: ["subtitle-chunks", mediaId, chunkUrls.length],
+  const finalQuery = useQuery({
+    queryKey: ["subtitle-final", mediaId, finalUrl],
+    queryFn: () => fetchArtifactJson<SubtitleOutput>(finalUrl!),
+    enabled: !!mediaId && !!finalUrl,
+    staleTime: Infinity,
+  });
+
+  const chunkQuery = useQuery({
+    queryKey: ["subtitle-chunks", mediaId, chunkUrls],
     queryFn: async () => {
       const results: Sentence[] = [];
       for (const url of chunkUrls) {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        // Chunks are flat Sentence[] arrays (not wrapped in SubtitleOutput)
-        const json: Sentence[] = await res.json();
+        const json = await fetchArtifactJson<Sentence[]>(url);
         results.push(...json);
       }
       return results;
     },
-    enabled: !!mediaId && chunkUrls.length > 0,
-    staleTime: Infinity, // chunks are immutable once fetched
+    enabled: !!mediaId && !finalUrl && chunkUrls.length > 0,
+    staleTime: Infinity,
   });
 
-  // Fetch all batch JSONs (translations)
-  const batchUrls = useMemo(
-    () => batches.map((b) => b.url),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [batches.length],
-  );
-
-  const batchQueries = useQuery({
-    queryKey: ["subtitle-batches", mediaId, batchUrls.length],
+  const batchQuery = useQuery({
+    queryKey: ["subtitle-batches", mediaId, batchUrls],
     queryFn: async () => {
       const results: Sentence[] = [];
       for (const url of batchUrls) {
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const json: TranslatedBatch = await res.json();
+        const json = await fetchArtifactJson<TranslatedBatch>(url);
         results.push(...json.segments);
       }
       return results;
     },
-    enabled: !!mediaId && batchUrls.length > 0,
+    enabled: !!mediaId && !finalUrl && batchUrls.length > 0,
     staleTime: Infinity,
   });
 
-  // Merge: overlay batch translations onto chunk sentences by time-order index
   const sentences = useMemo(() => {
-    const base: Sentence[] = chunkQueries.data ?? [];
-    const translated: Sentence[] = batchQueries.data ?? [];
+    if (finalQuery.data) {
+      return finalQuery.data.segments.slice(0, limit);
+    }
+
+    const base: Sentence[] = chunkQuery.data ?? [];
+    const translated: Sentence[] = batchQuery.data ?? [];
 
     if (translated.length === 0) return base.slice(0, limit);
 
-    // Build a map from the batch results (which include the translation field)
     const translationMap = new Map<number, Sentence>();
-    translated.forEach((s, i) => translationMap.set(i, s));
+    translated.forEach((s, i) => {
+      const key = s.segment_index ?? i;
+      translationMap.set(key, s);
+    });
 
     return base.slice(0, limit).map((sentence, i) => {
-      const t = translationMap.get(i);
+      const lookupKey = sentence.segment_index ?? i;
+      const t = translationMap.get(lookupKey);
       if (t)
         return {
           ...sentence,
@@ -105,12 +104,17 @@ export function useProcessingSubtitles(mediaId: string | null, limit = 5) {
         };
       return sentence;
     });
-  }, [chunkQueries.data, batchQueries.data, limit]);
+  }, [batchQuery.data, chunkQuery.data, finalQuery.data, limit]);
 
   return {
     sentences,
-    isLoading: chunkQueries.isLoading || batchQueries.isLoading,
-    chunkCount: chunks.length,
-    batchCount: batches.length,
+    isLoading:
+      artifactsLoading ||
+      finalQuery.isLoading ||
+      chunkQuery.isLoading ||
+      batchQuery.isLoading,
+    chunkCount: artifactInventory?.summary.chunkCount ?? 0,
+    batchCount: artifactInventory?.summary.translatedBatchCount ?? 0,
+    hasFinal: Boolean(artifactInventory?.summary.hasFinal),
   };
 }

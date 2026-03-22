@@ -7,7 +7,6 @@ import {
   Matches,
   IsUrl,
   IsOptional,
-  IsIn,
 } from 'class-validator';
 
 // ==================== LOCAL UPLOAD FLOW ====================
@@ -23,7 +22,7 @@ export class RequestPresignedUrlDto {
   })
   @IsString()
   @IsNotEmpty()
-  fileName: string;
+  fileName!: string;
 
   @ApiProperty({
     example: 52428800,
@@ -31,7 +30,7 @@ export class RequestPresignedUrlDto {
   })
   @IsInt()
   @Min(1)
-  fileSize: number;
+  fileSize!: number;
 
   @ApiProperty({
     example: 'audio/mpeg',
@@ -41,7 +40,7 @@ export class RequestPresignedUrlDto {
   @Matches(/^audio\/(mpeg|mp3|wav|flac|ogg|aac|m4a|webm|mp4)$/, {
     message: 'MIME_TYPE_NOT_ALLOWED',
   })
-  mimeType: string;
+  mimeType!: string;
 }
 
 /**
@@ -55,7 +54,7 @@ export class ConfirmUploadDto {
   })
   @IsString()
   @IsNotEmpty()
-  title: string;
+  title!: string;
 
   @ApiProperty({
     example: 'audio/abc123/uuid/lecture-01.mp3',
@@ -63,20 +62,12 @@ export class ConfirmUploadDto {
   })
   @IsString()
   @IsNotEmpty()
-  objectKey: string;
-
-  @ApiProperty({
-    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
-    default: 'TRANSCRIBE',
-    description: 'Processing mode: transcribe only or transcribe + translate',
-  })
-  @IsOptional()
-  @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
-  processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+  objectKey!: string;
 
   @ApiPropertyOptional({
     example: 'vi',
-    description: 'Target language for translation (defaults to vi)',
+    description:
+      'Target language for bilingual subtitle generation (defaults to vi)',
   })
   @IsOptional()
   @IsString()
@@ -106,7 +97,7 @@ export class SubmitYoutubeDto {
     },
     { message: 'INVALID_YOUTUBE_URL' },
   )
-  url: string;
+  url!: string;
 
   @ApiPropertyOptional({
     example: 'Rick Astley - Never Gonna Give You Up',
@@ -116,18 +107,10 @@ export class SubmitYoutubeDto {
   @IsString()
   title?: string;
 
-  @ApiProperty({
-    enum: ['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'],
-    default: 'TRANSCRIBE',
-    description: 'Processing mode: transcribe only or transcribe + translate',
-  })
-  @IsOptional()
-  @IsIn(['TRANSCRIBE', 'TRANSCRIBE_TRANSLATE'])
-  processingMode?: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
-
   @ApiPropertyOptional({
     example: 'vi',
-    description: 'Target language for translation (defaults to vi)',
+    description:
+      'Target language for bilingual subtitle generation (defaults to vi)',
   })
   @IsOptional()
   @IsString()

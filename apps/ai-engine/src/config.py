@@ -110,6 +110,29 @@ class Settings(BaseSettings):
 
     # --- Translation Config ---
     TRANSLATOR_PROVIDER: str = "google"
+    USE_V2_PIPELINE: bool = Field(
+        default=False,
+        description="Legacy flag kept for .env compat. V2 is now the only pipeline.",
+    )
+
+    # --- NMT (NLLB via CTranslate2) ---
+    NMT_MODEL_DIR: Path = Field(
+        default=Path("temp/models/nllb-200-3.3B-ct2"),
+        description="CTranslate2-converted NLLB model directory",
+    )
+    NMT_TOKENIZER_NAME: str = Field(
+        default="facebook/nllb-200-3.3B",
+        description="HuggingFace tokenizer name for NLLB",
+    )
+    NMT_COMPUTE_TYPE: str = Field(
+        default="float16",
+        description="CTranslate2 compute type. Use 'float16' for Blackwell/Ada (RTX 50xx/40xx). "
+        "'int8_float16' is faster on Ampere/Turing but unsupported on Blackwell.",
+    )
+    NMT_BEAM_SIZE: int = Field(default=4, description="Beam search width for NMT")
+    CHUNK_SIZE: int = Field(
+        default=8, description="Sentences per streaming chunk (all stages)"
+    )
 
     # Load env vars from .env file (if present)
     model_config = SettingsConfigDict(

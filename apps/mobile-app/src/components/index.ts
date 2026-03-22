@@ -18,4 +18,3 @@ export * from "./media/MediaCard";
 export * from "./media/UploadSheet";
 export * from "./media/YouTubeModal";
 export * from "./media/PipelineStepper";
-export * from "./media/SubtitlePreview";

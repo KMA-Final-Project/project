@@ -3,15 +3,18 @@ from pydantic import BaseModel, Field
 
 from typing import List, Optional
 
+
 class SegmentType(str, Enum):
-    HAPPY_CASE = "happy"       # <= 15s, safe for Whisper
-    SPECIAL_CASE = "special"   # > 15s, needs Refinement (Word-level split)
+    HAPPY_CASE = "happy"  # <= 15s, safe for Whisper
+    SPECIAL_CASE = "special"  # > 15s, needs Refinement (Word-level split)
+
 
 class VADSegment(BaseModel):
     start: float
     end: float
     type: SegmentType
     duration: float
+
 
 class Word(BaseModel):
     word: str
@@ -20,13 +23,33 @@ class Word(BaseModel):
     confidence: float
     phoneme: str | None = None
 
+
 class Sentence(BaseModel):
     text: str
     start: float
     end: float
     words: List[Word]  # Crucial for Karaoke
-    translation: str = ""
-    phonetic: str = ""
+    translation: str = Field(
+        default="",
+        description="Translated text. Always present on serialized artifacts, but may be empty on Tier 1 chunks.",
+    )
+    phonetic: str = Field(
+        default="",
+        description="Sentence-level phonetic string. Always present on serialized artifacts, but may be empty.",
+    )
+    detected_lang: str = Field(
+        default="",
+        description="Detected source language code for this sentence. Always present on serialized artifacts, but may be empty.",
+    )  # ISO code from Whisper per-segment detection
+    segment_index: Optional[int] = Field(
+        default=None,
+        description=(
+            "0-indexed global position of this segment in the complete transcript. "
+            "Absent (null) on Tier 1 raw chunks where global ordering is not yet known. "
+            "Always present as an integer on Tier 2 translated batches and final.json. "
+            "Enables matching across artifact layers without relying on array position alone."
+        ),
+    )
 
 
 class TranslationStyle(str, Enum):
@@ -34,6 +57,7 @@ class TranslationStyle(str, Enum):
     Defines the tone and style of the translation.
     Used to guide the LLM's output personality.
     """
+
     # --- GENERAL / SOCIAL ---
     FORMAL = "Formal"
     CASUAL = "Casual"
@@ -70,6 +94,7 @@ class VietnamesePronoun(str, Enum):
     Defines the relationship pair for Vietnamese translation.
     Format: First Person / Second Person
     """
+
     TOI_BAN = "Tôi / Bạn"
     MINH_BAN = "Mình / Bạn"
     ANH_EM = "Anh / Em"
@@ -93,88 +118,102 @@ class ContextAnalysisResult(BaseModel):
     Structured output from the LLM context analysis pass.
     Used by LLMProvider.analyze_context() — kept for backward compatibility.
     """
+
     detected_style: TranslationStyle = Field(
-        ...,
-        description="The dominant style/genre of the content."
+        ..., description="The dominant style/genre of the content."
     )
     detected_pronouns: Optional[VietnamesePronoun] = Field(
         None,
-        description="The most appropriate pronoun pair for the speakers. Required if target_lang is 'vi'."
+        description="The most appropriate pronoun pair for the speakers. Required if target_lang is 'vi'.",
     )
     summary: str = Field(
         ...,
-        description="A brief summary of the context, mood, and speaker relationships (max 50 words)."
+        description="A brief summary of the context, mood, and speaker relationships (max 50 words).",
     )
     keywords: List[str] = Field(
         default_factory=list,
-        description="Key terms or proper nouns that should be preserved or handled consistently."
+        description="Key terms or proper nouns that should be preserved or handled consistently.",
     )
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: New models for TranslatorEngine
+# Context analysis models
 # ---------------------------------------------------------------------------
+
 
 class ContextAnalysis(BaseModel):
     """
     Language-pair-aware context analysis result.
-    Used internally by TranslatorEngine — not tied to any specific target language.
+    Used by the NMT pipeline for style/pronoun detection.
     """
+
     detected_style: TranslationStyle = Field(
         default=TranslationStyle.NEUTRAL,
-        description="The dominant style/genre of the content."
+        description="The dominant style/genre of the content.",
     )
     summary: str = Field(
-        default="",
-        description="Brief context summary (max 50 words)."
+        default="", description="Brief context summary (max 50 words)."
     )
     keywords: List[str] = Field(
         default_factory=list,
-        description="Key terms or proper nouns to preserve consistently."
+        description="Key terms or proper nouns to preserve consistently.",
     )
     language_specific: dict = Field(
         default_factory=dict,
-        description='Language-specific data, e.g. {"pronouns": "Tôi / Bạn"} for vi, {} for en.'
+        description='Language-specific data, e.g. {"pronouns": "Tôi / Bạn"} for vi, {} for en.',
     )
 
 
-# TranslatedSentence is identical to Sentence after Phase 4 — kept as alias
-# so Phase 3 code (TranslatorEngine) continues to work unchanged.
+# TranslatedSentence is an alias for Sentence — kept for backward compatibility.
 TranslatedSentence = Sentence
-
-
-class LanguageConfig(BaseModel):
-    """Registry entry describing target-language-specific translation behavior."""
-    code: str = Field(..., description="ISO 639-1 code, e.g. 'vi', 'en'.")
-    name: str = Field(..., description="Human-readable name, e.g. 'Vietnamese'.")
-    prompt_key: str = Field(..., description="Key to look up the prompt template in prompts.py.")
-    has_pronouns: bool = Field(
-        default=False,
-        description="Whether pronoun detection matters for this language."
-    )
 
 
 # ---------------------------------------------------------------------------
 # Phase 4: Output contract models
 # ---------------------------------------------------------------------------
 
+
 class SubtitleMetadata(BaseModel):
     """Metadata about the pipeline run, included in the final output."""
+
     duration: float = Field(default=0.0, description="Audio duration in seconds.")
-    engine_profile: str = Field(default="MEDIUM", description="AI performance profile used.")
+    engine_profile: str = Field(
+        default="MEDIUM", description="AI performance profile used."
+    )
     source_lang: str = Field(default="", description="Detected source language code.")
-    target_lang: str = Field(default="", description="Target translation language code.")
-    model_used: str = Field(default="", description="Whisper model name used for transcription.")
+    target_lang: str = Field(
+        default="", description="Target translation language code."
+    )
+    model_used: str = Field(
+        default="", description="Whisper model name used for transcription."
+    )
 
 
 class SubtitleOutput(BaseModel):
     """Complete subtitle output — the canonical final.json payload."""
-    metadata: SubtitleMetadata
-    segments: List[Sentence]
+
+    metadata: SubtitleMetadata = Field(
+        ..., description="Pipeline metadata. Always required on final.json, even when segments is empty."
+    )
+    segments: List[Sentence] = Field(
+        ..., description="Canonical ordered subtitle segments for the completed job."
+    )
 
 
 class TranslatedBatch(BaseModel):
     """A batch of translated segments for Tier 2 streaming uploads."""
-    batch_index: int
-    segments: List[Sentence]
 
+    batch_index: int = Field(
+        ..., description="0-indexed translated batch number used in the durable MinIO key."
+    )
+    first_segment_index: int = Field(
+        ...,
+        description=(
+            "0-indexed global position of the first segment in this batch within the "
+            "complete transcript. Provides a cheap range anchor for matching this batch "
+            "against Tier 1 chunks and the final output without scanning segment arrays."
+        ),
+    )
+    segments: List[Sentence] = Field(
+        ..., description="Translated subtitle segments included in this durable Tier 2 batch."
+    )

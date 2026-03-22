@@ -27,6 +27,7 @@ import {
   MediaStatusResponseDto,
   MediaListItemDto,
   DownloadUrlResponseDto,
+  MediaArtifactsResponseDto,
 } from './dto';
 
 @ApiTags('Media')
@@ -37,10 +38,6 @@ export class MediaController {
 
   // ==================== Upload & Submit ====================
 
-  /**
-   * Step 1 of local upload flow.
-   * Returns a presigned PUT URL for the client to upload audio directly to MinIO.
-   */
   @Post('presigned-url')
   @ApiOperation({
     summary: 'Get a presigned PUT URL for direct audio upload',
@@ -61,17 +58,13 @@ export class MediaController {
     return this.mediaService.requestPresignedUrl(user.id, dto);
   }
 
-  /**
-   * Step 2 of local upload flow.
-   * Confirms the file was uploaded and enqueues transcription.
-   */
   @Post('confirm-upload')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Confirm file upload and start processing',
     description:
       'Verifies the file exists in object storage, creates a media record, ' +
-      'and dispatches a background transcription job.',
+      'and dispatches a background bilingual subtitle-generation job.',
   })
   @ApiResponse({
     status: 200,
@@ -86,13 +79,9 @@ export class MediaController {
     return this.mediaService.confirmUpload(user.id, dto);
   }
 
-  /**
-   * YouTube async ingestion flow.
-   * Submits a YouTube URL for background download + transcription.
-   */
   @Post('youtube')
   @ApiOperation({
-    summary: 'Submit a YouTube URL for transcription',
+    summary: 'Submit a YouTube URL for subtitle generation',
     description:
       'Creates a media record and dispatches a background job. ' +
       'The worker will download the audio and process it asynchronously.',
@@ -110,18 +99,30 @@ export class MediaController {
     return this.mediaService.submitYoutube(user.id, dto);
   }
 
-  // ==================== Status & Library ====================
+  // ==================== Status, Resume & Library ====================
 
-  /**
-   * Get a presigned GET URL for downloading the processed transcript file.
-   * Only available for COMPLETED media items.
-   */
+  @Get(':id/artifacts')
+  @ApiOperation({
+    summary: 'Get resumable processed artifact inventory for a media item',
+    description:
+      'Returns ordered chunk, translated-batch, and final artifact availability ' +
+      'for a user-owned media item so reconnecting clients can resume from durable state.',
+  })
+  @ApiResponse({ status: 200, type: MediaArtifactsResponseDto })
+  @ApiResponse({ status: 400, type: ErrorResponseDto })
+  async getMediaArtifacts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<MediaArtifactsResponseDto> {
+    return this.mediaService.getMediaArtifacts(user.id, id);
+  }
+
   @Get(':id/download-url')
   @ApiOperation({
-    summary: 'Get a presigned GET URL for the processed transcript',
+    summary: 'Get a presigned GET URL for the canonical final artifact',
     description:
-      'Returns a presigned URL valid for 1 hour for downloading the final transcript/subtitle JSON from MinIO. ' +
-      'Only available when the media item status is COMPLETED.',
+      'Returns a presigned URL valid for 1 hour for downloading the final processed artifact JSON from MinIO. ' +
+      'This route resolves the canonical final artifact from durable storage instead of assuming a final-only DB field is authoritative.',
   })
   @ApiResponse({
     status: 200,
@@ -136,16 +137,12 @@ export class MediaController {
     return this.mediaService.getProcessedFileUrl(user.id, id);
   }
 
-  /**
-   * Get the processing status of a single media item.
-   * Used by clients for polling progress (e.g., every 2-3 seconds).
-   */
   @Get(':id/status')
   @ApiOperation({
     summary: 'Get media processing status',
     description:
-      'Returns current status, progress (0.0-1.0), detected language, ' +
-      'and result S3 keys when complete. Poll this endpoint for live updates.',
+      'Returns current status, progress, pipeline stage, compatibility output keys, ' +
+      'and durable partial/final artifact availability for reconnect-safe resume.',
   })
   @ApiResponse({ status: 200, type: MediaStatusResponseDto })
   @ApiResponse({ status: 400, type: ErrorResponseDto })
@@ -156,10 +153,6 @@ export class MediaController {
     return this.mediaService.getMediaStatus(user.id, id);
   }
 
-  /**
-   * List all media items for the current user.
-   * Returns newest first, excludes soft-deleted items.
-   */
   @Get()
   @ApiOperation({
     summary: 'List user media library',

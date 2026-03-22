@@ -8,7 +8,7 @@ from src.core.vad_manager import VADManager
 from src.core.smart_aligner import SmartAligner
 from src.core.semantic_merger import SemanticMerger
 from src.core.llm_provider import LLMProvider
-from src.core.translator_engine import TranslatorEngine
+
 
 class PipelineOrchestrator:
     """
@@ -23,5 +23,3 @@ class PipelineOrchestrator:
         self.aligner = SmartAligner()
         self.merger = SemanticMerger()
         self.llm = LLMProvider()
-        self.translator = TranslatorEngine(self.llm)
-
