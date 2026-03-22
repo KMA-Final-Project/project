@@ -268,7 +268,7 @@ export class MediaStatusResponseDto {
   @ApiProperty({
     type: MediaArtifactsSummaryDto,
     description:
-      'Durable partial/final artifact availability discovered from MinIO for reconnect-safe resume.',
+      'Cached partial/final artifact availability maintained from AI events and refreshed by the dedicated artifacts endpoint.',
   })
   artifacts: MediaArtifactsSummaryDto;
 
@@ -311,7 +311,11 @@ export class MediaListItemDto {
   @ApiProperty()
   durationSeconds: number;
 
-  @ApiProperty({ type: MediaArtifactsSummaryDto })
+  @ApiProperty({
+    type: MediaArtifactsSummaryDto,
+    description:
+      'Cached artifact availability summary stored with the media record for hot library reads.',
+  })
   artifacts: MediaArtifactsSummaryDto;
 
   @ApiProperty({

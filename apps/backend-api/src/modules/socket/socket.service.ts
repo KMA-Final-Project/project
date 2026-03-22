@@ -8,6 +8,7 @@ import {
 import { Redis } from 'ioredis';
 import { SocketGateway } from './socket.gateway';
 import { REDIS_CLIENT } from '../redis/redis.constants';
+import { MediaService } from '../media/media.service';
 import {
   type MediaEvent,
   getSocketEventName,
@@ -19,9 +20,11 @@ import {
 export class SocketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SocketService.name);
   private subscriber!: Redis;
+  private messageProcessingChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly socketGateway: SocketGateway,
+    private readonly mediaService: MediaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -38,7 +41,12 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      this.handleMediaUpdate(message);
+      this.messageProcessingChain = this.messageProcessingChain
+        .then(() => this.handleMediaUpdate(message))
+        .catch((error: unknown) => {
+          const msg = error instanceof Error ? error.message : 'Unknown error';
+          this.logger.error(`Failed to process media_updates message: ${msg}`);
+        });
     });
   }
 
@@ -48,23 +56,25 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private handleMediaUpdate(message: string): void {
-    try {
-      const parsedPayload: unknown = JSON.parse(message);
-      const event = parseMediaEvent(parsedPayload);
+  private async handleMediaUpdate(message: string): Promise<void> {
+    const parsedPayload: unknown = JSON.parse(message);
+    const event = parseMediaEvent(parsedPayload);
 
-      if (!event) {
-        this.logger.warn(
-          `Received invalid media_updates payload: ${JSON.stringify(redactMediaPayload(parsedPayload))}`,
-        );
-        return;
-      }
-
-      this.forwardEvent(event);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to process media_updates message: ${msg}`);
+    if (!event) {
+      this.logger.warn(
+        `Received invalid media_updates payload: ${JSON.stringify(redactMediaPayload(parsedPayload))}`,
+      );
+      return;
     }
+
+    await this.refreshArtifactSummaryCache(event).catch((error: unknown) => {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to refresh artifact summary cache for media ${event.mediaId}: ${msg}`,
+      );
+    });
+
+    this.forwardEvent(event);
   }
 
   private forwardEvent(event: MediaEvent): void {
@@ -88,5 +98,30 @@ export class SocketService implements OnModuleInit, OnModuleDestroy {
 
   getMediaRoom(mediaId: string): string {
     return `media_${mediaId}`;
+  }
+
+  private async refreshArtifactSummaryCache(event: MediaEvent): Promise<void> {
+    switch (event.type) {
+      case 'chunk_ready':
+        await this.mediaService.recordChunkArtifact(
+          event.mediaId,
+          event.chunkIndex,
+        );
+        break;
+      case 'batch_ready':
+        await this.mediaService.recordTranslatedBatchArtifact(
+          event.mediaId,
+          event.batchIndex,
+        );
+        break;
+      case 'completed':
+        await this.mediaService.recordFinalArtifact(
+          event.mediaId,
+          event.transcriptS3Key,
+        );
+        break;
+      default:
+        break;
+    }
   }
 }

@@ -190,6 +190,7 @@ model MediaItem {
   durationSeconds        Int         @default(0) @map("duration_seconds")
   status                 MediaStatus @default(QUEUED)
   progress               Float       @default(0) @map("progress") // 0.0 to 1.0
+  artifactSummary        Json?       @map("artifact_summary") // Cached artifact availability summary for hot read paths
   currentStep            String?     @map("current_step") // Active pipeline stage: AUDIO_PREP, INSPECTING, VAD, PROCESSING, TRANSLATING, EXPORTING
   estimatedTimeRemaining Int?        @map("estimated_time_remaining") // Seconds remaining (ETA), null when idle/done
   failReason             String?     @map("fail_reason") // Human-readable error

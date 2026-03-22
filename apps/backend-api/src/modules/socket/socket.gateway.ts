@@ -34,7 +34,7 @@ export class SocketGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private readonly logger = new Logger(SocketGateway.name);
 
@@ -101,25 +101,31 @@ export class SocketGateway
       return { ok: false, error: 'mediaId is required' };
     }
 
-    const ownsMedia = await this.mediaService.isMediaOwnedByUser(
-      userId,
-      mediaId,
-    );
-    if (!ownsMedia) {
-      this.logger.warn(
-        `Rejected media room join for socket ${client.id}: user ${userId} does not own media ${mediaId}`,
+    try {
+      const ownsMedia = await this.mediaService.isMediaOwnedByUser(
+        userId,
+        mediaId,
       );
-      return { ok: false, error: 'Media item not found' };
+      if (!ownsMedia) {
+        this.logger.warn(
+          `Rejected media room join for socket ${client.id}: user ${userId} does not own media ${mediaId}`,
+        );
+        return { ok: false, error: 'Media item not found' };
+      }
+
+      const roomName = this.getMediaRoom(mediaId);
+      await client.join(roomName);
+
+      this.logger.debug(
+        `Client ${client.id} joined media room ${roomName} as user ${userId}`,
+      );
+
+      return { ok: true, room: roomName };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`media_join failed for ${client.id}: ${msg}`);
+      return { ok: false, error: 'Unable to join media room' };
     }
-
-    const roomName = this.getMediaRoom(mediaId);
-    await client.join(roomName);
-
-    this.logger.debug(
-      `Client ${client.id} joined media room ${roomName} as user ${userId}`,
-    );
-
-    return { ok: true, room: roomName };
   }
 
   @SubscribeMessage('media_leave')

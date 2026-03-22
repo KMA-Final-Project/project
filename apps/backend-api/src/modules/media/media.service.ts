@@ -9,6 +9,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { MinioService } from 'src/modules/minio/minio.service';
 import { QueueService } from 'src/modules/queue/queue.service';
 import { MEDIA_ERRORS } from 'src/common/constants/error-messages';
+import type { ProcessedArtifactSummary } from 'src/modules/minio/minio.service';
 import {
   RequestPresignedUrlDto,
   ConfirmUploadDto,
@@ -22,6 +23,15 @@ import type {
   MediaArtifactsResponseDto,
 } from './dto';
 import { MediaOriginType } from 'prisma/generated/enums';
+import {
+  artifactSummariesEqual,
+  createEmptyArtifactSummary,
+  mergeBatchArtifactSummary,
+  mergeChunkArtifactSummary,
+  mergeFinalArtifactSummary,
+  normalizeArtifactSummary,
+  toArtifactSummaryJson,
+} from './media-artifact-summary';
 
 /** Presigned URL validity: 1 hour */
 const PRESIGNED_URL_EXPIRY_SECONDS = 3600;
@@ -75,6 +85,7 @@ export class MediaService {
         title: dto.title,
         originType: MediaOriginType.LOCAL,
         audioS3Key: dto.objectKey,
+        artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
       },
     });
@@ -115,6 +126,7 @@ export class MediaService {
         originType: MediaOriginType.YOUTUBE,
         originUrl: dto.url,
         audioS3Key: placeholderKey,
+        artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
       },
     });
@@ -154,6 +166,7 @@ export class MediaService {
     }
 
     const inventory = await this.minioService.listProcessedArtifacts(mediaId);
+    await this.persistArtifactSummary(mediaId, inventory.summary);
 
     const [chunks, translatedBatches, final] = await Promise.all([
       Promise.all(
@@ -206,6 +219,7 @@ export class MediaService {
     }
 
     const inventory = await this.minioService.listProcessedArtifacts(mediaId);
+    await this.persistArtifactSummary(mediaId, inventory.summary);
     if (!inventory.final) {
       throw new BadRequestException(
         'Final processed artifact is not available yet',
@@ -238,6 +252,7 @@ export class MediaService {
         estimatedTimeRemaining: true,
         transcriptS3Key: true,
         subtitleS3Key: true,
+        artifactSummary: true,
         createdAt: true,
       },
     });
@@ -245,12 +260,9 @@ export class MediaService {
     if (!item) {
       throw new NotFoundException('Media item not found');
     }
-
-    const inventory = await this.minioService.listProcessedArtifacts(mediaId);
-
     return {
       ...item,
-      artifacts: inventory.summary,
+      artifacts: normalizeArtifactSummary(item.artifactSummary),
     };
   }
 
@@ -269,22 +281,42 @@ export class MediaService {
         originUrl: true,
         durationSeconds: true,
         currentStep: true,
+        artifactSummary: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return Promise.all(
-      items.map(async (item) => {
-        const inventory = await this.minioService.listProcessedArtifacts(
-          item.id,
-        );
+    return items.map((item) => ({
+      ...item,
+      artifacts: normalizeArtifactSummary(item.artifactSummary),
+    }));
+  }
 
-        return {
-          ...item,
-          artifacts: inventory.summary,
-        };
-      }),
+  async recordChunkArtifact(
+    mediaId: string,
+    chunkIndex: number,
+  ): Promise<void> {
+    await this.updateArtifactSummary(mediaId, (current) =>
+      mergeChunkArtifactSummary(current, chunkIndex),
+    );
+  }
+
+  async recordTranslatedBatchArtifact(
+    mediaId: string,
+    batchIndex: number,
+  ): Promise<void> {
+    await this.updateArtifactSummary(mediaId, (current) =>
+      mergeBatchArtifactSummary(current, batchIndex),
+    );
+  }
+
+  async recordFinalArtifact(
+    mediaId: string,
+    finalObjectKey: string,
+  ): Promise<void> {
+    await this.updateArtifactSummary(mediaId, (current) =>
+      mergeFinalArtifactSummary(current, finalObjectKey),
     );
   }
 
@@ -352,5 +384,42 @@ export class MediaService {
     } catch {
       return 'YouTube Video';
     }
+  }
+
+  private async persistArtifactSummary(
+    mediaId: string,
+    summary: ProcessedArtifactSummary,
+  ): Promise<void> {
+    const normalized = normalizeArtifactSummary(summary);
+
+    await this.prisma.mediaItem.updateMany({
+      where: { id: mediaId },
+      data: {
+        artifactSummary: toArtifactSummaryJson(normalized),
+      },
+    });
+  }
+
+  private async updateArtifactSummary(
+    mediaId: string,
+    updater: (current: unknown) => ProcessedArtifactSummary,
+  ): Promise<void> {
+    const item = await this.prisma.mediaItem.findUnique({
+      where: { id: mediaId },
+      select: { artifactSummary: true },
+    });
+
+    if (!item) {
+      return;
+    }
+
+    const currentSummary = normalizeArtifactSummary(item.artifactSummary);
+    const nextSummary = updater(item.artifactSummary);
+
+    if (artifactSummariesEqual(currentSummary, nextSummary)) {
+      return;
+    }
+
+    await this.persistArtifactSummary(mediaId, nextSummary);
   }
 }
