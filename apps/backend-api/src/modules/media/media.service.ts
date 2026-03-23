@@ -1,8 +1,15 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { MinioService } from 'src/modules/minio/minio.service';
 import { QueueService } from 'src/modules/queue/queue.service';
 import { MEDIA_ERRORS } from 'src/common/constants/error-messages';
+import type { ProcessedArtifactSummary } from 'src/modules/minio/minio.service';
 import {
   RequestPresignedUrlDto,
   ConfirmUploadDto,
@@ -12,9 +19,19 @@ import type {
   PresignedUrlResponseDto,
   ConfirmUploadResponseDto,
   SubmitYoutubeResponseDto,
+  DownloadUrlResponseDto,
+  MediaArtifactsResponseDto,
 } from './dto';
-import { randomUUID } from 'crypto';
-import { MediaOriginType, ProcessingMode } from 'prisma/generated/enums';
+import { MediaOriginType } from 'prisma/generated/enums';
+import {
+  artifactSummariesEqual,
+  createEmptyArtifactSummary,
+  mergeBatchArtifactSummary,
+  mergeChunkArtifactSummary,
+  mergeFinalArtifactSummary,
+  normalizeArtifactSummary,
+  toArtifactSummaryJson,
+} from './media-artifact-summary';
 
 /** Presigned URL validity: 1 hour */
 const PRESIGNED_URL_EXPIRY_SECONDS = 3600;
@@ -31,22 +48,12 @@ export class MediaService {
 
   // ==================== PRESIGNED URL FLOW ====================
 
-  /**
-   * Step 1: Generate a presigned PUT URL for direct client upload.
-   *
-   * - Checks whether the user has remaining monthly quota
-   * - Generates a unique S3 key under audio/{userId}/{uuid}/{fileName}
-   * - Returns the public-facing presigned URL + key for the confirm step
-   */
   async requestPresignedUrl(
     userId: string,
     dto: RequestPresignedUrlDto,
   ): Promise<PresignedUrlResponseDto> {
-    // Optimistic quota check — we don't know the duration yet,
-    // but we prevent obviously-exceeded users from even uploading.
     await this.assertQuotaNotExceeded(userId);
 
-    // Generate unique object key
     const objectKey = `audio/${userId}/${randomUUID()}/${dto.fileName}`;
 
     const uploadUrl = await this.minioService.generatePresignedPutUrl(
@@ -63,34 +70,22 @@ export class MediaService {
     };
   }
 
-  /**
-   * Step 2: Confirm that the file was uploaded and enqueue for processing.
-   *
-   * - Verifies the object exists in MinIO (statObject)
-   * - Creates a MediaItem record with status QUEUED
-   * - Dispatches a transcription job to BullMQ
-   */
   async confirmUpload(
     userId: string,
     dto: ConfirmUploadDto,
   ): Promise<ConfirmUploadResponseDto> {
-    // Verify the file actually landed in MinIO
     const exists = await this.minioService.verifyObjectExists(dto.objectKey);
     if (!exists) {
       throw new BadRequestException(MEDIA_ERRORS.FILE_NOT_FOUND);
     }
 
-    // Create DB record + dispatch job
     const mediaItem = await this.prisma.mediaItem.create({
       data: {
         userId,
         title: dto.title,
         originType: MediaOriginType.LOCAL,
         audioS3Key: dto.objectKey,
-        processingMode:
-          dto.processingMode === 'TRANSCRIBE_TRANSLATE'
-            ? ProcessingMode.TRANSCRIBE_TRANSLATE
-            : ProcessingMode.TRANSCRIBE,
+        artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
       },
     });
@@ -100,7 +95,7 @@ export class MediaService {
       type: MediaOriginType.LOCAL,
       filePath: dto.objectKey,
       userId,
-      processingMode: dto.processingMode ?? 'TRANSCRIBE',
+      targetLanguage: dto.targetLanguage,
     });
 
     this.logger.log(`Upload confirmed: media ${mediaItem.id}, job ${jobId}`);
@@ -115,22 +110,13 @@ export class MediaService {
 
   // ==================== YOUTUBE FLOW ====================
 
-  /**
-   * Submit a YouTube URL for async download + transcription.
-   *
-   * - Creates a MediaItem record with status QUEUED and a placeholder S3 key
-   * - Dispatches a transcription job (the worker will download + process)
-   */
   async submitYoutube(
     userId: string,
     dto: SubmitYoutubeDto,
   ): Promise<SubmitYoutubeResponseDto> {
-    // Optimistic quota check
     await this.assertQuotaNotExceeded(userId);
 
-    // Placeholder S3 key — the worker will populate the real path after download
     const placeholderKey = `audio/${userId}/${randomUUID()}/youtube-pending`;
-
     const title = dto.title || this.extractYoutubeTitle(dto.url);
 
     const mediaItem = await this.prisma.mediaItem.create({
@@ -140,10 +126,7 @@ export class MediaService {
         originType: MediaOriginType.YOUTUBE,
         originUrl: dto.url,
         audioS3Key: placeholderKey,
-        processingMode:
-          dto.processingMode === 'TRANSCRIBE_TRANSLATE'
-            ? ProcessingMode.TRANSCRIBE_TRANSLATE
-            : ProcessingMode.TRANSCRIBE,
+        artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
       },
     });
@@ -153,7 +136,7 @@ export class MediaService {
       type: MediaOriginType.YOUTUBE,
       url: dto.url,
       userId,
-      processingMode: dto.processingMode ?? 'TRANSCRIBE',
+      targetLanguage: dto.targetLanguage,
     });
 
     this.logger.log(`YouTube submitted: media ${mediaItem.id}, job ${jobId}`);
@@ -167,15 +150,191 @@ export class MediaService {
     };
   }
 
+  // ==================== STATUS, RESUME & LIBRARY ====================
+
+  async getMediaArtifacts(
+    userId: string,
+    mediaId: string,
+  ): Promise<MediaArtifactsResponseDto> {
+    const item = await this.prisma.mediaItem.findFirst({
+      where: { id: mediaId, userId, deletedAt: null },
+      select: { id: true, status: true },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Media item not found');
+    }
+
+    const inventory = await this.minioService.listProcessedArtifacts(mediaId);
+    await this.persistArtifactSummary(mediaId, inventory.summary);
+
+    const [chunks, translatedBatches, final] = await Promise.all([
+      Promise.all(
+        inventory.chunks.map(async (chunk) => ({
+          chunkIndex: chunk.chunkIndex,
+          objectKey: chunk.objectKey,
+          url: await this.minioService.generatePresignedGetUrl(chunk.objectKey),
+          size: chunk.size,
+          lastModified: chunk.lastModified,
+        })),
+      ),
+      Promise.all(
+        inventory.translatedBatches.map(async (batch) => ({
+          batchIndex: batch.batchIndex,
+          objectKey: batch.objectKey,
+          url: await this.minioService.generatePresignedGetUrl(batch.objectKey),
+          size: batch.size,
+          lastModified: batch.lastModified,
+        })),
+      ),
+      inventory.final
+        ? this.minioService
+            .generatePresignedGetUrl(inventory.final.objectKey)
+            .then((url) => ({
+              objectKey: inventory.final!.objectKey,
+              url,
+              size: inventory.final!.size,
+              lastModified: inventory.final!.lastModified,
+            }))
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      mediaId: item.id,
+      status: item.status,
+      summary: inventory.summary,
+      chunks,
+      translatedBatches,
+      final,
+    };
+  }
+
+  async getProcessedFileUrl(
+    userId: string,
+    mediaId: string,
+  ): Promise<DownloadUrlResponseDto> {
+    const ownsMedia = await this.isMediaOwnedByUser(userId, mediaId);
+    if (!ownsMedia) {
+      throw new NotFoundException('Media item not found');
+    }
+
+    const inventory = await this.minioService.listProcessedArtifacts(mediaId);
+    await this.persistArtifactSummary(mediaId, inventory.summary);
+    if (!inventory.final) {
+      throw new BadRequestException(
+        'Final processed artifact is not available yet',
+      );
+    }
+
+    const url = await this.minioService.generatePresignedGetUrl(
+      inventory.final.objectKey,
+    );
+    return { url };
+  }
+
+  async getMediaStatus(userId: string, mediaId: string) {
+    const item = await this.prisma.mediaItem.findFirst({
+      where: {
+        id: mediaId,
+        userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        progress: true,
+        sourceLanguage: true,
+        durationSeconds: true,
+        failReason: true,
+        originType: true,
+        currentStep: true,
+        estimatedTimeRemaining: true,
+        transcriptS3Key: true,
+        subtitleS3Key: true,
+        artifactSummary: true,
+        createdAt: true,
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Media item not found');
+    }
+    return {
+      ...item,
+      artifacts: normalizeArtifactSummary(item.artifactSummary),
+    };
+  }
+
+  async getUserMediaList(userId: string) {
+    const items = await this.prisma.mediaItem.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        progress: true,
+        originType: true,
+        originUrl: true,
+        durationSeconds: true,
+        currentStep: true,
+        artifactSummary: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return items.map((item) => ({
+      ...item,
+      artifacts: normalizeArtifactSummary(item.artifactSummary),
+    }));
+  }
+
+  async recordChunkArtifact(
+    mediaId: string,
+    chunkIndex: number,
+  ): Promise<void> {
+    await this.updateArtifactSummary(mediaId, (current) =>
+      mergeChunkArtifactSummary(current, chunkIndex),
+    );
+  }
+
+  async recordTranslatedBatchArtifact(
+    mediaId: string,
+    batchIndex: number,
+  ): Promise<void> {
+    await this.updateArtifactSummary(mediaId, (current) =>
+      mergeBatchArtifactSummary(current, batchIndex),
+    );
+  }
+
+  async recordFinalArtifact(
+    mediaId: string,
+    finalObjectKey: string,
+  ): Promise<void> {
+    await this.updateArtifactSummary(mediaId, (current) =>
+      mergeFinalArtifactSummary(current, finalObjectKey),
+    );
+  }
+
+  async isMediaOwnedByUser(userId: string, mediaId: string): Promise<boolean> {
+    const item = await this.prisma.mediaItem.findFirst({
+      where: {
+        id: mediaId,
+        userId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    return Boolean(item);
+  }
+
   // ==================== PRIVATE HELPERS ====================
 
-  /**
-   * Check if the user has exceeded their monthly transcription quota.
-   * Throws BadRequestException if quota is fully used.
-   *
-   * This is an optimistic check — we don't know the exact duration of the
-   * new file, but we prevent users who have already maxed out from uploading.
-   */
   private async assertQuotaNotExceeded(userId: string): Promise<void> {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -188,14 +347,11 @@ export class MediaService {
       },
     });
 
-    // If no active subscription, deny
     if (!user.currentSubscription) {
       throw new BadRequestException(MEDIA_ERRORS.QUOTA_EXCEEDED);
     }
 
     const quota = user.currentSubscription.monthlyQuotaSecondsSnapshot;
-
-    // Calculate current month usage
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -219,10 +375,6 @@ export class MediaService {
     }
   }
 
-  /**
-   * Extract a temporary title from a YouTube URL (video ID).
-   * The worker will replace this with the actual video title.
-   */
   private extractYoutubeTitle(url: string): string {
     try {
       const parsed = new URL(url);
@@ -234,63 +386,40 @@ export class MediaService {
     }
   }
 
-  // ==================== STATUS & LIBRARY ====================
+  private async persistArtifactSummary(
+    mediaId: string,
+    summary: ProcessedArtifactSummary,
+  ): Promise<void> {
+    const normalized = normalizeArtifactSummary(summary);
 
-  /**
-   * Get detailed status of a single media item (for polling/progress tracking).
-   * Ensures the item belongs to the requesting user (no cross-user leaks).
-   */
-  async getMediaStatus(userId: string, mediaId: string) {
-    const item = await this.prisma.mediaItem.findFirst({
-      where: {
-        id: mediaId,
-        userId,
-        deletedAt: null,
+    await this.prisma.mediaItem.updateMany({
+      where: { id: mediaId },
+      data: {
+        artifactSummary: toArtifactSummaryJson(normalized),
       },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        progress: true,
-        processingMode: true,
-        sourceLanguage: true,
-        durationSeconds: true,
-        failReason: true,
-        originType: true,
-        transcriptS3Key: true,
-        subtitleS3Key: true,
-        createdAt: true,
-      },
+    });
+  }
+
+  private async updateArtifactSummary(
+    mediaId: string,
+    updater: (current: unknown) => ProcessedArtifactSummary,
+  ): Promise<void> {
+    const item = await this.prisma.mediaItem.findUnique({
+      where: { id: mediaId },
+      select: { artifactSummary: true },
     });
 
     if (!item) {
-      throw new BadRequestException('Media item not found');
+      return;
     }
 
-    return item;
-  }
+    const currentSummary = normalizeArtifactSummary(item.artifactSummary);
+    const nextSummary = updater(item.artifactSummary);
 
-  /**
-   * Get the user's media library — all non-deleted items, newest first.
-   */
-  async getUserMediaList(userId: string) {
-    return this.prisma.mediaItem.findMany({
-      where: {
-        userId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        progress: true,
-        processingMode: true,
-        originType: true,
-        originUrl: true,
-        durationSeconds: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    if (artifactSummariesEqual(currentSummary, nextSummary)) {
+      return;
+    }
+
+    await this.persistArtifactSummary(mediaId, nextSummary);
   }
 }

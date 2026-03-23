@@ -12,6 +12,7 @@ import React from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
 import { useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { Card, IconButton, StatusBadge } from "@/components";
 import type { MediaItem } from "@/types/media";
 import dayjs from "dayjs";
@@ -34,6 +35,8 @@ function formatDuration(seconds?: number | null) {
 
 export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
   const { theme } = useUnistyles();
+  const { t } = useTranslation("common");
+  const isPlayerReady = (item.artifacts?.translatedBatchCount ?? 0) > 0;
 
   // Build subtitle text
   const subtitleLine = (() => {
@@ -99,6 +102,29 @@ export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
               <Text style={styles.youtubeText}>YouTube</Text>
             </View>
           )}
+
+          {isPlayerReady && (
+            <View
+              style={[
+                styles.readyBadge,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            >
+              <Ionicons
+                name="play"
+                size={10}
+                color={theme.colors.textOnPrimary}
+              />
+              <Text
+                style={[
+                  styles.readyBadgeText,
+                  { color: theme.colors.textOnPrimary },
+                ]}
+              >
+                {t("library.playerReady")}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Right: Info Column */}
@@ -129,7 +155,8 @@ export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
           {isProcessing ? (
             <View style={styles.progressContainer}>
               <Text style={[styles.progressText, { color: theme.colors.info }]}>
-                Generating subtitles... {item.progress}%
+                {t("library.generating")}{" "}
+                {Math.round((item.progress ?? 0) * 100)}%
               </Text>
               <View
                 style={[
@@ -141,7 +168,7 @@ export function MediaCard({ item, onPress, onOptionsPress }: MediaCardProps) {
                   style={[
                     styles.progressFill,
                     {
-                      width: `${Math.max(4, item.progress || 4)}%`,
+                      width: `${Math.max(4, Math.round((item.progress ?? 0) * 100))}%`,
                       backgroundColor: theme.colors.info,
                     },
                   ]}
@@ -223,6 +250,21 @@ const styles = StyleSheet.create({
     color: "#E24F4F",
     fontSize: 9,
     fontWeight: "bold",
+  },
+  readyBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  readyBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
   },
 
   // ── Info Column ────────────────────────────────────────────────

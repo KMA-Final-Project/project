@@ -20,14 +20,14 @@ interface StatusBadgeProps {
 
 export function StatusBadge({ status, size = "md" }: StatusBadgeProps) {
   const { theme } = useUnistyles(); // ← subscribe AND get live theme values
-  const { t } = useTranslation();
+  const { t } = useTranslation("processing");
 
   const STATUS_LABELS: Record<MediaStatus, string> = {
-    QUEUED: t("processing.status.queued"),
-    VALIDATING: t("processing.status.validating"),
-    PROCESSING: t("processing.status.processing"),
-    COMPLETED: t("processing.status.completed"),
-    FAILED: t("processing.status.failed"),
+    QUEUED: t("status.queued"),
+    VALIDATING: t("status.validating"),
+    PROCESSING: t("status.processing"),
+    COMPLETED: t("status.completed"),
+    FAILED: t("status.failed"),
   };
 
   // Map each status to live theme colors (read at render time → re-renders with theme)

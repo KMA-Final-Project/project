@@ -2,22 +2,67 @@
  * useMedia — Kapter
  *
  * TanStack Query hooks for all media-related operations.
- * processingMode is always TRANSCRIBE_TRANSLATE (full bilingual subtitle generation).
  */
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { mediaService } from "@/services/media";
-import { useMediaStore } from "@/stores/media.store";
-import type { MediaStatus } from "@/types/media";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { mediaService } from "@/services/media.services";
+import type {
+  ConfirmUploadResponse,
+  MediaItem,
+  MediaOriginType,
+  SubmitYouTubeResponse,
+} from "@/types/media";
 
-/** Active statuses that require polling */
-const POLLING_STATUSES: MediaStatus[] = ["QUEUED", "VALIDATING", "PROCESSING"];
+function upsertLibraryItem(
+  queryClient: ReturnType<typeof useQueryClient>,
+  item: MediaItem,
+) {
+  queryClient.setQueryData(
+    mediaKeys.all,
+    (oldData: MediaItem[] | undefined) => {
+      if (!oldData) return [item];
+      return [item, ...oldData.filter((entry) => entry.id !== item.id)];
+    },
+  );
+}
+
+function buildQueuedMediaItem(
+  response: ConfirmUploadResponse | SubmitYouTubeResponse,
+  originType: MediaOriginType,
+  originUrl: string | null = null,
+): MediaItem {
+  return {
+    id: response.id,
+    title: response.title,
+    status: response.status,
+    progress: 0,
+    originType,
+    originUrl,
+    durationSeconds: null,
+    currentStep: null,
+    createdAt: new Date().toISOString(),
+    estimatedTimeRemaining: null,
+    failReason: null,
+    sourceLanguage: null,
+    transcriptS3Key: null,
+    subtitleS3Key: null,
+  };
+}
 
 // ─── Query Keys ──────────────────────────────────────────────────
 
 export const mediaKeys = {
   all: ["media"] as const,
   status: (id: string) => ["media-status", id] as const,
+  artifacts: (id: string) => ["media-artifacts", id] as const,
 };
+
+const socketFirstQueryOptions = {
+  staleTime: Infinity,
+  refetchOnMount: false,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const;
 
 // ─── Queries ─────────────────────────────────────────────────────
 
@@ -33,18 +78,25 @@ export function useMediaList() {
 }
 
 /**
- * Polls processing status for a single media item.
- * Automatically stops polling when the item reaches a terminal state.
+ * Fetches status for a single media item via REST ONCE.
+ * Subsequence updates are automatically handled and cache-invalidated
+ * by Socket.io global listener inside useSocketSync.
  */
 export function useMediaStatus(id: string | null) {
   return useQuery({
     queryKey: mediaKeys.status(id ?? ""),
     queryFn: () => mediaService.getStatus(id!),
     enabled: !!id,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status && POLLING_STATUSES.includes(status) ? 3000 : false;
-    },
+    ...socketFirstQueryOptions,
+  });
+}
+
+export function useMediaArtifacts(id: string | null) {
+  return useQuery({
+    queryKey: mediaKeys.artifacts(id ?? ""),
+    queryFn: () => mediaService.getArtifacts(id!),
+    enabled: !!id,
+    ...socketFirstQueryOptions,
   });
 }
 
@@ -56,16 +108,22 @@ export function useMediaStatus(id: string | null) {
  */
 export function useSubmitYouTube() {
   const queryClient = useQueryClient();
-  const addItemLocally = useMediaStore((s) => s.addItemLocally);
+  const { i18n } = useTranslation();
 
   return useMutation({
     mutationFn: (url: string) =>
       mediaService.submitYouTube({
         url,
-        processingMode: "TRANSCRIBE_TRANSLATE",
+        targetLanguage: i18n.language,
       }),
-    onSuccess: (newItem) => {
-      addItemLocally(newItem);
+    onSuccess: (response) => {
+      const queuedItem = buildQueuedMediaItem(
+        response,
+        "YOUTUBE",
+        response.originUrl,
+      );
+      upsertLibraryItem(queryClient, queuedItem);
+      queryClient.setQueryData(mediaKeys.status(response.id), queuedItem);
       queryClient.invalidateQueries({ queryKey: mediaKeys.all });
     },
   });
@@ -79,7 +137,7 @@ export function useSubmitYouTube() {
  */
 export function useUploadMedia() {
   const queryClient = useQueryClient();
-  const addItemLocally = useMediaStore((s) => s.addItemLocally);
+  const { i18n } = useTranslation();
 
   return useMutation({
     mutationFn: async (file: {
@@ -89,7 +147,7 @@ export function useUploadMedia() {
       size: number;
     }) => {
       // Step 1 — Get presigned URL
-      const { uploadUrl, s3Key } = await mediaService.getPresignedUrl({
+      const { uploadUrl, objectKey } = await mediaService.getPresignedUrl({
         fileName: file.name,
         mimeType: file.mimeType,
         fileSize: file.size,
@@ -108,12 +166,14 @@ export function useUploadMedia() {
       const title = file.name.replace(/\.[^.]+$/, ""); // strip file extension for title
       return mediaService.confirmUpload({
         title,
-        objectKey: s3Key,
-        processingMode: "TRANSCRIBE_TRANSLATE",
+        objectKey: objectKey,
+        targetLanguage: i18n.language,
       });
     },
-    onSuccess: (newItem) => {
-      addItemLocally(newItem);
+    onSuccess: (response) => {
+      const queuedItem = buildQueuedMediaItem(response, "LOCAL");
+      upsertLibraryItem(queryClient, queuedItem);
+      queryClient.setQueryData(mediaKeys.status(response.id), queuedItem);
       queryClient.invalidateQueries({ queryKey: mediaKeys.all });
     },
   });

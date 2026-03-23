@@ -8,20 +8,27 @@ Usage:
     python -m src.main
 """
 
+from __future__ import annotations
+
 import asyncio
-import json
 import shutil
 import tempfile
+import time as _time
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
-import psycopg2
 from bullmq import Worker
 from loguru import logger
 
 from src.config import settings
-from src.minio_client import MinioClient
+from src.core.audio_inspector import AudioInspector
+from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
+from src.core.smart_aligner import SmartAligner
+from src.core.vad_manager import VADManager
+from src.db import mark_quota_counted, update_media_status
+from src.events import publish_completed, publish_failed
+from src.minio_client import MinioClient
+from src.pipelines import run_v2_pipeline
 from src.utils.hardware_profiler import HardwareProfiler
 
 # ============================================================================
@@ -31,110 +38,37 @@ from src.utils.hardware_profiler import HardwareProfiler
 AI_PROCESSING_QUEUE = "ai-processing"
 QUEUE_PREFIX = "bilingual"
 
-# Chunk every N sentences for streaming output
-CHUNK_SIZE = 20
 
+def prewarm_heavy_components() -> None:
+    """Preload long-lived heavy inference components before accepting jobs.
 
-# ============================================================================
-# Database helper (direct Postgres for status updates)
-# ============================================================================
-
-def _get_psycopg2_dsn() -> str:
+    Intentionally excludes Ollama/LLM warmup because the external model runner is
+    heavier, less stable under VRAM pressure, and not required for the fast path.
     """
-    Strip Prisma-specific query parameters (like ?schema=public) from
-    DATABASE_URL, since psycopg2 doesn't understand them.
-    """
-    raw = settings.DATABASE_URL
-    parsed = urlparse(raw)
-    # Keep only params psycopg2 understands (sslmode, connect_timeout, etc.)
-    # Remove Prisma-specific ones like 'schema'
-    qs = parse_qs(parsed.query)
-    qs.pop("schema", None)
-    clean_query = urlencode(qs, doseq=True)
-    clean_url = urlunparse(parsed._replace(query=clean_query))
-    return clean_url
+    components: list[tuple[str, callable]] = [
+        ("SmartAligner", SmartAligner),
+        ("AudioInspector", AudioInspector.prewarm),
+        ("NMTTranslator", NMTTranslator.get_instance),
+        ("VADManager", VADManager),
+    ]
 
-def update_media_status(
-    media_id: str,
-    *,
-    status: str | None = None,
-    progress: float | None = None,
-    source_language: str | None = None,
-    transcript_s3_key: str | None = None,
-    subtitle_s3_key: str | None = None,
-    fail_reason: str | None = None,
-) -> None:
-    """
-    Update MediaItem directly in PostgreSQL.
+    logger.info("🔥 AI_PREWARM_MODELS enabled — prewarming heavy components...")
+    started_at = _time.perf_counter()
 
-    We use a direct DB connection (not via NestJS) because:
-    1. The AI Engine runs as a separate Python process
-    2. Progress updates need low latency (no HTTP round-trip)
-    3. psycopg2 is lightweight and reliable
-    """
-    if not settings.DATABASE_URL:
-        logger.warning("DATABASE_URL not set — skipping DB update")
-        return
+    for name, initializer in components:
+        component_started_at = _time.perf_counter()
+        initializer()
+        elapsed = _time.perf_counter() - component_started_at
+        logger.info(f"   {name} prewarmed in {elapsed:.2f}s")
 
-    set_clauses = []
-    values = []
-
-    if status is not None:
-        set_clauses.append("status = %s::\"MediaStatus\"")
-        values.append(status)
-    if progress is not None:
-        set_clauses.append("progress = %s")
-        values.append(progress)
-    if source_language is not None:
-        set_clauses.append("source_language = %s")
-        values.append(source_language)
-    if transcript_s3_key is not None:
-        set_clauses.append("transcript_s3_key = %s")
-        values.append(transcript_s3_key)
-    if subtitle_s3_key is not None:
-        set_clauses.append("subtitle_s3_key = %s")
-        values.append(subtitle_s3_key)
-    if fail_reason is not None:
-        set_clauses.append("fail_reason = %s")
-        values.append(fail_reason)
-
-    if not set_clauses:
-        return
-
-    values.append(media_id)
-    sql = f"UPDATE media_items SET {', '.join(set_clauses)} WHERE id = %s"
-
-    try:
-        conn = psycopg2.connect(_get_psycopg2_dsn())
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, values)
-        conn.close()
-    except Exception as e:
-        logger.error(f"DB update failed for media {media_id}: {e}")
-
-
-def mark_quota_counted(media_id: str) -> None:
-    """Mark the MediaItem as counted in the user's quota."""
-    if not settings.DATABASE_URL:
-        return
-
-    try:
-        conn = psycopg2.connect(_get_psycopg2_dsn())
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE media_items SET counted_in_quota = true WHERE id = %s",
-                    (media_id,),
-                )
-        conn.close()
-    except Exception as e:
-        logger.error(f"Failed to mark quota for media {media_id}: {e}")
+    total_elapsed = _time.perf_counter() - started_at
+    logger.success(f"✅ Heavy component prewarm complete in {total_elapsed:.2f}s")
 
 
 # ============================================================================
 # Job Processor
 # ============================================================================
+
 
 async def process_job(job, token):
     """
@@ -143,19 +77,19 @@ async def process_job(job, token):
     Job data structure (from NestJS Worker):
         mediaId: str
         audioS3Key: str
-        processingMode: "TRANSCRIBE" | "TRANSCRIBE_TRANSLATE"
         durationSeconds: int
         userId: str
+        targetLanguage?: str
     """
     job_data = job.data
     media_id = job_data["mediaId"]
     audio_s3_key = job_data["audioS3Key"]
-    processing_mode = job_data["processingMode"]
     duration_seconds = job_data.get("durationSeconds", 0)
+    user_id = job_data["userId"]
 
     logger.info(
         f"🚀 Job {job.id} started | media: {media_id} | "
-        f"mode: {processing_mode} | duration: {duration_seconds}s"
+        f"duration: {duration_seconds}s"
     )
 
     # Initialize clients
@@ -169,45 +103,68 @@ async def process_job(job, token):
     try:
         # Start hardware profiling
         profiler.start(job_id=str(job.id), media_id=media_id)
+
         # 1. Download audio from MinIO
         ext = Path(audio_s3_key).suffix or ".mp3"
         local_audio = work_dir / f"input{ext}"
         minio_client.download_audio(audio_s3_key, local_audio)
 
-        # 2. Run the pipeline
-        if processing_mode == "TRANSCRIBE":
-            result_data = run_transcribe_pipeline(
-                pipeline, minio_client, local_audio, media_id
-            )
-        else:
-            result_data = run_transcribe_translate_pipeline(
-                pipeline, minio_client, local_audio, media_id
-            )
+        # 2. Run the V2 pipeline — record wall-clock start time for ETA
+        started_at = _time.time()
+
+        target_lang = job_data.get("targetLanguage", "vi")
+        subtitle_output = await run_v2_pipeline(
+            pipeline,
+            minio_client,
+            local_audio,
+            media_id,
+            user_id=user_id,
+            started_at=started_at,
+            target_lang=target_lang,
+            duration_seconds=duration_seconds,
+        )
 
         # 3. Upload final result
-        transcript_key = minio_client.upload_final_result(media_id, result_data)
+        transcript_key, final_url = minio_client.upload_final_result(
+            media_id, subtitle_output
+        )
 
-        # 4. Mark as completed
+        # 4. Mark as completed — clear step/ETA fields
         update_media_status(
             media_id,
+            user_id=user_id,
             status="COMPLETED",
             progress=1.0,
             transcript_s3_key=transcript_key,
+            clear_step=True,
+        )
+        publish_completed(
+            media_id=media_id,
+            user_id=user_id,
+            final_url=final_url,
+            segment_count=len(subtitle_output.segments),
+            source_lang=subtitle_output.metadata.source_lang or "",
+            target_lang=subtitle_output.metadata.target_lang or "",
+            s3_key=transcript_key,
         )
         mark_quota_counted(media_id)
 
         logger.success(
             f"✅ Job {job.id} completed | media: {media_id} | "
-            f"{len(result_data)} sentences"
+            f"{len(subtitle_output.segments)} segments"
         )
 
     except Exception as e:
         logger.error(f"❌ Job {job.id} failed | media: {media_id} | {e}")
+        reason = str(e)[:500]
         update_media_status(
             media_id,
+            user_id=user_id,
             status="FAILED",
-            fail_reason=str(e)[:500],  # Truncate long error messages
+            fail_reason=reason,
+            clear_step=True,
         )
+        publish_failed(media_id=media_id, user_id=user_id, reason=reason)
         raise  # Re-raise so BullMQ marks the job as failed
 
     finally:
@@ -218,210 +175,9 @@ async def process_job(job, token):
 
 
 # ============================================================================
-# Pipeline Modes
-# ============================================================================
-
-def run_transcribe_pipeline(
-    pipeline: PipelineOrchestrator,
-    minio_client: MinioClient,
-    audio_path: Path,
-    media_id: str,
-) -> list[dict]:
-    """
-    TRANSCRIBE mode: VAD → Alignment → Phonemes (no translation, no LLM).
-    Streams chunks to MinIO during alignment for real-time mobile UX.
-    """
-    logger.info("📝 Running TRANSCRIBE pipeline (no translation)")
-
-    # Step 1: Audio Standardization
-    update_media_status(media_id, progress=0.05)
-    meta = pipeline.audio_processor.process(audio_path)
-    standardized_path = meta.path
-
-    # Step 2: Audio Inspection
-    update_media_status(media_id, progress=0.10)
-    profile = pipeline.audio_inspector.inspect(standardized_path)
-    logger.info(f"Audio profile: {profile}")
-
-    # Step 3: VAD & Isolation
-    update_media_status(media_id, progress=0.15)
-    segments, clean_audio_path = pipeline.vad_manager.process(
-        standardized_path, profile=profile
-    )
-
-    if not segments:
-        logger.warning("No speech detected — returning empty result")
-        update_media_status(media_id, progress=1.0)
-        return []
-
-    # Step 4: Smart Alignment with streaming chunk uploads
-    update_media_status(media_id, progress=0.25)
-    chunk_index = [0]  # Mutable counter for closure
-    source_lang_detected = [False]
-
-    def on_chunk(batch: list, total_so_far: int):
-        """Upload each batch of sentences to MinIO as they're transcribed."""
-        batch_data = [s.model_dump() for s in batch]
-        minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
-        chunk_index[0] += 1
-
-        # Detect source language from first batch
-        if not source_lang_detected[0] and batch:
-            first_lang = _detect_source_language(batch)
-            update_media_status(media_id, source_language=first_lang)
-            source_lang_detected[0] = True
-
-        # Progress: scale 0.25-0.85 based on sentences produced
-        progress = min(0.85, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.60)
-        update_media_status(media_id, progress=progress)
-        logger.info(f"📤 Streamed chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
-
-    sentences = pipeline.aligner.process(
-        clean_audio_path, segments, profile=profile,
-        on_chunk=on_chunk, chunk_size=CHUNK_SIZE,
-    )
-
-    # Detect language if not yet detected (e.g. very few sentences)
-    if sentences and not source_lang_detected[0]:
-        first_lang = _detect_source_language(sentences)
-        update_media_status(media_id, source_language=first_lang, progress=0.85)
-
-    result_data = [s.model_dump() for s in sentences]
-    update_media_status(media_id, progress=0.95)
-    return result_data
-
-
-def run_transcribe_translate_pipeline(
-    pipeline: PipelineOrchestrator,
-    minio_client: MinioClient,
-    audio_path: Path,
-    media_id: str,
-) -> list[dict]:
-    """
-    TRANSCRIBE_TRANSLATE mode: Full pipeline with translation.
-    VAD → Alignment (streaming preview) → Semantic Merge → Translation → Final upload.
-    """
-    logger.info("🌐 Running TRANSCRIBE_TRANSLATE pipeline (full bilingual)")
-
-    # Step 1: Audio Standardization
-    update_media_status(media_id, progress=0.05)
-    meta = pipeline.audio_processor.process(audio_path)
-    standardized_path = meta.path
-
-    # Step 2: Audio Inspection
-    update_media_status(media_id, progress=0.10)
-    profile = pipeline.audio_inspector.inspect(standardized_path)
-    logger.info(f"Audio profile: {profile}")
-
-    # Step 3: VAD & Isolation
-    update_media_status(media_id, progress=0.15)
-    segments, clean_audio_path = pipeline.vad_manager.process(
-        standardized_path, profile=profile
-    )
-
-    if not segments:
-        logger.warning("No speech detected — returning empty result")
-        update_media_status(media_id, progress=1.0)
-        return []
-
-    # Step 4: Smart Alignment with streaming preview chunks
-    update_media_status(media_id, progress=0.25)
-    chunk_index = [0]
-
-    def on_chunk(batch: list, total_so_far: int):
-        """Upload transcription-only preview chunks during alignment."""
-        batch_data = [s.model_dump() for s in batch]
-        minio_client.upload_chunk(media_id, chunk_index[0], batch_data)
-        chunk_index[0] += 1
-        progress = min(0.40, 0.25 + (total_so_far / max(total_so_far + 20, 1)) * 0.15)
-        update_media_status(media_id, progress=progress)
-        logger.info(f"📤 Preview chunk {chunk_index[0]} ({len(batch)} sentences, {total_so_far} total)")
-
-    sentences = pipeline.aligner.process(
-        clean_audio_path, segments, profile=profile,
-        on_chunk=on_chunk, chunk_size=CHUNK_SIZE,
-    )
-
-    # Detect source language
-    source_lang = _detect_source_language(sentences) if sentences else "en"
-    update_media_status(media_id, source_language=source_lang, progress=0.40)
-
-    # Step 5: Semantic Merge (optional)
-    if profile == "music" or len(sentences) > 5:
-        update_media_status(media_id, progress=0.50)
-        try:
-            sentences = pipeline.merger.process(
-                sentences, context_style="Modern/Classical Song"
-            )
-        except Exception as e:
-            logger.error(f"Semantic merge failed (continuing): {e}")
-
-    # Step 6: Translation
-    update_media_status(media_id, progress=0.60)
-    segments_data = [s.model_dump() for s in sentences]
-
-    try:
-        translations = pipeline.translator.process_two_pass(
-            segments_data, target_lang="vi"
-        )
-        for i, sent_data in enumerate(segments_data):
-            sent_data["translation"] = (
-                translations[i] if i < len(translations) else ""
-            )
-    except Exception as e:
-        logger.error(f"Translation failed: {e}")
-        for d in segments_data:
-            d["translation"] = "[Translation Error]"
-
-    # Final upload: overwrite preview chunks with translated results
-    _upload_chunks(minio_client, media_id, segments_data)
-
-    update_media_status(media_id, progress=0.95)
-    return segments_data
-
-
-# ============================================================================
-# Helpers
-# ============================================================================
-
-def _detect_source_language(sentences) -> str:
-    """
-    Detect the source language from transcription results.
-    Uses the language detected by Whisper during alignment.
-    """
-    # SmartAligner stores detected language in the sentence metadata
-    # For now, use a simple heuristic based on character analysis
-    if not sentences:
-        return "en"
-
-    sample_text = " ".join(s.text for s in sentences[:5] if hasattr(s, "text"))
-
-    # CJK character detection
-    cjk_count = sum(1 for c in sample_text if "\u4e00" <= c <= "\u9fff")
-    if cjk_count > len(sample_text) * 0.3:
-        return "zh"
-
-    # Vietnamese diacritics
-    vn_chars = set("ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ")
-    vn_count = sum(1 for c in sample_text.lower() if c in vn_chars)
-    if vn_count > len(sample_text) * 0.05:
-        return "vi"
-
-    return "en"
-
-
-def _upload_chunks(
-    minio_client: MinioClient, media_id: str, data: list[dict]
-) -> None:
-    """Upload subtitle data in chunks for progressive client display."""
-    for i in range(0, len(data), CHUNK_SIZE):
-        chunk = data[i: i + CHUNK_SIZE]
-        minio_client.upload_chunk(media_id, i // CHUNK_SIZE, chunk)
-
-
-# ============================================================================
 # Main
 # ============================================================================
+
 
 async def main():
     """Start the AI Engine BullMQ worker."""
@@ -430,6 +186,9 @@ async def main():
     logger.info(f"   MinIO: {settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}")
     logger.info(f"   Device: {settings.DEVICE} (index {settings.DEVICE_INDEX})")
     logger.info(f"   Mode: {settings.AI_PERF_MODE.value}")
+
+    if settings.AI_PREWARM_MODELS:
+        prewarm_heavy_components()
 
     redis_opts = {
         "host": settings.REDIS_HOST,

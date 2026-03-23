@@ -37,6 +37,12 @@ ffmpeg-python>=0.2.0
 deep-translator>=1.11.4
 ollama>=0.1.6
 
+# --- Translation (NMT via NLLB-200 + CTranslate2) ---
+# CTranslate2 is already installed via faster-whisper
+sentencepiece>=0.2.0
+# transformers is needed at runtime ONLY for the tokenizer (no model weights loaded)
+transformers>=4.40.0
+
 # --- Phonetics (G2P) ---
 # Chinese Pinyin
 pypinyin>=0.50.0

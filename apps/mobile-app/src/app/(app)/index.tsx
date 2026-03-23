@@ -37,18 +37,10 @@ export default function LibraryScreen() {
   };
 
   const handleMediaPress = (item: MediaItem) => {
-    if (item.status === "COMPLETED") {
-      router.push({ pathname: ROUTES.PLAYER, params: { id: item.id } } as any);
-    } else if (
-      item.status === "QUEUED" ||
-      item.status === "VALIDATING" ||
-      item.status === "PROCESSING"
-    ) {
-      router.push({
-        pathname: ROUTES.PROCESSING,
-        params: { id: item.id },
-      } as any);
-    }
+    router.push({
+      pathname: ROUTES.PROCESSING,
+      params: { id: item.id },
+    } as any);
   };
 
   const filterOptions = [

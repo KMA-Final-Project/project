@@ -30,8 +30,8 @@ export interface TranscriptionJobPayload {
   /** User who submitted the media (for quota tracking in worker) */
   userId: string;
 
-  /** Processing mode selected by the user */
-  processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
+  /** Target language for translation (defaults to 'vi' if omitted) */
+  targetLanguage?: string;
 }
 
 /**
@@ -45,12 +45,12 @@ export interface AiProcessingJobPayload {
   /** Validated audio file location in MinIO (raw bucket) */
   audioS3Key: string;
 
-  /** Processing mode: transcribe only or full bilingual pipeline */
-  processingMode: 'TRANSCRIBE' | 'TRANSCRIBE_TRANSLATE';
-
   /** Verified audio duration in seconds */
   durationSeconds: number;
 
   /** User who submitted the media */
   userId: string;
+
+  /** Target language for translation (defaults to 'vi' if omitted) */
+  targetLanguage?: string;
 }

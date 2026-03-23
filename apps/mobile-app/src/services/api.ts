@@ -32,7 +32,7 @@ function normalizeApiBaseUrl(url: string): string {
 
 const envApiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 
-const API_BASE_URL = envApiBaseUrl
+export const API_BASE_URL = envApiBaseUrl
   ? envApiBaseUrl.startsWith("https")
     ? envApiBaseUrl
     : normalizeApiBaseUrl(envApiBaseUrl)

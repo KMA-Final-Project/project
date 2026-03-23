@@ -39,11 +39,6 @@ enum MediaStatus {
   FAILED
 }
 
-enum ProcessingMode {
-  TRANSCRIBE
-  TRANSCRIBE_TRANSLATE
-}
-
 enum OtpType {
   REGISTER
   FORGOT_PASSWORD
@@ -184,19 +179,21 @@ model MediaItem {
   originType MediaOriginType @map("origin_type")
   originUrl  String?         @map("origin_url") // Youtube URL or null if LOCAL
 
-  // Processing Configuration
-  processingMode ProcessingMode @default(TRANSCRIBE) @map("processing_mode")
-  sourceLanguage String?        @map("source_language") // Auto-detected: "en", "zh", "vi"
+  // Processing Metadata
+  sourceLanguage String? @map("source_language") // Auto-detected: "en", "zh", "vi"
 
   // Storage Keys (MinIO/S3 Paths)
   audioS3Key      String  @map("audio_s3_key")
   transcriptS3Key String? @map("transcript_s3_key") // Transcription-only JSON path
   subtitleS3Key   String? @map("subtitle_s3_key") // Translated subtitle JSON path
 
-  durationSeconds Int         @default(0) @map("duration_seconds")
-  status          MediaStatus @default(QUEUED)
-  progress        Float       @default(0) @map("progress") // 0.0 to 1.0
-  failReason      String?     @map("fail_reason") // Human-readable error
+  durationSeconds        Int         @default(0) @map("duration_seconds")
+  status                 MediaStatus @default(QUEUED)
+  progress               Float       @default(0) @map("progress") // 0.0 to 1.0
+  artifactSummary        Json?       @map("artifact_summary") // Cached artifact availability summary for hot read paths
+  currentStep            String?     @map("current_step") // Active pipeline stage: AUDIO_PREP, INSPECTING, VAD, PROCESSING, TRANSLATING, EXPORTING
+  estimatedTimeRemaining Int?        @map("estimated_time_remaining") // Seconds remaining (ETA), null when idle/done
+  failReason             String?     @map("fail_reason") // Human-readable error
 
   // Logic flag
   countedInQuota Boolean @default(false) @map("counted_in_quota")

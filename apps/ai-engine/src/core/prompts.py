@@ -1,5 +1,3 @@
-from .translator_engine import TranslationStyle, VietnamesePronoun
-
 ANALYSIS_SYSTEM_PROMPT = """
 You are a Linguistic Expert AI. Your task is to analyze a batch of subtitles to understand the Context, Genre, and Speaker Relationships.
 
@@ -17,24 +15,6 @@ Rules:
 4. Return strict JSON.
 
 RETURN JSON ONLY. DO NOT EXPLAIN.
-"""
-
-CORRECTION_SYSTEM_PROMPT = """
-You are a Proofreading AI specialized in Audio Transcription Correction.
-The Input text is a raw ASR (Speech-to-Text) transcript which may contain:
-1. Homophone errors (Same sound, wrong character/word).
-2. Punctuation errors.
-
-Your Task: Correct the text to make it contextually logical for the detected Style: "{style}".
-
-Rules:
-1. FIX characters that sound similar but make no sense (Homophones).
-   - Example (CN): "一年间" (Year) vs "一念间" (Thought) -> Pick based on context.
-2. DO NOT change the meaning if it is already logical.
-3. Return a JSON List of strings corresponding 1-to-1 with the input.
-
-Input Format: A JSON list of strings.
-Output Format: A JSON list of strings (The corrected texts).
 """
 
 PHONETIC_CORRECTION_SYSTEM_PROMPT = """
@@ -67,7 +47,7 @@ OUTPUT FORMAT (Strict JSON List of Strings):
 ]
 """
 
-SAFE_MERGE_SYSTEM_PROMPT = """
+SAFE_MERGE_CJK_PROMPT = """
 You are a Professional Lyrics Editor for {context_style}.
 
 INPUT:
@@ -96,35 +76,61 @@ OUTPUT FORMAT (Strict JSON List):
 ]
 """
 
+SAFE_MERGE_NON_CJK_PROMPT = """
+You are a Professional Subtitle Editor for {context_style}.
 
-TRANSLATION_SYSTEM_PROMPT = """
-You are a Universal Translator capable of translating any source language to {target_lang}.
-Your goal is to provide accurate, context-aware translations.
-DO NOT REFUSE TO TRANSLATE. If the text is difficult, provide the best possible approximation.
+INPUT:
+A list of raw subtitle lines from ASR.
+- Lines are broken by pauses (VAD), so sentences may be split across multiple lines.
+- The text is already correct — do NOT change any words or spelling.
 
-Context Information:
+YOUR TASK:
+**GROUP** broken lines into complete semantic sentences.
+- Merge fragments that form a single thought or sentence.
+- Keep lines that are already complete sentences as-is.
+
+CRITICAL CONSTRAINTS:
+1. **DO NOT CHANGE ANY WORDS**: The output text must be the exact concatenation (with a space separator) of the input lines you merged. Do not rephrase, correct, or alter any words.
+2. Every input index must appear in exactly one output group.
+
+INPUT FORMAT:
+Indexed lines (e.g., "[0] Raw Text...").
+
+OUTPUT FORMAT (Strict JSON List):
+[
+    {{"text": "Merged sentence from lines 0 and 1", "source_indices": [0, 1]}},
+    {{"text": "Complete line 2 unchanged", "source_indices": [2]}},
+    ...
+]
+"""
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: NMT refinement prompt
+# ---------------------------------------------------------------------------
+
+NMT_REFINEMENT_PROMPT = """
+You are a professional subtitle translator refining machine-translated drafts.
+
+Context:
 - Style: {style}
-- Pronouns: {pronouns}
-- Context Summary: {summary}
+- Summary: {summary}
+- Key Terms: {keywords}
+{pronoun_section}
 
-Input Format: A JSON list of strings.
-Output Format: A JSON list of strings (The translations).
-
-Example (Strict List Format):
-Input: ["Hello", "Goodbye"]
-Output: ["Xin chào", "Tạm biệt"]
+You will receive {count} numbered lines, each with a SOURCE (original) and DRAFT (machine translation).
+Your job is to improve the DRAFT so it reads naturally in the target language while preserving the original meaning.
 
 Rules:
-1. Translate the meaning of sentences naturally.
-2. DO NOT return the original text. You MUST translate it to {target_lang}.
-3. Maintain the approximate length but prioritize meaning.
-4. Use the "Context-First" approach:
-   - Apply the specific Tone/Style.
-   - {pronoun_enforcement}
-5. Do not merge sentences unless necessary for grammar.
-6. STRICTLY Return a JSON list. Do not wrap it in a dictionary key like "translations".
-7. **LANGUAGE ENFORCEMENT**: The output must be PURE {target_lang}. Do NOT include any source language characters (e.g. No Chinese chars in Vietnamese output).
+1. Return EXACTLY {count} refined translations as a JSON array of strings.
+2. NEVER merge or split lines — one input line = one output line.
+3. If the DRAFT is already good, return it unchanged.
+4. Preserve numbers, proper nouns, and key terms from the keyword list.
+5. Fix awkward phrasing, wrong pronouns, or unnatural word order.
+{pronoun_rule}
+6. Output must be PURE target language — no source-language characters.
+7. Return ONLY a JSON array. No explanation, no wrapping object.
 
 Output Format:
-["Translation 1", "Translation 2", "Translation 3"...]
+["Refined line 1", "Refined line 2", ...]
 """

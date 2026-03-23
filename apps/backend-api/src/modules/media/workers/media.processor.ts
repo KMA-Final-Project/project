@@ -66,7 +66,7 @@ export class MediaProcessor {
 
   @Process('process')
   async handleTranscription(job: Job<TranscriptionJobPayload>): Promise<void> {
-    const { mediaId, type, filePath, url, userId, processingMode } = job.data;
+    const { mediaId, type, filePath, url, userId } = job.data;
 
     this.logger.log(
       `[Job ${job.id}] Starting validation | type: ${type} | media: ${mediaId}`,
@@ -117,9 +117,9 @@ export class MediaProcessor {
       const aiPayload: AiProcessingJobPayload = {
         mediaId,
         audioS3Key,
-        processingMode,
         durationSeconds,
         userId,
+        targetLanguage: job.data.targetLanguage,
       };
 
       const aiJob = await this.aiQueue.add('process', aiPayload, {
@@ -134,7 +134,7 @@ export class MediaProcessor {
 
       this.logger.log(
         `[Job ${job.id}] Validated & dispatched to AI queue (aiJob: ${aiJob.id}) | ` +
-          `duration: ${durationSeconds}s | mode: ${processingMode}`,
+          `duration: ${durationSeconds}s`,
       );
     } catch (error) {
       const reason =

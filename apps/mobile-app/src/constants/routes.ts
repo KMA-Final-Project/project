@@ -6,4 +6,5 @@ export const ROUTES = {
   HOME: "/(app)",
   PROCESSING: "/(app)/processing",
   PLAYER: "/(app)/player",
+  MEDIA_PICKER: "/(app)/media-picker",
 } as const;

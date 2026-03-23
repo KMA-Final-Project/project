@@ -90,7 +90,9 @@
       "completed": "Completed",
       "failed": "Failed"
     },
-    "empty": "No media found"
+    "empty": "No media found",
+    "generating": "Generating subtitles...",
+    "playerReady": "Ready"
   },
   "upload": {
     "tab": "New Upload",
@@ -106,32 +108,9 @@
     "pastePlaceholder": "https://youtube.com/...",
     "pasteClipboard": "Paste from clipboard"
   },
-  "processing": {
-    "title": "Processing",
-    "status": {
-      "queued": "Queued",
-      "validating": "Validating...",
-      "processing": "Generating subtitles...",
-      "completed": "Subtitles Ready!",
-      "failed": "Processing failed"
-    },
-    "steps": {
-      "audioProcess": "Audio Processing",
-      "analysis": "Audio Analysis",
-      "vad": "Voice Detection",
-      "transcribe": "Transcription",
-      "grouping": "Line Grouping",
-      "translate": "Translation",
-      "export": "Export"
-    },
-    "runBackground": "Run in Background",
-    "openPlayer": "Open Player"
-  },
   "player": {
     "audioMode": "Audio Mode",
     "videoMode": "Video Mode",
     "speed": "Speed"
   }
 }
-
-
