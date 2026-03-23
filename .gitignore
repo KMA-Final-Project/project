@@ -6,7 +6,7 @@ response_*.*
 test_results.txt
 
 # ── GSD baseline (auto-generated) ──
-.gsd
+# .gsd
 .DS_Store
 Thumbs.db
 *.swp
