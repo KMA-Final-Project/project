@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     AI_PERF_MODE: AIProfile = Field(
         default=AIProfile.MEDIUM, description="Performance profile"
     )
+    AI_PREWARM_MODELS: bool = Field(
+        default=False,
+        description=(
+            "Preload heavy long-lived inference components at worker startup "
+            "(Whisper, AST inspector, VAD, NMT) before accepting jobs."
+        ),
+    )
 
     # --- Whisper Model Configuration ---
     # Turbo model: faster, used for well-resourced languages (EN, VI, FR, etc.)

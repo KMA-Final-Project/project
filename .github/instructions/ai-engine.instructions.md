@@ -55,7 +55,9 @@ src/
 
 ## Testing & Validation
 
-Always activate the venv first:
+If a working Python environment is already available in this workspace, use it directly and do not spend extra turns on venv setup/configuration. Only switch into environment-debugging steps if Python commands fail or the user explicitly asks for help with the environment.
+
+Typical commands when you do need to activate the local venv:
 
 ```bash
 cd apps/ai-engine

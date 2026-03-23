@@ -20,7 +20,11 @@ from bullmq import Worker
 from loguru import logger
 
 from src.config import settings
+from src.core.audio_inspector import AudioInspector
+from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
+from src.core.smart_aligner import SmartAligner
+from src.core.vad_manager import VADManager
 from src.db import mark_quota_counted, update_media_status
 from src.events import publish_completed, publish_failed
 from src.minio_client import MinioClient
@@ -33,6 +37,32 @@ from src.utils.hardware_profiler import HardwareProfiler
 
 AI_PROCESSING_QUEUE = "ai-processing"
 QUEUE_PREFIX = "bilingual"
+
+
+def prewarm_heavy_components() -> None:
+    """Preload long-lived heavy inference components before accepting jobs.
+
+    Intentionally excludes Ollama/LLM warmup because the external model runner is
+    heavier, less stable under VRAM pressure, and not required for the fast path.
+    """
+    components: list[tuple[str, callable]] = [
+        ("SmartAligner", SmartAligner),
+        ("AudioInspector", AudioInspector.prewarm),
+        ("NMTTranslator", NMTTranslator.get_instance),
+        ("VADManager", VADManager),
+    ]
+
+    logger.info("🔥 AI_PREWARM_MODELS enabled — prewarming heavy components...")
+    started_at = _time.perf_counter()
+
+    for name, initializer in components:
+        component_started_at = _time.perf_counter()
+        initializer()
+        elapsed = _time.perf_counter() - component_started_at
+        logger.info(f"   {name} prewarmed in {elapsed:.2f}s")
+
+    total_elapsed = _time.perf_counter() - started_at
+    logger.success(f"✅ Heavy component prewarm complete in {total_elapsed:.2f}s")
 
 
 # ============================================================================
@@ -156,6 +186,9 @@ async def main():
     logger.info(f"   MinIO: {settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}")
     logger.info(f"   Device: {settings.DEVICE} (index {settings.DEVICE_INDEX})")
     logger.info(f"   Mode: {settings.AI_PERF_MODE.value}")
+
+    if settings.AI_PREWARM_MODELS:
+        prewarm_heavy_components()
 
     redis_opts = {
         "host": settings.REDIS_HOST,
