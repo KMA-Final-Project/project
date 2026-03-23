@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from threading import Lock
 from typing import Literal, List
 
 import librosa
@@ -12,22 +13,40 @@ from src.config import settings
 
 # Suppress HF warnings globally
 from transformers import logging as hf_logging
+
 hf_logging.set_verbosity_error()
 
 # Suppress PyTorch/NumPy writeable warning (benign for inference)
 import warnings
+
 warnings.filterwarnings("ignore", message=".*The given NumPy array is not writable.*")
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-SAMPLE_DURATION_SEC = 30       # Each sample is 30 seconds
+SAMPLE_DURATION_SEC = 30  # Each sample is 30 seconds
 SAMPLE_POSITIONS = [0.10, 0.50, 0.90]  # Sample at 10%, 50%, 90% of audio
-SAMPLE_WEIGHTS   = [1.0,  2.0,  2.0]   # Middle/end weighted higher (intros often have music)
+SAMPLE_WEIGHTS = [1.0, 2.0, 2.0]  # Middle/end weighted higher (intros often have music)
 
 MUSIC_KEYWORDS = [
-    "music", "singing", "instrument", "piano", "guitar", "violin",
-    "drum", "zither", "flute", "orchestra", "band", "pop", "rock",
-    "jazz", "electronic", "synthesizer", "harp", "pizzicato", "new-age",
+    "music",
+    "singing",
+    "instrument",
+    "piano",
+    "guitar",
+    "violin",
+    "drum",
+    "zither",
+    "flute",
+    "orchestra",
+    "band",
+    "pop",
+    "rock",
+    "jazz",
+    "electronic",
+    "synthesizer",
+    "harp",
+    "pizzicato",
+    "new-age",
 ]
 
 SPEECH_KEYWORDS = ["speech", "narration", "conversation", "interview", "monologue"]
@@ -36,31 +55,46 @@ SPEECH_KEYWORDS = ["speech", "narration", "conversation", "interview", "monologu
 class AudioInspector:
     """
     Analyzes audio features to determine if it is Music or Standard Speech.
-    
+
     Uses multi-segment sampling: classifies 3 segments at different positions
     in the audio and takes a weighted vote, preventing short music intros/outros
     from dominating the classification of long speech content.
     """
 
+    _shared_classifier = None
+    _classifier_lock: Lock = Lock()
+
     def __init__(self):
-        self._classifier = None
+        pass
 
     def _get_classifier(self):
-        """Lazy-load the AST classifier."""
-        if self._classifier is None:
-            from transformers import pipeline
-            device = 0 if settings.DEVICE == "cuda" else -1
-            self._classifier = pipeline(
-                "audio-classification",
-                model="MIT/ast-finetuned-audioset-10-10-0.4593",
-                device=device,
-            )
-        return self._classifier
+        """Lazy-load the AST classifier once per process."""
+        if type(self)._shared_classifier is None:
+            with type(self)._classifier_lock:
+                if type(self)._shared_classifier is None:
+                    from transformers import pipeline
+
+                    device = 0 if settings.DEVICE == "cuda" else -1
+                    logger.info(
+                        "Loading AST audio classifier: MIT/ast-finetuned-audioset-10-10-0.4593"
+                    )
+                    type(self)._shared_classifier = pipeline(
+                        "audio-classification",
+                        model="MIT/ast-finetuned-audioset-10-10-0.4593",
+                        device=device,
+                    )
+                    logger.success("AST audio classifier loaded successfully.")
+        return type(self)._shared_classifier
+
+    @classmethod
+    def prewarm(cls) -> None:
+        """Eagerly load the shared AST classifier for this process."""
+        cls()._get_classifier()
 
     def inspect(self, file_path: Path | str) -> Literal["music", "standard"]:
         """
         Analyze audio profile using multi-segment AST classification.
-        
+
         Strategy:
         1. Load audio and get total duration
         2. For short audio (<45s): classify the whole file (original behavior)
@@ -93,7 +127,9 @@ class AudioInspector:
             weighted_speech = 0.0
             total_weight = 0.0
 
-            for i, (position, weight) in enumerate(zip(SAMPLE_POSITIONS, SAMPLE_WEIGHTS)):
+            for i, (position, weight) in enumerate(
+                zip(SAMPLE_POSITIONS, SAMPLE_WEIGHTS)
+            ):
                 start_sec = max(0, duration * position - SAMPLE_DURATION_SEC / 2)
                 end_sec = min(duration, start_sec + SAMPLE_DURATION_SEC)
                 start_sec = max(0, end_sec - SAMPLE_DURATION_SEC)  # Adjust if near end
@@ -183,4 +219,3 @@ class AudioInspector:
             f"Inspector Decision: [{profile.upper()}] ({reason}) [{method}] -- {log_msg}"
         )
         return profile
-
