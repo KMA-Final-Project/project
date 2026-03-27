@@ -15,4 +15,5 @@ export const ENDPOINTS = {
   MEDIA_ARTIFACTS: (id: string) => `/media/${id}/artifacts`,
   MEDIA_DETAIL: (id: string) => `/media/${id}`,
   MEDIA_DOWNLOAD_URL: (id: string) => `/media/${id}/download-url`,
+  MEDIA_STREAM_URL: (id: string) => `/media/${id}/stream-url`,
 };

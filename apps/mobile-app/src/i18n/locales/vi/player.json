@@ -1,0 +1,20 @@
+{
+  "title": "Trình phát",
+  "loading": "Đang chuẩn bị trình phát...",
+  "error": "Không thể tải phiên phụ đề này.",
+  "noSubtitles": "Chưa có dòng phụ đề nào.",
+  "previous": "Câu trước",
+  "next": "Câu tiếp theo",
+  "loop": "Lặp",
+  "layers": "Lớp hiển thị",
+  "phonetic": "Phiên âm",
+  "translation": "Bản dịch",
+  "karaoke": "Karaoke",
+  "source": "Nguồn",
+  "deviceOnly": "Đang phát từ thiết bị này",
+  "cloudBacked": "Đang phát từ bản sao lưu đám mây",
+  "originalVideoUnavailable": "Video gốc trên thiết bị này hiện không khả dụng.",
+  "backupUnavailable": "Nguồn phát hiện chưa khả dụng.",
+  "audioFallbackMode": "Nguồn này hiện chỉ phát được ở chế độ âm thanh.",
+  "openOnYoutube": "Mở trên YouTube"
+}

@@ -5,7 +5,7 @@
  * Detects device locale via expo-localization.
  * Must be imported before expo-router/entry (see entry.ts).
  */
-import i18n from "i18next";
+import { createInstance } from "i18next";
 import { initReactI18next } from "react-i18next";
 import { getLocales } from "expo-localization";
 
@@ -13,12 +13,16 @@ import en from "./locales/en/common.json";
 import vi from "./locales/vi/common.json";
 import enProcessing from "./locales/en/processing.json";
 import viProcessing from "./locales/vi/processing.json";
+import enPlayer from "./locales/en/player.json";
+import viPlayer from "./locales/vi/player.json";
 
 export const defaultNS = "common" as const;
 
+const i18n = createInstance();
+
 export const resources = {
-  en: { common: en, processing: enProcessing },
-  vi: { common: vi, processing: viProcessing },
+  en: { common: en, processing: enProcessing, player: enPlayer },
+  vi: { common: vi, processing: viProcessing, player: viPlayer },
 } as const;
 
 export const supportedLanguages = ["en", "vi"] as const;
@@ -39,7 +43,7 @@ function getDeviceLanguage(): SupportedLanguage {
 i18n.use(initReactI18next).init({
   lng: getDeviceLanguage(),
   fallbackLng: "en",
-  ns: ["common", "processing"],
+  ns: ["common", "processing", "player"],
   defaultNS,
   resources,
   interpolation: {

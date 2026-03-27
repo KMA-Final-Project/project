@@ -7,8 +7,10 @@ import { api } from "@/services/api";
 import { ENDPOINTS } from "@/constants/endpoint";
 import type {
   ConfirmUploadResponse,
+  MediaDownloadUrlResponse,
   MediaArtifactsResponse,
   MediaItem,
+  MediaStreamResponse,
   PresignedUrlRequest,
   PresignedUrlResponse,
   ConfirmUploadRequest,
@@ -34,6 +36,22 @@ export const mediaService = {
   async getArtifacts(id: string): Promise<MediaArtifactsResponse> {
     const res = await api.get<MediaArtifactsResponse>(
       ENDPOINTS.MEDIA_ARTIFACTS(id),
+    );
+    return res.data;
+  },
+
+  /** Get the presigned URL for the final subtitle artifact */
+  async getDownloadUrl(id: string): Promise<MediaDownloadUrlResponse> {
+    const res = await api.get<MediaDownloadUrlResponse>(
+      ENDPOINTS.MEDIA_DOWNLOAD_URL(id),
+    );
+    return res.data;
+  },
+
+  /** Get the best currently playable stream for this media item */
+  async getStreamUrl(id: string): Promise<MediaStreamResponse> {
+    const res = await api.get<MediaStreamResponse>(
+      ENDPOINTS.MEDIA_STREAM_URL(id),
     );
     return res.data;
   },

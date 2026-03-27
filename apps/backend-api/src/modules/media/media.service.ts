@@ -10,6 +10,7 @@ import { MinioService } from 'src/modules/minio/minio.service';
 import { QueueService } from 'src/modules/queue/queue.service';
 import { MEDIA_ERRORS } from 'src/common/constants/error-messages';
 import type { ProcessedArtifactSummary } from 'src/modules/minio/minio.service';
+import { YtDlpService } from './yt-dlp.service';
 import {
   RequestPresignedUrlDto,
   ConfirmUploadDto,
@@ -21,6 +22,7 @@ import type {
   SubmitYoutubeResponseDto,
   DownloadUrlResponseDto,
   MediaArtifactsResponseDto,
+  StreamUrlResponseDto,
 } from './dto';
 import { MediaOriginType } from 'prisma/generated/enums';
 import {
@@ -44,6 +46,7 @@ export class MediaService {
     private readonly prisma: PrismaService,
     private readonly minioService: MinioService,
     private readonly queueService: QueueService,
+    private readonly ytDlpService: YtDlpService,
   ) {}
 
   // ==================== PRESIGNED URL FLOW ====================
@@ -230,6 +233,44 @@ export class MediaService {
       inventory.final.objectKey,
     );
     return { url };
+  }
+
+  async getStreamUrl(
+    userId: string,
+    mediaId: string,
+  ): Promise<StreamUrlResponseDto> {
+    const item = await this.prisma.mediaItem.findFirst({
+      where: { id: mediaId, userId, deletedAt: null },
+      select: { id: true, originType: true, originUrl: true },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Media item not found');
+    }
+
+    if (item.originType !== 'YOUTUBE') {
+      throw new BadRequestException(
+        'Stream URLs are only available for YouTube-sourced media items.',
+      );
+    }
+
+    if (!item.originUrl) {
+      throw new BadRequestException(
+        'This media item has no associated YouTube URL.',
+      );
+    }
+
+    const info = await this.ytDlpService.resolveStreamUrls(item.originUrl);
+
+    return {
+      videoUrl: info.videoUrl,
+      audioUrl: info.audioUrl,
+      title: info.title,
+      durationSeconds: info.durationSeconds,
+      originUrl: info.originUrl,
+      thumbnailUrl: info.thumbnailUrl,
+      expiresInSeconds: info.expiresInSeconds,
+    };
   }
 
   async getMediaStatus(userId: string, mediaId: string) {
