@@ -145,6 +145,7 @@ async def run_v2_pipeline_async(
         "progress": 0.0,
         "step": None,
     }
+    source_lang_holder: list[str] = [""]
 
     def _reserve_progress(
         progress: float, current_step: str
@@ -169,6 +170,18 @@ async def run_v2_pipeline_async(
 
             return effective_progress, effective_step, _eta(effective_progress)
 
+    def _publish_progress(
+        progress: float, current_step: str, eta: int | None
+    ) -> None:
+        publish_progress(
+            media_id,
+            user_id,
+            progress,
+            current_step,
+            eta,
+            source_lang=source_lang_holder[0] or None,
+        )
+
     logger.info("🚀 V2 Pipeline: async NMT-based bilingual subtitle generation")
 
     # ── Step 1: Audio prep (sync, fast) ──────────────────────────────────
@@ -180,7 +193,7 @@ async def run_v2_pipeline_async(
         current_step=step,
         estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, progress, step, eta)
+    _publish_progress(progress, step, eta)
     meta = await asyncio.to_thread(pipeline.audio_processor.process, audio_path)
     standardized_path = meta.path
     _trace("audio_prep_done", standardized_path=str(standardized_path))
@@ -194,7 +207,7 @@ async def run_v2_pipeline_async(
         current_step=step,
         estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, progress, step, eta)
+    _publish_progress(progress, step, eta)
     profile = await asyncio.to_thread(
         pipeline.audio_inspector.inspect, standardized_path
     )
@@ -211,7 +224,7 @@ async def run_v2_pipeline_async(
         current_step=step,
         estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, progress, step, eta)
+    _publish_progress(progress, step, eta)
     segments, clean_audio_path = await asyncio.to_thread(
         pipeline.vad_manager.process, standardized_path, profile=profile
     )
@@ -243,8 +256,6 @@ async def run_v2_pipeline_async(
     loop = asyncio.get_running_loop()
 
     tier1_chunk_index: list[int] = [0]
-    source_lang_holder: list[str] = [""]
-
     def on_chunk(batch: list[Sentence], total_so_far: int) -> None:
         """SmartAligner callback — runs in aligner's thread.
 
@@ -288,7 +299,7 @@ async def run_v2_pipeline_async(
             current_step=step,
             estimated_time_remaining=eta,
         )
-        publish_progress(media_id, user_id, progress, step, eta)
+        _publish_progress(progress, step, eta)
         logger.info(
             f"📤 V2 chunk {tier1_chunk_index[0]} ({len(batch)} sentences, "
             f"{total_so_far} total) | queue={queue.qsize()}/{queue.maxsize}"
@@ -472,7 +483,7 @@ async def run_v2_pipeline_async(
                 current_step=step,
                 estimated_time_remaining=eta,
             )
-            publish_progress(media_id, user_id, progress, step, eta)
+            _publish_progress(progress, step, eta)
 
             batch_index += 1
             logger.info(
@@ -545,7 +556,7 @@ async def run_v2_pipeline_async(
         current_step=step,
         estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, progress, step, eta)
+    _publish_progress(progress, step, eta)
 
     producer_task = asyncio.create_task(producer())
     nmt_prefetch_task = asyncio.create_task(
@@ -571,6 +582,7 @@ async def run_v2_pipeline_async(
         if detected_source_lang in settings.WHISPER_CJK_LANGUAGES
         else settings.WHISPER_MODEL_TURBO
     )
+    source_lang_holder[0] = detected_source_lang
 
     progress, step, eta = _reserve_progress(0.98, "EXPORTING")
     update_media_status(
@@ -580,7 +592,7 @@ async def run_v2_pipeline_async(
         current_step=step,
         estimated_time_remaining=eta,
     )
-    publish_progress(media_id, user_id, progress, step, eta)
+    _publish_progress(progress, step, eta)
 
     logger.success(
         f"✅ V2 Pipeline complete: {len(all_sentences)} bilingual segments | "

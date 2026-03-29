@@ -13,6 +13,7 @@ import type {
   SubtitleOutput,
   TranslatedBatch,
 } from "@/types/subtitle";
+import { normalizeSentence } from "../utils/subtitle-normalization";
 
 async function fetchArtifactJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -79,11 +80,11 @@ export function useProcessingSubtitles(mediaId: string | null, limit = 5) {
 
   const sentences = useMemo(() => {
     if (finalQuery.data) {
-      return finalQuery.data.segments.slice(0, limit);
+      return finalQuery.data.segments.slice(0, limit).map(normalizeSentence);
     }
 
-    const base: Sentence[] = chunkQuery.data ?? [];
-    const translated: Sentence[] = batchQuery.data ?? [];
+    const base: Sentence[] = (chunkQuery.data ?? []).map(normalizeSentence);
+    const translated: Sentence[] = (batchQuery.data ?? []).map(normalizeSentence);
 
     if (translated.length === 0) return base.slice(0, limit);
 
@@ -97,11 +98,11 @@ export function useProcessingSubtitles(mediaId: string | null, limit = 5) {
       const lookupKey = sentence.segment_index ?? i;
       const t = translationMap.get(lookupKey);
       if (t)
-        return {
+        return normalizeSentence({
           ...sentence,
           translation: t.translation,
           phonetic: t.phonetic,
-        };
+        });
       return sentence;
     });
   }, [batchQuery.data, chunkQuery.data, finalQuery.data, limit]);

@@ -58,6 +58,7 @@ interface ListedBucketObject {
 export class MinioService {
   private readonly logger = new Logger(MinioService.name);
   private readonly client: Minio.Client;
+  private readonly publicPresignClient: Minio.Client;
   private readonly bucketRaw: string;
   private readonly bucketProcessed: string;
   private readonly publicEndpoint: string;
@@ -86,6 +87,22 @@ export class MinioService {
       'MINIO_PUBLIC_ENDPOINT',
     );
 
+    const publicUrl = new URL(this.publicEndpoint);
+    const publicUseSSL = publicUrl.protocol === 'https:';
+    const publicPort = publicUrl.port
+      ? Number(publicUrl.port)
+      : publicUseSSL
+        ? 443
+        : 80;
+
+    this.publicPresignClient = new Minio.Client({
+      endPoint: publicUrl.hostname,
+      port: publicPort,
+      useSSL: publicUseSSL,
+      accessKey: this.configService.getOrThrow<string>('MINIO_ACCESS_KEY'),
+      secretKey: this.configService.getOrThrow<string>('MINIO_SECRET_KEY'),
+    });
+
     const protocol = useSSL ? 'https' : 'http';
     const isDefaultPort = (useSSL && port === 443) || (!useSSL && port === 80);
     this.internalOrigin = isDefaultPort
@@ -113,15 +130,10 @@ export class MinioService {
     objectKey: string,
     expirySeconds: number = 3600,
   ): Promise<string> {
-    const internalUrl = await this.client.presignedPutObject(
+    const publicUrl = await this.publicPresignClient.presignedPutObject(
       this.bucketRaw,
       objectKey,
       expirySeconds,
-    );
-
-    const publicUrl = internalUrl.replace(
-      this.internalOrigin,
-      this.publicEndpoint,
     );
 
     this.logger.debug(`Presigned URL generated for: ${objectKey}`);
@@ -134,15 +146,10 @@ export class MinioService {
     expirySeconds: number = 3600,
   ): Promise<string> {
     const targetBucket = bucket ?? this.bucketProcessed;
-    const internalUrl = await this.client.presignedGetObject(
+    const publicUrl = await this.publicPresignClient.presignedGetObject(
       targetBucket,
       objectKey,
       expirySeconds,
-    );
-
-    const publicUrl = internalUrl.replace(
-      this.internalOrigin,
-      this.publicEndpoint,
     );
 
     this.logger.debug(`Presigned GET URL generated for: ${objectKey}`);

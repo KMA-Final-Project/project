@@ -18,7 +18,6 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
-  Linking,
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -66,7 +65,8 @@ export default function ProcessingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { theme } = useUnistyles();
-  const { t } = useTranslation("processing");
+  const { t, i18n } = useTranslation("processing");
+  const sameLanguageNoticeShownRef = React.useRef<string | null>(null);
 
   const insets = useSafeAreaInsets();
 
@@ -85,18 +85,6 @@ export default function ProcessingScreen() {
   const goToLibrary = () => router.replace(ROUTES.HOME);
   const goToPlayer = () =>
     router.push({ pathname: ROUTES.PLAYER, params: { id } } as any);
-  const openFinalArtifact = async () => {
-    const finalUrl = artifacts?.final?.url;
-    if (!finalUrl) {
-      return;
-    }
-
-    try {
-      await Linking.openURL(finalUrl);
-    } catch {
-      Alert.alert(t("download.errorTitle"), t("download.errorMessage"));
-    }
-  };
 
   const progress = throttledProgress;
   const status = media?.status;
@@ -110,6 +98,37 @@ export default function ProcessingScreen() {
     : isDone
       ? theme.colors.success
       : theme.colors.primary;
+
+  React.useEffect(() => {
+    sameLanguageNoticeShownRef.current = null;
+  }, [id]);
+
+  React.useEffect(() => {
+    const detectedSourceLanguage = media?.sourceLanguage?.toLowerCase() ?? null;
+    const targetLanguage = i18n.language.toLowerCase();
+
+    if (
+      media?.status !== "PROCESSING" ||
+      !detectedSourceLanguage ||
+      detectedSourceLanguage !== targetLanguage
+    ) {
+      return;
+    }
+
+    const noticeKey = `${id}:${detectedSourceLanguage}:${targetLanguage}`;
+    if (sameLanguageNoticeShownRef.current === noticeKey) {
+      return;
+    }
+
+    sameLanguageNoticeShownRef.current = noticeKey;
+    Alert.alert(
+      t("sameLanguageNotice.title"),
+      t("sameLanguageNotice.message", {
+        language: detectedSourceLanguage.toUpperCase(),
+      }),
+      [{ text: t("sameLanguageNotice.confirm") }],
+    );
+  }, [i18n.language, id, media?.sourceLanguage, media?.status, t]);
 
   // ── Loading skeleton ──────────────────────────────────────────
   if (isLoading && !media) {
@@ -394,37 +413,12 @@ export default function ProcessingScreen() {
               </Pressable>
             )}
 
-            {hasFinalArtifact && (
-              <Pressable
-                style={[
-                  styles.btnSecondary,
-                  { borderColor: theme.colors.border },
-                ]}
-                onPress={openFinalArtifact}
-              >
-                <Ionicons
-                  name="download-outline"
-                  size={18}
-                  color={theme.colors.textSecondary}
-                  style={styles.btnIcon}
-                />
-                <Text
-                  style={[
-                    styles.btnSecondaryText,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  {t("download.action")}
-                </Text>
-              </Pressable>
-            )}
-
             <Pressable
               style={[
-                hasTranslatedOutput || hasFinalArtifact
+                hasTranslatedOutput
                   ? styles.btnSecondary
                   : styles.btnPrimary,
-                hasTranslatedOutput || hasFinalArtifact
+                hasTranslatedOutput
                   ? { borderColor: theme.colors.border }
                   : { backgroundColor: theme.colors.primary },
               ]}
@@ -432,12 +426,12 @@ export default function ProcessingScreen() {
             >
               <Text
                 style={[
-                  hasTranslatedOutput || hasFinalArtifact
+                  hasTranslatedOutput
                     ? styles.btnSecondaryText
                     : styles.btnPrimaryText,
                   {
                     color:
-                      hasTranslatedOutput || hasFinalArtifact
+                      hasTranslatedOutput
                         ? theme.colors.textSecondary
                         : theme.colors.textOnPrimary,
                   },

@@ -12,6 +12,7 @@ export interface MediaProgressEvent {
   progress: number;
   currentStep: string;
   estimatedTimeRemaining: number | null;
+  sourceLanguage?: string;
 }
 
 export interface MediaChunkReadyEvent {
@@ -117,6 +118,9 @@ export function parseMediaEvent(payload: unknown): MediaEvent | null {
           progress: payload.progress,
           currentStep: payload.currentStep,
           estimatedTimeRemaining: payload.estimatedTimeRemaining,
+          ...(isString(payload.sourceLanguage)
+            ? { sourceLanguage: payload.sourceLanguage }
+            : {}),
         };
       }
       return null;

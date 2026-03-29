@@ -40,10 +40,13 @@ export function SubtitleRow({
     );
   }, [currentTimeSec, sentence.words, showKaraoke]);
 
+  console.log("sentence", sentence);
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [pressed && styles.pressed]}
+      hitSlop={8}
     >
       <View style={[styles.container, isActive && styles.containerActive]}>
         <Text style={[styles.source, isActive && styles.sourceActive]}>
@@ -65,10 +68,10 @@ export function SubtitleRow({
             : sentence.text}
         </Text>
 
-        {showPhonetic ? (
+        {showPhonetic && Boolean(sentence.phonetic?.trim()) ? (
           <Text style={styles.phonetic}>{sentence.phonetic}</Text>
         ) : null}
-        {showTranslation ? (
+        {showTranslation && Boolean(sentence.translation?.trim()) ? (
           <Text style={styles.translation}>{sentence.translation}</Text>
         ) : null}
       </View>
@@ -85,13 +88,19 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
     borderRadius: theme.radii.xl,
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    // backgroundColor: theme.colors.card,
+    // borderWidth: 1,
+    // borderColor: theme.colors.border,
   },
   containerActive: {
     backgroundColor: theme.colors.player.activeSentenceBg,
-    borderColor: theme.colors.primary,
+    borderRadius: theme.radii.xl,
+    // borderColor: theme.colors.primary,
+    // shadowColor: theme.colors.primary,
+    // shadowOffset: { width: 0, height: 8 },
+    // shadowOpacity: 0.16,
+    // shadowRadius: 16,
+    // elevation: 4,
   },
   source: {
     color: theme.colors.text,
@@ -112,6 +121,7 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.player.phoneticText,
     fontSize: theme.typography.sizes.sm,
     fontWeight: theme.typography.weights.medium,
+    lineHeight: 20,
   },
   translation: {
     color: theme.colors.player.translationText,

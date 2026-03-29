@@ -57,20 +57,28 @@ export function MediaPane({
       >
         <View style={styles.badgeRow}>
           <View
-            style={[styles.badge, { backgroundColor: theme.colors.backdrop }]}
+            style={[
+              styles.badge,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
           >
-            <Text
-              style={[styles.badgeText, { color: theme.colors.textInverse }]}
-            >
+            <Text style={[styles.badgeText, { color: theme.colors.text }]}>
               {sourceLabel}
             </Text>
           </View>
           <View
-            style={[styles.badge, { backgroundColor: theme.colors.backdrop }]}
+            style={[
+              styles.badge,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
           >
-            <Text
-              style={[styles.badgeText, { color: theme.colors.textInverse }]}
-            >
+            <Text style={[styles.badgeText, { color: theme.colors.text }]}>
               {originType}
             </Text>
           </View>
@@ -84,7 +92,7 @@ export function MediaPane({
               style={[
                 styles.artwork,
                 styles.artworkFallback,
-                { backgroundColor: theme.colors.backdrop },
+                { backgroundColor: theme.colors.surface },
               ]}
             >
               <Ionicons
@@ -92,19 +100,19 @@ export function MediaPane({
                   originType === "YOUTUBE" ? "logo-youtube" : "musical-notes"
                 }
                 size={42}
-                color={theme.colors.textInverse}
+                color={theme.colors.textSecondary}
               />
             </View>
           )}
 
           <Text
-            style={[styles.title, { color: theme.colors.textInverse }]}
+            style={[styles.title, { color: theme.colors.text }]}
             numberOfLines={2}
           >
             {title}
           </Text>
           <Text
-            style={[styles.caption, { color: theme.colors.textInverse }]}
+            style={[styles.caption, { color: theme.colors.textSecondary }]}
             numberOfLines={2}
           >
             {source.reason === "missing-local-video"
@@ -145,6 +153,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[1],
     borderRadius: theme.radii.full,
+    borderWidth: 1,
   },
   badgeText: {
     fontSize: theme.typography.sizes.xs,

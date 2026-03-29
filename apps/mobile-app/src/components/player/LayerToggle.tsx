@@ -13,6 +13,7 @@ interface LayerToggleProps {
   showTranslation: boolean;
   showKaraoke: boolean;
   onToggleLayer: (layer: PlayerLayer) => void;
+  translationEnabled?: boolean;
 }
 
 export function LayerToggle({
@@ -22,13 +23,24 @@ export function LayerToggle({
   showTranslation,
   showKaraoke,
   onToggleLayer,
+  translationEnabled = true,
 }: LayerToggleProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation("player");
 
-  const rows: { key: PlayerLayer; label: string; value: boolean }[] = [
+  const rows: {
+    key: PlayerLayer;
+    label: string;
+    value: boolean;
+    disabled?: boolean;
+  }[] = [
     { key: "phonetic", label: t("phonetic"), value: showPhonetic },
-    { key: "translation", label: t("translation"), value: showTranslation },
+    {
+      key: "translation",
+      label: t("translation"),
+      value: showTranslation,
+      disabled: !translationEnabled,
+    },
     { key: "karaoke", label: t("karaoke"), value: showKaraoke },
   ];
 
@@ -39,13 +51,26 @@ export function LayerToggle({
           {t("layers")}
         </Text>
         {rows.map((row) => (
-          <View key={row.key} style={styles.row}>
-            <Text style={[styles.label, { color: theme.colors.text }]}>
+          <View
+            key={row.key}
+            style={[styles.row, row.disabled ? styles.rowDisabled : null]}
+          >
+            <Text
+              style={[
+                styles.label,
+                {
+                  color: row.disabled
+                    ? theme.colors.disabledText
+                    : theme.colors.text,
+                },
+              ]}
+            >
               {row.label}
             </Text>
             <Switch
               value={row.value}
               onValueChange={() => onToggleLayer(row.key)}
+              disabled={row.disabled}
               trackColor={{
                 false: theme.colors.border,
                 true: theme.colors.primaryLight,
@@ -72,6 +97,9 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: theme.spacing[2],
+  },
+  rowDisabled: {
+    opacity: 0.6,
   },
   label: {
     fontSize: theme.typography.sizes.base,

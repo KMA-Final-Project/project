@@ -39,6 +39,11 @@
   },
   "progress": "Progress",
   "eta": "Estimated time remaining: ",
+  "sameLanguageNotice": {
+    "title": "Translation skipped",
+    "message": "The detected source language matches your selected target language ({{language}}). Translation will be skipped and the original text will be reused.",
+    "confirm": "Continue"
+  },
   "runBackground": "Run in Background",
   "notificationHint": "You'll be notified when processing is done",
   "openPlayer": "Open Player",

@@ -3,6 +3,7 @@
   "loading": "Preparing player...",
   "error": "Unable to load this subtitle session.",
   "noSubtitles": "No subtitle lines are available yet.",
+  "seek": "Seek playback position",
   "previous": "Previous line",
   "next": "Next line",
   "loop": "Loop",

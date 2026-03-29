@@ -203,9 +203,18 @@ export function useSocketSync() {
   useEffect(() => {
     // 1. media_progress — throttled
     const unsubProgress = socketService.onProgress((event) => {
+      const currentStatus = queryClient.getQueryData<MediaStatusResponse>(
+        mediaKeys.status(event.mediaId),
+      );
+      const hasNewSourceLanguage =
+        Boolean(event.sourceLanguage) &&
+        event.sourceLanguage !== currentStatus?.sourceLanguage;
+
       const now = Date.now();
       const last = lastProgressWrite.current[event.mediaId] ?? 0;
-      if (now - last < PROGRESS_THROTTLE_MS) return; // skip
+      if (!hasNewSourceLanguage && now - last < PROGRESS_THROTTLE_MS) {
+        return;
+      }
       lastProgressWrite.current[event.mediaId] = now;
 
       const patch: Partial<MediaItem> = {
@@ -213,6 +222,7 @@ export function useSocketSync() {
         progress: event.progress,
         currentStep: event.currentStep as MediaPipelineStage,
         estimatedTimeRemaining: event.estimatedTimeRemaining,
+        sourceLanguage: event.sourceLanguage ?? currentStatus?.sourceLanguage,
       };
       patchStatus(event.mediaId, patch);
       patchList(event.mediaId, patch);

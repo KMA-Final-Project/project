@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { mediaService } from "@/services/media.services";
 import type { SubtitleOutput } from "@/types/subtitle";
+import { normalizeSubtitleOutput } from "../utils/subtitle-normalization";
 
 const fetchSubtitleOutput = async (
   mediaId: string,
@@ -13,7 +14,7 @@ const fetchSubtitleOutput = async (
     throw new Error(`Failed to fetch subtitles: ${response.status}`);
   }
 
-  return (await response.json()) as SubtitleOutput;
+  return normalizeSubtitleOutput((await response.json()) as SubtitleOutput);
 };
 
 export const usePlayerSubtitles = (mediaId: string | null) =>

@@ -36,6 +36,8 @@ export const useMediaPlayback = (source: PlaybackSource): PlaybackControls => {
     player.loop = false;
     player.timeUpdateEventInterval = 0.25;
     player.preservesPitch = true;
+    player.volume = 1;
+    player.muted = false;
   });
 
   const { isPlaying: isVideoPlaying } = useEvent(videoPlayer, "playingChange", {
@@ -56,9 +58,16 @@ export const useMediaPlayback = (source: PlaybackSource): PlaybackControls => {
     void setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: false,
-      interruptionMode: "mixWithOthers",
+      shouldRouteThroughEarpiece: false,
+      interruptionMode: "doNotMix",
     });
   }, []);
+
+  useEffect(() => {
+    audioPlayer.volume = 1;
+    videoPlayer.volume = 1;
+    videoPlayer.muted = false;
+  }, [audioPlayer, videoPlayer]);
 
   useEffect(() => {
     if (source.kind === "video") {

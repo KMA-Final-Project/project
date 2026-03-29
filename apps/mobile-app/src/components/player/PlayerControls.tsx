@@ -1,10 +1,22 @@
-import React, { useState } from "react";
-import { LayoutChangeEvent, Pressable, Text, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
+import {
+  Gesture,
+  GestureDetector,
+} from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { IconButton } from "@/components";
+
+const AnimatedView = Animated.createAnimatedComponent(View);
 
 interface PlayerControlsProps {
   currentTimeSec: number;
@@ -44,65 +56,185 @@ export function PlayerControls({
   const { theme } = useUnistyles();
   const { t } = useTranslation("player");
   const [trackWidth, setTrackWidth] = useState(0);
+  const [scrubbingTimeSec, setScrubbingTimeSec] = useState<number | null>(null);
+  const thumbScale = useSharedValue(1);
+  const trackScaleY = useSharedValue(1);
 
+  const displayedTimeSec = scrubbingTimeSec ?? currentTimeSec;
   const progress =
-    durationSec > 0 ? Math.min(currentTimeSec / durationSec, 1) : 0;
+    durationSec > 0 ? Math.min(displayedTimeSec / durationSec, 1) : 0;
+  const canSeek = !disabled && durationSec > 0 && trackWidth > 0;
 
-  const handleSeekPress = (event: LayoutChangeEvent | any) => {
-    if (disabled || durationSec <= 0 || trackWidth <= 0) {
-      return;
-    }
+  const resolveSeekTime = useCallback(
+    (positionX: number) => {
+      if (!canSeek) {
+        return currentTimeSec;
+      }
 
-    const nextProgress = Math.max(
-      0,
-      Math.min(event.nativeEvent.locationX / trackWidth, 1),
-    );
-    onSeek(nextProgress * durationSec);
-  };
+      const nextProgress = Math.max(0, Math.min(positionX / trackWidth, 1));
+      return nextProgress * durationSec;
+    },
+    [canSeek, currentTimeSec, durationSec, trackWidth],
+  );
+
+  const showActiveScrubber = useCallback(() => {
+    thumbScale.value = withTiming(1.45, { duration: 120 });
+    trackScaleY.value = withTiming(1.2, { duration: 120 });
+  }, [thumbScale, trackScaleY]);
+
+  const hideActiveScrubber = useCallback(() => {
+    thumbScale.value = withTiming(1, { duration: 180 });
+    trackScaleY.value = withTiming(1, { duration: 180 });
+  }, [thumbScale, trackScaleY]);
+
+  const previewSeek = useCallback(
+    (positionX: number) => {
+      if (!canSeek) {
+        return;
+      }
+
+      setScrubbingTimeSec(resolveSeekTime(positionX));
+    },
+    [canSeek, resolveSeekTime],
+  );
+
+  const commitSeek = useCallback(
+    (positionX: number) => {
+      if (!canSeek) {
+        return;
+      }
+
+      onSeek(resolveSeekTime(positionX));
+      setScrubbingTimeSec(null);
+    },
+    [canSeek, onSeek, resolveSeekTime],
+  );
+
+  const cancelPreview = useCallback(() => {
+    setScrubbingTimeSec(null);
+  }, []);
+
+  const triggerScrubStartHaptic = useCallback(() => {
+    void Haptics.selectionAsync();
+  }, []);
+
+  const triggerSeekCommitHaptic = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
+
+  const tapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .enabled(canSeek)
+        .runOnJS(true)
+        .onEnd((event) => {
+          commitSeek(event.x);
+          triggerSeekCommitHaptic();
+        }),
+    [canSeek, commitSeek, triggerSeekCommitHaptic],
+  );
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(canSeek)
+        .runOnJS(true)
+        .maxPointers(1)
+        .activeOffsetX([-4, 4])
+        .onBegin(() => {
+          showActiveScrubber();
+          triggerScrubStartHaptic();
+        })
+        .onStart((event) => {
+          previewSeek(event.x);
+        })
+        .onUpdate((event) => {
+          previewSeek(event.x);
+        })
+        .onEnd((event) => {
+          commitSeek(event.x);
+          triggerSeekCommitHaptic();
+        })
+        .onFinalize(() => {
+          hideActiveScrubber();
+          cancelPreview();
+        }),
+    [
+      canSeek,
+      cancelPreview,
+      commitSeek,
+      hideActiveScrubber,
+      previewSeek,
+      showActiveScrubber,
+      triggerScrubStartHaptic,
+      triggerSeekCommitHaptic,
+    ],
+  );
+
+  const scrubberGesture = useMemo(
+    () => Gesture.Exclusive(panGesture, tapGesture),
+    [panGesture, tapGesture],
+  );
+
+  const progressBarAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleY: trackScaleY.value }],
+  }));
+
+  const thumbAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: thumbScale.value }],
+  }));
 
   return (
     <View style={[styles.card, { backgroundColor: theme.colors.card }]}>
       <View style={styles.timeRow}>
         <Text style={[styles.timeLabel, { color: theme.colors.textSecondary }]}>
-          {formatTime(currentTimeSec)}
+          {formatTime(displayedTimeSec)}
         </Text>
         <Text style={[styles.timeLabel, { color: theme.colors.textSecondary }]}>
           {formatTime(durationSec)}
         </Text>
       </View>
 
-      <Pressable
-        disabled={disabled}
-        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
-        onPress={handleSeekPress}
-        style={styles.progressTrack}
-      >
-        <View
-          style={[
-            styles.progressBar,
-            { backgroundColor: theme.colors.surface },
-          ]}
+      <GestureDetector gesture={scrubberGesture}>
+        <AnimatedView
+          onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+          style={[styles.progressTrack, disabled && styles.progressTrackDisabled]}
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityState={{ disabled }}
+          accessibilityLabel={t("seek")}
         >
-          <View
+          <AnimatedView
             style={[
-              styles.progressFill,
+              styles.progressBar,
               {
-                width: `${progress * 100}%`,
-                backgroundColor: theme.colors.primary,
+                backgroundColor: theme.colors.surface,
               },
+              progressBarAnimatedStyle,
             ]}
-          />
-          <View
-            style={[
-              styles.thumb,
-              {
-                backgroundColor: theme.colors.primary,
-                left: `${progress * 100}%`,
-              },
-            ]}
-          />
-        </View>
-      </Pressable>
+          >
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${progress * 100}%`,
+                  backgroundColor: theme.colors.primary,
+                },
+              ]}
+            />
+            <AnimatedView
+              style={[
+                styles.thumb,
+                {
+                  backgroundColor: theme.colors.primary,
+                  left: `${progress * 100}%`,
+                },
+                thumbAnimatedStyle,
+              ]}
+            />
+          </AnimatedView>
+        </AnimatedView>
+      </GestureDetector>
 
       <View style={styles.controlsRow}>
         <Pressable onPress={onCycleSpeed} style={styles.sideAction}>
@@ -125,7 +257,7 @@ export function PlayerControls({
             onPress={onPrevious}
             disabled={disabled}
             accessibilityLabel={t("previous")}
-            color={theme.colors.textOnPrimary}
+            color={theme.colors.text}
           />
           <Pressable
             onPress={onTogglePlayback}
@@ -152,7 +284,7 @@ export function PlayerControls({
             onPress={onNext}
             disabled={disabled}
             accessibilityLabel={t("next")}
-            color={theme.colors.textOnPrimary}
+            color={theme.colors.text}
           />
         </View>
 
@@ -202,6 +334,9 @@ const styles = StyleSheet.create((theme) => ({
   progressTrack: {
     paddingVertical: theme.spacing[2],
   },
+  progressTrackDisabled: {
+    opacity: 0.55,
+  },
   progressBar: {
     height: 8,
     borderRadius: theme.radii.full,
@@ -237,8 +372,8 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   playButton: {
-    width: 84,
-    height: 84,
+    width: 72,
+    height: 72,
     borderRadius: theme.radii.full,
     alignItems: "center",
     justifyContent: "center",

@@ -1,17 +1,31 @@
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  ListRenderItemInfo,
+  Text,
+  View,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import * as WebBrowser from "expo-web-browser";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   IconButton,
   LayerToggle,
   MediaPane,
   PlayerControls,
-  SourceActions,
+  SubtitleRow,
+  // SourceActions,
 } from "@/components";
 import { useActiveSentence } from "@/hooks/useActiveSentence";
 import { useMediaPlayback } from "@/hooks/useMediaPlayback";
@@ -26,8 +40,10 @@ export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { theme } = useUnistyles();
-  const { t } = useTranslation("player");
+  const { t, i18n } = useTranslation("player");
+  const insets = useSafeAreaInsets();
   const [layersVisible, setLayersVisible] = useState(false);
+  const sentenceListRef = useRef<FlatList<Sentence>>(null);
 
   const { data: mediaItem, isLoading: mediaLoading } = useMediaStatus(
     id ?? null,
@@ -35,7 +51,10 @@ export default function PlayerScreen() {
   const subtitlesQuery = usePlayerSubtitles(id ?? null);
   const playbackSource = usePlaybackSource(mediaItem);
   const playback = useMediaPlayback(playbackSource.source);
-  const segments = subtitlesQuery.data?.segments ?? [];
+  const segments = useMemo(
+    () => subtitlesQuery.data?.segments ?? [],
+    [subtitlesQuery.data?.segments],
+  );
 
   const {
     currentTimeSec,
@@ -65,9 +84,25 @@ export default function PlayerScreen() {
     activeSentenceState.activeSentenceIndex >= 0
       ? activeSentenceState.activeSentenceIndex
       : 0;
-  const previousSentence = segments[currentSentenceIndex - 1] ?? null;
-  const activeSentence = segments[currentSentenceIndex] ?? null;
-  const nextSentence = segments[currentSentenceIndex + 1] ?? null;
+  const normalizedAppLanguage = useMemo(
+    () => normalizeLanguage(i18n.resolvedLanguage ?? i18n.language),
+    [i18n.language, i18n.resolvedLanguage],
+  );
+  const normalizedSourceLanguage = useMemo(
+    () =>
+      normalizeLanguage(
+        subtitlesQuery.data?.metadata.source_lang ?? mediaItem?.sourceLanguage,
+      ),
+    [mediaItem?.sourceLanguage, subtitlesQuery.data?.metadata.source_lang],
+  );
+  const hasTranslationContent = useMemo(
+    () => segments.some((sentence) => Boolean(sentence.translation?.trim())),
+    [segments],
+  );
+  const isTranslationLayerAvailable =
+    hasTranslationContent &&
+    (!normalizedSourceLanguage ||
+      normalizedAppLanguage !== normalizedSourceLanguage);
 
   useEffect(() => {
     setCurrentTime(playback.currentTimeSec);
@@ -97,6 +132,12 @@ export default function PlayerScreen() {
   }, [playback, playbackSpeed]);
 
   useEffect(() => {
+    if (!isTranslationLayerAvailable && showTranslation) {
+      toggleLayer("translation");
+    }
+  }, [isTranslationLayerAvailable, showTranslation, toggleLayer]);
+
+  useEffect(() => {
     if (
       !loopSentence ||
       !activeSentenceState.activeSentence ||
@@ -121,20 +162,23 @@ export default function PlayerScreen() {
   const playerDisabled = playbackSource.source.kind === "none";
 
   const handleBack = () => {
-    router.replace({ pathname: ROUTES.PROCESSING, params: { id } } as never);
+    router.replace({ pathname: ROUTES.HOME } as any);
   };
 
-  const handleJumpToSentence = (index: number) => {
-    const segment = segments[index];
-    if (!segment) {
-      return;
-    }
+  const handleJumpToSentence = useCallback(
+    (index: number) => {
+      const segment = segments[index];
+      if (!segment) {
+        return;
+      }
 
-    playback.seekTo(segment.start);
-    if (!playback.isPlaying && !playerDisabled) {
-      playback.play();
-    }
-  };
+      playback.seekTo(segment.start);
+      if (!playback.isPlaying && !playerDisabled) {
+        playback.play();
+      }
+    },
+    [playback, playerDisabled, segments],
+  );
 
   const handleOpenYoutube = async () => {
     if (!mediaItem?.originUrl) {
@@ -145,68 +189,66 @@ export default function PlayerScreen() {
   };
 
   const controlsDisabled = playerDisabled || segments.length === 0;
+  const headerTextColor = theme.colors.text;
+  const handleScrollToIndexFailed = useCallback(
+    ({
+      averageItemLength,
+      index,
+    }: {
+      averageItemLength: number;
+      index: number;
+    }) => {
+      const fallbackOffset = Math.max(
+        0,
+        averageItemLength * index - averageItemLength,
+      );
 
-  const renderStageSentence = (
-    sentence: Sentence | null,
-    emphasis: "muted" | "active",
-    index: number,
-  ) => {
-    if (!sentence) {
-      return <View style={styles.emptySentenceSlot} />;
+      requestAnimationFrame(() => {
+        sentenceListRef.current?.scrollToOffset({
+          offset: fallbackOffset,
+          animated: true,
+        });
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (activeSentenceState.activeSentenceIndex < 0 || segments.length === 0) {
+      return;
     }
 
-    const muted = emphasis === "muted";
+    requestAnimationFrame(() => {
+      sentenceListRef.current?.scrollToIndex({
+        index: activeSentenceState.activeSentenceIndex,
+        animated: true,
+        viewPosition: 0.35,
+      });
+    });
+  }, [activeSentenceState.activeSentenceIndex, segments.length]);
 
-    return (
-      <Pressable
-        key={`${sentence.start}-${sentence.end}-${index}`}
+  const renderSentenceItem = useCallback(
+    ({ item, index }: ListRenderItemInfo<Sentence>) => (
+      <SubtitleRow
+        sentence={item}
+        isActive={index === activeSentenceState.activeSentenceIndex}
+        currentTimeSec={playback.currentTimeSec}
+        showPhonetic={showPhonetic}
+        showTranslation={showTranslation && isTranslationLayerAvailable}
+        showKaraoke={showKaraoke}
         onPress={() => handleJumpToSentence(index)}
-        style={({ pressed }) => [
-          styles.sentenceBlock,
-          muted ? styles.sentenceMuted : styles.sentenceActive,
-          pressed && styles.sentencePressed,
-        ]}
-      >
-        <Text
-          style={[
-            styles.sentenceText,
-            muted ? styles.sentenceTextMuted : styles.sentenceTextActive,
-            {
-              color: muted
-                ? theme.colors.textInverse
-                : theme.colors.textInverse,
-            },
-          ]}
-        >
-          {sentence.text}
-        </Text>
-
-        {showPhonetic ? (
-          <Text
-            style={[
-              styles.phoneticText,
-              muted ? styles.phoneticMuted : styles.phoneticActive,
-              { color: theme.colors.player.phoneticText },
-            ]}
-          >
-            {sentence.phonetic}
-          </Text>
-        ) : null}
-
-        {showTranslation ? (
-          <Text
-            style={[
-              styles.translationText,
-              muted ? styles.translationMuted : styles.translationActive,
-              { color: theme.colors.player.translationText },
-            ]}
-          >
-            {sentence.translation}
-          </Text>
-        ) : null}
-      </Pressable>
-    );
-  };
+      />
+    ),
+    [
+      activeSentenceState.activeSentenceIndex,
+      handleJumpToSentence,
+      playback.currentTimeSec,
+      showKaraoke,
+      showPhonetic,
+      showTranslation,
+      isTranslationLayerAvailable,
+    ],
+  );
 
   return (
     <LinearGradient
@@ -216,17 +258,22 @@ export default function PlayerScreen() {
       ]}
       style={styles.root}
     >
-      <View style={styles.header}>
+      <View
+        style={[styles.header, { paddingTop: insets.top + theme.spacing[3] }]}
+      >
         <IconButton
           name="chevron-back"
           size={28}
-          color={theme.colors.textInverse}
+          color={headerTextColor}
           onPress={handleBack}
           accessibilityLabel="Back"
         />
 
         <View style={styles.headerTitles}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
+          <Text
+            style={[styles.headerTitle, { color: headerTextColor }]}
+            numberOfLines={1}
+          >
             {title}
           </Text>
           <Text
@@ -239,7 +286,7 @@ export default function PlayerScreen() {
         <IconButton
           name={mediaItem?.originUrl ? "open-outline" : "ellipsis-horizontal"}
           size={24}
-          color={theme.colors.textInverse}
+          color={headerTextColor}
           onPress={
             mediaItem?.originUrl
               ? handleOpenYoutube
@@ -255,7 +302,7 @@ export default function PlayerScreen() {
           <View style={styles.centerState}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text
-              style={[styles.stateText, { color: theme.colors.textInverse }]}
+              style={[styles.stateText, { color: theme.colors.textSecondary }]}
             >
               {t("loading")}
             </Text>
@@ -269,7 +316,7 @@ export default function PlayerScreen() {
         ) : segments.length === 0 ? (
           <View style={styles.centerState}>
             <Text
-              style={[styles.stateText, { color: theme.colors.textInverse }]}
+              style={[styles.stateText, { color: theme.colors.textSecondary }]}
             >
               {t("noSubtitles")}
             </Text>
@@ -286,23 +333,21 @@ export default function PlayerScreen() {
               />
             ) : null}
 
-            <View style={styles.stage}>
-              {renderStageSentence(
-                previousSentence,
-                "muted",
-                Math.max(currentSentenceIndex - 1, 0),
-              )}
-              {renderStageSentence(
-                activeSentence,
-                "active",
-                currentSentenceIndex,
-              )}
-              {renderStageSentence(
-                nextSentence,
-                "muted",
-                Math.min(currentSentenceIndex + 1, segments.length - 1),
-              )}
-            </View>
+            <FlatList
+              ref={sentenceListRef}
+              data={segments}
+              keyExtractor={(item, index) =>
+                `${item.segment_index ?? index}-${item.start}-${item.end}`
+              }
+              renderItem={renderSentenceItem}
+              style={styles.sentenceList}
+              contentContainerStyle={styles.sentenceListContent}
+              showsVerticalScrollIndicator={false}
+              onScrollToIndexFailed={handleScrollToIndexFailed}
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={7}
+            />
           </>
         )}
       </View>
@@ -310,7 +355,11 @@ export default function PlayerScreen() {
       <View
         style={[
           styles.footerShell,
-          { backgroundColor: "rgba(15, 23, 42, 0.92)" },
+          {
+            backgroundColor: theme.colors.card,
+            borderColor: theme.colors.divider,
+            paddingBottom: Math.max(insets.bottom, theme.spacing[5]),
+          },
         ]}
       >
         <PlayerControls
@@ -336,26 +385,35 @@ export default function PlayerScreen() {
           onToggleLoop={toggleLoop}
         />
 
-        {mediaItem ? (
+        {/* {mediaItem ? (
           <SourceActions
             mediaItem={mediaItem}
             source={playbackSource.source}
             onOpenLayers={() => setLayersVisible(true)}
             onOpenYoutube={handleOpenYoutube}
           />
-        ) : null}
+        ) : null} */}
       </View>
 
       <LayerToggle
         visible={layersVisible}
         onClose={() => setLayersVisible(false)}
         showPhonetic={showPhonetic}
-        showTranslation={showTranslation}
+        showTranslation={showTranslation && isTranslationLayerAvailable}
         showKaraoke={showKaraoke}
         onToggleLayer={toggleLayer}
+        translationEnabled={isTranslationLayerAvailable}
       />
     </LinearGradient>
   );
+}
+
+function normalizeLanguage(language: string | null | undefined): string | null {
+  if (!language) {
+    return null;
+  }
+
+  return language.split(/[-_]/)[0]?.toLowerCase() ?? null;
 }
 
 const styles = StyleSheet.create((theme) => ({
@@ -367,8 +425,8 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: theme.spacing[4],
-    paddingTop: theme.spacing[12],
     paddingBottom: theme.spacing[4],
+    gap: theme.spacing[4],
   },
   headerTitles: {
     flex: 1,
@@ -376,8 +434,7 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing[1],
   },
   headerTitle: {
-    color: theme.colors.textInverse,
-    fontSize: theme.typography.sizes["2xl"],
+    fontSize: theme.typography.sizes["base"],
     fontWeight: theme.typography.weights.bold,
   },
   headerEyebrow: {
@@ -387,69 +444,24 @@ const styles = StyleSheet.create((theme) => ({
   },
   content: {
     flex: 1,
-    paddingHorizontal: theme.spacing[6],
-    justifyContent: "center",
+    minHeight: 0,
+    paddingHorizontal: theme.spacing[5],
+    paddingBottom: theme.spacing[4],
+    gap: theme.spacing[4],
   },
-  stage: {
+  sentenceList: {
     flex: 1,
-    justifyContent: "center",
-    gap: theme.spacing[8],
+    minHeight: 0,
   },
-  sentenceBlock: {
-    gap: theme.spacing[2],
-    alignSelf: "stretch",
-  },
-  sentencePressed: {
-    opacity: 0.88,
-  },
-  sentenceMuted: {
-    opacity: 0.38,
-  },
-  sentenceActive: {
-    transform: [{ scale: 1.06 }],
-  },
-  sentenceText: {
-    lineHeight: 50,
-  },
-  sentenceTextMuted: {
-    fontSize: theme.typography.sizes["3xl"],
-    fontWeight: theme.typography.weights.medium,
-  },
-  sentenceTextActive: {
-    fontSize: theme.typography.sizes["4xl"],
-    fontWeight: theme.typography.weights.bold,
-  },
-  phoneticText: {
-    lineHeight: 34,
-  },
-  phoneticMuted: {
-    fontSize: theme.typography.sizes.lg,
-    fontWeight: theme.typography.weights.medium,
-  },
-  phoneticActive: {
-    fontSize: theme.typography.sizes["2xl"],
-    fontWeight: theme.typography.weights.bold,
-  },
-  translationText: {
-    lineHeight: 34,
-  },
-  translationMuted: {
-    fontSize: theme.typography.sizes.lg,
-    fontWeight: theme.typography.weights.medium,
-  },
-  translationActive: {
-    fontSize: theme.typography.sizes["2xl"],
-    fontWeight: theme.typography.weights.bold,
-  },
-  emptySentenceSlot: {
-    minHeight: 72,
+  sentenceListContent: {
+    gap: theme.spacing[3],
+    paddingBottom: theme.spacing[2],
   },
   footerShell: {
     borderTopLeftRadius: theme.radii["2xl"],
     borderTopRightRadius: theme.radii["2xl"],
     borderTopWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingBottom: theme.spacing[8],
+    paddingTop: theme.spacing[1],
   },
   centerState: {
     flex: 1,

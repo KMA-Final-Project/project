@@ -8,7 +8,7 @@
  */
 import React, { useState } from "react";
 import { View } from "react-native";
-import { Tabs } from "expo-router";
+import { Tabs, useSegments } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
@@ -23,9 +23,16 @@ export default function AppLayout() {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const segments = useSegments();
 
   // Upload sheet state — lives HERE so it appears as an overlay over any tab
   const [uploadVisible, setUploadVisible] = useState(false);
+
+  const hiddenTabRoutes = new Set(["processing", "player", "media-picker"]);
+  const activeLeafSegment = segments[segments.length - 1];
+  const shouldHideTabBar =
+    typeof activeLeafSegment === "string" &&
+    hiddenTabRoutes.has(activeLeafSegment);
 
   const handleCloseUpload = () => {
     setUploadVisible(false);
@@ -37,6 +44,7 @@ export default function AppLayout() {
         screenOptions={{
           headerShown: false,
           tabBarStyle: {
+            display: shouldHideTabBar ? "none" : "flex",
             backgroundColor: theme.colors.tabBar,
             borderTopColor: theme.colors.divider,
             elevation: 0,
