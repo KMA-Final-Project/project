@@ -4,16 +4,10 @@
  * Simple app-sandbox media registry for device-selected originals.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  copyAsync,
-  deleteAsync,
-  documentDirectory,
-  getInfoAsync,
-  makeDirectoryAsync,
-} from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 
 const VAULT_KEY = "@kapter/local-vault";
-const VAULT_DIR = `${documentDirectory ?? ""}local-media-vault`;
+const VAULT_DIR = new Directory(Paths.document, "local-media-vault");
 
 export interface LocalVaultEntry {
   mediaItemId: string;
@@ -37,11 +31,7 @@ interface SaveLocalVaultEntryInput {
 }
 
 const ensureVaultDirectory = async (): Promise<void> => {
-  const vaultInfo = await getInfoAsync(VAULT_DIR);
-
-  if (!vaultInfo.exists) {
-    await makeDirectoryAsync(VAULT_DIR, { intermediates: true });
-  }
+  VAULT_DIR.create({ idempotent: true, intermediates: true });
 };
 
 const sanitizeFileName = (fileName: string): string =>
@@ -68,17 +58,24 @@ export const localMediaVault = {
   ): Promise<LocalVaultEntry> {
     await ensureVaultDirectory();
 
-    const fileName = sanitizeFileName(input.originalFileName);
-    const targetUri = `${VAULT_DIR}/${input.mediaItemId}-${Date.now()}-${fileName}`;
+    const existingEntry = await this.getEntry(input.mediaItemId);
+    // delete existing file if present to avoid orphaned files and ensure we don't exceed storage limits
+    if (existingEntry?.localUri) {
+      await this.removeEntry(input.mediaItemId, { deleteFile: true });
+    }
 
-    await copyAsync({
-      from: input.sourceUri,
-      to: targetUri,
-    });
+    const fileName = sanitizeFileName(input.originalFileName);
+    const targetFile = new File(
+      VAULT_DIR,
+      `${input.mediaItemId}-${Date.now()}-${fileName}`,
+    );
+    const sourceFile = new File(input.sourceUri);
+
+    sourceFile.copy(targetFile);
 
     const entry: LocalVaultEntry = {
       mediaItemId: input.mediaItemId,
-      localUri: targetUri,
+      localUri: targetFile.uri,
       originalFileName: input.originalFileName,
       mediaKind: input.mediaKind,
       sizeBytes: input.sizeBytes,
@@ -99,8 +96,8 @@ export const localMediaVault = {
     if (!entry) return null;
 
     // Verify file still exists
-    const fileInfo = await getInfoAsync(entry.localUri);
-    if (!fileInfo.exists) {
+    const localFile = new File(entry.localUri);
+    if (!localFile.exists) {
       await this.removeEntry(mediaItemId);
       return null;
     }
@@ -121,7 +118,10 @@ export const localMediaVault = {
     }
 
     if (options?.deleteFile) {
-      await deleteAsync(entry.localUri, { idempotent: true });
+      const localFile = new File(entry.localUri);
+      if (localFile.exists) {
+        localFile.delete();
+      }
     }
 
     delete vault[mediaItemId];

@@ -123,8 +123,8 @@ export const lightTheme: AppTheme = {
     statusBar: palette.white,
 
     player: {
-      gradientStart: "#F7FBFF",
-      gradientEnd: "#EAF2FB",
+      gradientStart: palette.whiteBlue,
+      gradientEnd: palette.gray50,
       karaokeHighlight: brand.primary,
       phoneticText: brand.primaryDark,
       translationText: brand.secondary,
