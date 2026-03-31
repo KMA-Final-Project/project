@@ -40,8 +40,6 @@ export function SubtitleRow({
     );
   }, [currentTimeSec, sentence.words, showKaraoke]);
 
-  console.log("sentence", sentence);
-
   return (
     <Pressable
       onPress={onPress}

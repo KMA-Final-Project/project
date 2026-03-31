@@ -24,6 +24,7 @@ import {
   LayerToggle,
   MediaPane,
   PlayerControls,
+  StreamingTailIndicator,
   SubtitleRow,
   // SourceActions,
 } from "@/components";
@@ -43,7 +44,11 @@ export default function PlayerScreen() {
   const { t, i18n } = useTranslation("player");
   const insets = useSafeAreaInsets();
   const [layersVisible, setLayersVisible] = useState(false);
+  const [pendingSeekTimeSec, setPendingSeekTimeSec] = useState<number | null>(
+    null,
+  );
   const sentenceListRef = useRef<FlatList<Sentence>>(null);
+  const shouldResumeWhenCoverageArrivesRef = useRef(false);
 
   const { data: mediaItem, isLoading: mediaLoading } = useMediaStatus(
     id ?? null,
@@ -51,10 +56,8 @@ export default function PlayerScreen() {
   const subtitlesQuery = usePlayerSubtitles(id ?? null);
   const playbackSource = usePlaybackSource(mediaItem);
   const playback = useMediaPlayback(playbackSource.source);
-  const segments = useMemo(
-    () => subtitlesQuery.data?.segments ?? [],
-    [subtitlesQuery.data?.segments],
-  );
+  const { hasCoverageAt, isFinal, isPartial } = subtitlesQuery;
+  const segments = subtitlesQuery.segments;
 
   const {
     currentTimeSec,
@@ -91,9 +94,9 @@ export default function PlayerScreen() {
   const normalizedSourceLanguage = useMemo(
     () =>
       normalizeLanguage(
-        subtitlesQuery.data?.metadata.source_lang ?? mediaItem?.sourceLanguage,
+        subtitlesQuery.metadata?.source_lang ?? mediaItem?.sourceLanguage,
       ),
-    [mediaItem?.sourceLanguage, subtitlesQuery.data?.metadata.source_lang],
+    [mediaItem?.sourceLanguage, subtitlesQuery.metadata?.source_lang],
   );
   const hasTranslationContent = useMemo(
     () => segments.some((sentence) => Boolean(sentence.translation?.trim())),
@@ -103,6 +106,13 @@ export default function PlayerScreen() {
     hasTranslationContent &&
     (!normalizedSourceLanguage ||
       normalizedAppLanguage !== normalizedSourceLanguage);
+  const isCoveragePending = pendingSeekTimeSec != null && !isFinal;
+  const shouldShowStreamingTail = isPartial && segments.length > 0;
+  const pendingSeekLabel = useMemo(
+    () =>
+      pendingSeekTimeSec == null ? null : formatTimeLabel(pendingSeekTimeSec),
+    [pendingSeekTimeSec],
+  );
 
   useEffect(() => {
     setCurrentTime(playback.currentTimeSec);
@@ -161,6 +171,34 @@ export default function PlayerScreen() {
   const title = mediaItem?.title || t("title");
   const playerDisabled = playbackSource.source.kind === "none";
 
+  const requestSeek = useCallback(
+    (nextTimeSec: number) => {
+      playback.seekTo(nextTimeSec);
+
+      if (hasCoverageAt(nextTimeSec)) {
+        const shouldResume =
+          playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
+
+        setPendingSeekTimeSec(null);
+        shouldResumeWhenCoverageArrivesRef.current = false;
+
+        if (shouldResume && !playerDisabled) {
+          playback.play();
+          return;
+        }
+
+        playback.pause();
+        return;
+      }
+
+      shouldResumeWhenCoverageArrivesRef.current =
+        playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
+      playback.pause();
+      setPendingSeekTimeSec(nextTimeSec);
+    },
+    [hasCoverageAt, playback, playerDisabled],
+  );
+
   const handleBack = () => {
     router.replace({ pathname: ROUTES.HOME } as any);
   };
@@ -172,12 +210,9 @@ export default function PlayerScreen() {
         return;
       }
 
-      playback.seekTo(segment.start);
-      if (!playback.isPlaying && !playerDisabled) {
-        playback.play();
-      }
+      requestSeek(segment.start);
     },
-    [playback, playerDisabled, segments],
+    [requestSeek, segments],
   );
 
   const handleOpenYoutube = async () => {
@@ -226,6 +261,59 @@ export default function PlayerScreen() {
       });
     });
   }, [activeSentenceState.activeSentenceIndex, segments.length]);
+
+  useEffect(() => {
+    if (pendingSeekTimeSec == null || !hasCoverageAt(pendingSeekTimeSec)) {
+      return;
+    }
+
+    setPendingSeekTimeSec(null);
+
+    if (shouldResumeWhenCoverageArrivesRef.current && !playerDisabled) {
+      shouldResumeWhenCoverageArrivesRef.current = false;
+      playback.play();
+      return;
+    }
+
+    shouldResumeWhenCoverageArrivesRef.current = false;
+  }, [hasCoverageAt, pendingSeekTimeSec, playback, playerDisabled]);
+
+  useEffect(() => {
+    if (
+      playerDisabled ||
+      isFinal ||
+      segments.length === 0 ||
+      hasCoverageAt(playback.currentTimeSec)
+    ) {
+      return;
+    }
+
+    shouldResumeWhenCoverageArrivesRef.current =
+      playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
+    playback.pause();
+    setPendingSeekTimeSec(playback.currentTimeSec);
+  }, [hasCoverageAt, isFinal, playback, playerDisabled, segments.length]);
+
+  const handleTogglePlayback = useCallback(() => {
+    if (playerDisabled) {
+      return;
+    }
+
+    if (isPlaying) {
+      shouldResumeWhenCoverageArrivesRef.current = false;
+      playback.pause();
+      return;
+    }
+
+    if (!hasCoverageAt(playback.currentTimeSec)) {
+      shouldResumeWhenCoverageArrivesRef.current = true;
+      setPendingSeekTimeSec(playback.currentTimeSec);
+      playback.pause();
+      return;
+    }
+
+    playback.play();
+  }, [hasCoverageAt, isPlaying, playback, playerDisabled]);
 
   const renderSentenceItem = useCallback(
     ({ item, index }: ListRenderItemInfo<Sentence>) => (
@@ -315,11 +403,28 @@ export default function PlayerScreen() {
           </View>
         ) : segments.length === 0 ? (
           <View style={styles.centerState}>
-            <Text
-              style={[styles.stateText, { color: theme.colors.textSecondary }]}
-            >
-              {t("noSubtitles")}
-            </Text>
+            {isPartial ? (
+              <>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text
+                  style={[
+                    styles.stateText,
+                    { color: theme.colors.textSecondary },
+                  ]}
+                >
+                  {t("waitingFirstBatch")}
+                </Text>
+              </>
+            ) : (
+              <Text
+                style={[
+                  styles.stateText,
+                  { color: theme.colors.textSecondary },
+                ]}
+              >
+                {t("noSubtitles")}
+              </Text>
+            )}
           </View>
         ) : (
           <>
@@ -347,10 +452,32 @@ export default function PlayerScreen() {
               initialNumToRender={10}
               maxToRenderPerBatch={10}
               windowSize={7}
+              ListFooterComponent={
+                shouldShowStreamingTail ? (
+                  <StreamingTailIndicator label={t("processingMore")} />
+                ) : null
+              }
             />
           </>
         )}
       </View>
+
+      {isCoveragePending && pendingSeekLabel ? (
+        <View
+          style={[
+            styles.pendingBanner,
+            {
+              backgroundColor: theme.colors.card,
+              borderColor: theme.colors.border,
+            },
+          ]}
+        >
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <Text style={[styles.pendingText, { color: theme.colors.text }]}>
+            {t("waitingForCoverage", { time: pendingSeekLabel })}
+          </Text>
+        </View>
+      ) : null}
 
       <View
         style={[
@@ -366,13 +493,12 @@ export default function PlayerScreen() {
           currentTimeSec={currentTimeSec}
           durationSec={durationSec}
           isPlaying={isPlaying}
+          isCoveragePending={isCoveragePending}
           loopSentence={loopSentence}
           playbackSpeed={playbackSpeed}
           disabled={controlsDisabled}
-          onTogglePlayback={() =>
-            isPlaying ? playback.pause() : playback.play()
-          }
-          onSeek={playback.seekTo}
+          onTogglePlayback={handleTogglePlayback}
+          onSeek={requestSeek}
           onPrevious={() =>
             handleJumpToSentence(Math.max(currentSentenceIndex - 1, 0))
           }
@@ -406,6 +532,13 @@ export default function PlayerScreen() {
       />
     </LinearGradient>
   );
+}
+
+function formatTimeLabel(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 function normalizeLanguage(language: string | null | undefined): string | null {
@@ -472,5 +605,21 @@ const styles = StyleSheet.create((theme) => ({
   stateText: {
     fontSize: 14,
     textAlign: "center",
+  },
+  pendingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginHorizontal: theme.spacing[5],
+    marginBottom: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[3],
+    borderRadius: theme.radii.xl,
+    borderWidth: 1,
+  },
+  pendingText: {
+    flex: 1,
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.medium,
   },
 }));

@@ -23,5 +23,6 @@ export * from "./media/PipelineStepper";
 export * from "./player/LayerToggle";
 export * from "./player/MediaPane";
 export * from "./player/PlayerControls";
+export * from "./player/StreamingTailIndicator";
 export * from "./player/SourceActions";
 export * from "./player/SubtitleRow";

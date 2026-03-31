@@ -1,13 +1,10 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import {
-  Gesture,
-  GestureDetector,
-} from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -22,6 +19,7 @@ interface PlayerControlsProps {
   currentTimeSec: number;
   durationSec: number;
   isPlaying: boolean;
+  isCoveragePending: boolean;
   loopSentence: boolean;
   playbackSpeed: number;
   disabled: boolean;
@@ -43,6 +41,7 @@ export function PlayerControls({
   currentTimeSec,
   durationSec,
   isPlaying,
+  isCoveragePending,
   loopSentence,
   playbackSpeed,
   disabled,
@@ -198,7 +197,10 @@ export function PlayerControls({
       <GestureDetector gesture={scrubberGesture}>
         <AnimatedView
           onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
-          style={[styles.progressTrack, disabled && styles.progressTrackDisabled]}
+          style={[
+            styles.progressTrack,
+            disabled && styles.progressTrackDisabled,
+          ]}
           accessible
           accessibilityRole="adjustable"
           accessibilityState={{ disabled }}
@@ -271,11 +273,18 @@ export function PlayerControls({
               },
             ]}
           >
-            <Ionicons
-              name={isPlaying ? "pause" : "play"}
-              size={34}
-              color={theme.colors.textOnPrimary}
-            />
+            {isCoveragePending ? (
+              <ActivityIndicator
+                size="small"
+                color={theme.colors.textOnPrimary}
+              />
+            ) : (
+              <Ionicons
+                name={isPlaying ? "pause" : "play"}
+                size={34}
+                color={theme.colors.textOnPrimary}
+              />
+            )}
           </Pressable>
 
           <IconButton
