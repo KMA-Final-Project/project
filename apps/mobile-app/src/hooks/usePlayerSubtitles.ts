@@ -50,6 +50,7 @@ export const usePlayerSubtitles = (mediaId: string | null) => {
   const { data: artifactInventory, isLoading: artifactsLoading } =
     useMediaArtifacts(mediaId);
 
+  const finalObjectKey = artifactInventory?.final?.objectKey ?? null;
   const finalUrl = artifactInventory?.final?.url ?? null;
   const translatedBatches = useMemo(
     () =>
@@ -60,9 +61,9 @@ export const usePlayerSubtitles = (mediaId: string | null) => {
   );
 
   const finalQuery = useQuery({
-    queryKey: ["player-subtitles-final", mediaId, finalUrl],
+    queryKey: ["player-subtitles-final", mediaId, finalObjectKey],
     queryFn: () => fetchSubtitleOutput(mediaId!),
-    enabled: Boolean(mediaId && finalUrl),
+    enabled: Boolean(mediaId && finalObjectKey && finalUrl),
     staleTime: Infinity,
   });
 
@@ -70,7 +71,9 @@ export const usePlayerSubtitles = (mediaId: string | null) => {
     queryKey: [
       "player-subtitles-batches",
       mediaId,
-      translatedBatches.map((batch) => `${batch.batchIndex}:${batch.url}`),
+      translatedBatches.map(
+        (batch) => `${batch.batchIndex}:${batch.objectKey}`,
+      ),
     ],
     queryFn: async () => {
       const segmentsByIndex = new Map<number, Sentence>();
@@ -92,6 +95,7 @@ export const usePlayerSubtitles = (mediaId: string | null) => {
         .map(([, segment]) => segment);
     },
     enabled: Boolean(mediaId && !finalUrl && translatedBatches.length > 0),
+    placeholderData: (previousData) => previousData,
     staleTime: Infinity,
   });
 
@@ -146,7 +150,10 @@ export const usePlayerSubtitles = (mediaId: string | null) => {
   return {
     ...session,
     hasCoverageAt,
-    isLoading: artifactsLoading || finalQuery.isLoading || batchQuery.isLoading,
+    isLoading:
+      artifactsLoading ||
+      (session.segments.length === 0 &&
+        (finalQuery.isLoading || batchQuery.isLoading)),
     isError: finalQuery.isError || batchQuery.isError,
     error: finalQuery.error ?? batchQuery.error ?? null,
   };

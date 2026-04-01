@@ -137,6 +137,13 @@ class Settings(BaseSettings):
         "'int8_float16' is faster on Ampere/Turing but unsupported on Blackwell.",
     )
     NMT_BEAM_SIZE: int = Field(default=4, description="Beam search width for NMT")
+    AI_ENABLE_LLM_REFINEMENT: bool = Field(
+        default=False,
+        description=(
+            "Enable the optional LLM post-NMT refinement pass. Disable to speed up "
+            "translated batch delivery and rely on raw NMT output only."
+        ),
+    )
     CHUNK_SIZE: int = Field(
         default=8, description="Sentences per streaming chunk (all stages)"
     )

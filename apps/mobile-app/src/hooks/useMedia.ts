@@ -97,6 +97,7 @@ export function useMediaArtifacts(id: string | null) {
     queryFn: () => mediaService.getArtifacts(id!),
     enabled: !!id,
     ...socketFirstQueryOptions,
+    refetchOnMount: "always",
   });
 }
 
@@ -111,9 +112,10 @@ export function useSubmitYouTube() {
   const { i18n } = useTranslation();
 
   return useMutation({
-    mutationFn: (url: string) =>
+    mutationFn: (payload: { url: string; title?: string }) =>
       mediaService.submitYouTube({
-        url,
+        url: payload.url,
+        title: payload.title,
         targetLanguage: i18n.language,
       }),
     onSuccess: (response) => {

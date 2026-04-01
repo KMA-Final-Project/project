@@ -27,6 +27,13 @@ export interface StreamUrlInfo {
   expiresInSeconds: number;
 }
 
+export interface YoutubeMetadataInfo {
+  title: string;
+  durationSeconds: number;
+  originUrl: string;
+  thumbnailUrl: string | null;
+}
+
 /** Raw JSON from yt-dlp --dump-single-json */
 interface YtDlpJson {
   title: string;
@@ -54,6 +61,29 @@ interface YtDlpJson {
 export class YtDlpService {
   private readonly logger = new Logger(YtDlpService.name);
 
+  async resolveTitle(youtubeUrl: string): Promise<string> {
+    const metadata = await this.resolveMetadata(youtubeUrl);
+    return metadata.title;
+  }
+
+  async resolveMetadata(youtubeUrl: string): Promise<YoutubeMetadataInfo> {
+    this.logger.log(`Resolving metadata for: ${youtubeUrl}`);
+
+    const rawJson = await this.loadJson(
+      youtubeUrl,
+      ['--dump-json', '--no-playlist', '--no-warnings', youtubeUrl],
+      15_000,
+      'resolve YouTube metadata',
+    );
+
+    return {
+      title: rawJson.title,
+      durationSeconds: Math.round(rawJson.duration),
+      originUrl: youtubeUrl,
+      thumbnailUrl: rawJson.thumbnail ?? null,
+    };
+  }
+
   /**
    * Resolve direct stream URLs from a YouTube URL.
    *
@@ -67,49 +97,21 @@ export class YtDlpService {
   async resolveStreamUrls(youtubeUrl: string): Promise<StreamUrlInfo> {
     this.logger.log(`Resolving stream URLs for: ${youtubeUrl}`);
 
-    let rawJson: YtDlpJson;
-
-    try {
-      const { stdout } = await execFileAsync(
-        'yt-dlp',
-        [
-          '--dump-single-json',
-          '-f',
-          YT_FORMAT_SELECTOR,
-          '--no-playlist',
-          '--no-warnings',
-          '--extractor-args',
-          'youtube:player_client=android', // More reliable for direct URLs
-          youtubeUrl,
-        ],
-        { timeout: 30_000 },
-      );
-
-      rawJson = JSON.parse(stdout) as YtDlpJson;
-    } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : 'yt-dlp execution failed';
-
-      // Distinguish between "video unavailable" and infra errors
-      if (
-        msg.includes('This video is not available') ||
-        msg.includes('Video unavailable') ||
-        msg.includes('Private video') ||
-        msg.includes('removed by the user')
-      ) {
-        throw new BadRequestException(
-          'This YouTube video is unavailable or private.',
-        );
-      }
-
-      if (msg.includes('ENOENT')) {
-        throw new Error(
-          'yt-dlp is not installed on this server. Contact support.',
-        );
-      }
-
-      throw new Error(`Failed to resolve stream URLs: ${msg}`);
-    }
+    const rawJson = await this.loadJson(
+      youtubeUrl,
+      [
+        '--dump-single-json',
+        '-f',
+        YT_FORMAT_SELECTOR,
+        '--no-playlist',
+        '--no-warnings',
+        '--extractor-args',
+        'youtube:player_client=android',
+        youtubeUrl,
+      ],
+      30_000,
+      'resolve stream URLs',
+    );
 
     const { videoUrl, audioUrl } = this.extractUrls(rawJson);
 
@@ -210,5 +212,47 @@ export class YtDlpService {
     }
 
     return { videoUrl, audioUrl };
+  }
+
+  private async loadJson(
+    youtubeUrl: string,
+    args: string[],
+    timeout: number,
+    action: string,
+  ): Promise<YtDlpJson> {
+    try {
+      const { stdout } = await execFileAsync('yt-dlp', args, { timeout });
+      return JSON.parse(stdout) as YtDlpJson;
+    } catch (error) {
+      this.throwYtDlpError(error, action, youtubeUrl);
+    }
+  }
+
+  private throwYtDlpError(
+    error: unknown,
+    action: string,
+    youtubeUrl: string,
+  ): never {
+    const msg =
+      error instanceof Error ? error.message : 'yt-dlp execution failed';
+
+    if (
+      msg.includes('This video is not available') ||
+      msg.includes('Video unavailable') ||
+      msg.includes('Private video') ||
+      msg.includes('removed by the user')
+    ) {
+      throw new BadRequestException(
+        'This YouTube video is unavailable or private.',
+      );
+    }
+
+    if (msg.includes('ENOENT')) {
+      throw new Error(
+        'yt-dlp is not installed on this server. Contact support.',
+      );
+    }
+
+    throw new Error(`Failed to ${action} for ${youtubeUrl}: ${msg}`);
   }
 }

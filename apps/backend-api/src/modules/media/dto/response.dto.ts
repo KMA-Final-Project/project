@@ -64,8 +64,9 @@ export class SubmitYoutubeResponseDto {
   id: string;
 
   @ApiProperty({
-    description: 'Media title (auto-extracted from URL if not provided)',
-    example: 'YouTube Video (dQw4w9WgXcQ)',
+    description:
+      'Media title from the client, yt-dlp metadata, or URL fallback when metadata is unavailable',
+    example: 'Rick Astley - Never Gonna Give You Up',
   })
   title: string;
 

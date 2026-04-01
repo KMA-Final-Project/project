@@ -41,7 +41,7 @@ export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { theme } = useUnistyles();
-  const { t, i18n } = useTranslation("player");
+  const { t } = useTranslation("player");
   const insets = useSafeAreaInsets();
   const [layersVisible, setLayersVisible] = useState(false);
   const [pendingSeekTimeSec, setPendingSeekTimeSec] = useState<number | null>(
@@ -79,18 +79,11 @@ export default function PlayerScreen() {
     toggleLoop,
   } = usePlayerStore();
 
-  const activeSentenceState = useActiveSentence(
-    segments,
-    playback.currentTimeSec,
-  );
+  const activeSentenceState = useActiveSentence(segments, currentTimeSec);
   const currentSentenceIndex =
     activeSentenceState.activeSentenceIndex >= 0
       ? activeSentenceState.activeSentenceIndex
       : 0;
-  const normalizedAppLanguage = useMemo(
-    () => normalizeLanguage(i18n.resolvedLanguage ?? i18n.language),
-    [i18n.language, i18n.resolvedLanguage],
-  );
   const normalizedSourceLanguage = useMemo(
     () =>
       normalizeLanguage(
@@ -98,14 +91,21 @@ export default function PlayerScreen() {
       ),
     [mediaItem?.sourceLanguage, subtitlesQuery.metadata?.source_lang],
   );
+  const normalizedTargetLanguage = useMemo(
+    () => normalizeLanguage(subtitlesQuery.metadata?.target_lang),
+    [subtitlesQuery.metadata?.target_lang],
+  );
   const hasTranslationContent = useMemo(
     () => segments.some((sentence) => Boolean(sentence.translation?.trim())),
     [segments],
   );
   const isTranslationLayerAvailable =
     hasTranslationContent &&
-    (!normalizedSourceLanguage ||
-      normalizedAppLanguage !== normalizedSourceLanguage);
+    !(
+      normalizedSourceLanguage &&
+      normalizedTargetLanguage &&
+      normalizedSourceLanguage === normalizedTargetLanguage
+    );
   const isCoveragePending = pendingSeekTimeSec != null && !isFinal;
   const shouldShowStreamingTail = isPartial && segments.length > 0;
   const pendingSeekLabel = useMemo(
@@ -156,15 +156,15 @@ export default function PlayerScreen() {
       return;
     }
 
-    if (playback.currentTimeSec >= activeSentenceState.activeSentence.end) {
+    if (currentTimeSec >= activeSentenceState.activeSentence.end) {
       playback.seekTo(activeSentenceState.activeSentence.start);
       playback.play();
     }
   }, [
     activeSentenceState.activeSentence,
+    currentTimeSec,
     loopSentence,
     playback,
-    playback.currentTimeSec,
     playback.isPlaying,
   ]);
 
@@ -173,6 +173,7 @@ export default function PlayerScreen() {
 
   const requestSeek = useCallback(
     (nextTimeSec: number) => {
+      setCurrentTime(nextTimeSec);
       playback.seekTo(nextTimeSec);
 
       if (hasCoverageAt(nextTimeSec)) {
@@ -196,7 +197,7 @@ export default function PlayerScreen() {
       playback.pause();
       setPendingSeekTimeSec(nextTimeSec);
     },
-    [hasCoverageAt, playback, playerDisabled],
+    [hasCoverageAt, playback, playerDisabled, setCurrentTime],
   );
 
   const handleBack = () => {
@@ -283,7 +284,7 @@ export default function PlayerScreen() {
       playerDisabled ||
       isFinal ||
       segments.length === 0 ||
-      hasCoverageAt(playback.currentTimeSec)
+      hasCoverageAt(currentTimeSec)
     ) {
       return;
     }
@@ -291,8 +292,15 @@ export default function PlayerScreen() {
     shouldResumeWhenCoverageArrivesRef.current =
       playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
     playback.pause();
-    setPendingSeekTimeSec(playback.currentTimeSec);
-  }, [hasCoverageAt, isFinal, playback, playerDisabled, segments.length]);
+    setPendingSeekTimeSec(currentTimeSec);
+  }, [
+    currentTimeSec,
+    hasCoverageAt,
+    isFinal,
+    playback,
+    playerDisabled,
+    segments.length,
+  ]);
 
   const handleTogglePlayback = useCallback(() => {
     if (playerDisabled) {
@@ -305,22 +313,22 @@ export default function PlayerScreen() {
       return;
     }
 
-    if (!hasCoverageAt(playback.currentTimeSec)) {
+    if (!hasCoverageAt(currentTimeSec)) {
       shouldResumeWhenCoverageArrivesRef.current = true;
-      setPendingSeekTimeSec(playback.currentTimeSec);
+      setPendingSeekTimeSec(currentTimeSec);
       playback.pause();
       return;
     }
 
     playback.play();
-  }, [hasCoverageAt, isPlaying, playback, playerDisabled]);
+  }, [currentTimeSec, hasCoverageAt, isPlaying, playback, playerDisabled]);
 
   const renderSentenceItem = useCallback(
     ({ item, index }: ListRenderItemInfo<Sentence>) => (
       <SubtitleRow
         sentence={item}
         isActive={index === activeSentenceState.activeSentenceIndex}
-        currentTimeSec={playback.currentTimeSec}
+        currentTimeSec={currentTimeSec}
         showPhonetic={showPhonetic}
         showTranslation={showTranslation && isTranslationLayerAvailable}
         showKaraoke={showKaraoke}
@@ -330,7 +338,7 @@ export default function PlayerScreen() {
     [
       activeSentenceState.activeSentenceIndex,
       handleJumpToSentence,
-      playback.currentTimeSec,
+      currentTimeSec,
       showKaraoke,
       showPhonetic,
       showTranslation,

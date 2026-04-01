@@ -144,6 +144,34 @@ class FakePipeline:
         self.llm = FakeLLM()
 
 
+class RecordingLLM(FakeLLM):
+    def __init__(self) -> None:
+        self.analyze_calls = 0
+        self.refine_calls = 0
+
+    def analyze_context(
+        self, text_samples: list[str], target_lang: str
+    ) -> ContextAnalysisResult:
+        self.analyze_calls += 1
+        return super().analyze_context(text_samples, target_lang)
+
+    def refine_batch(
+        self,
+        sources: list[str],
+        nmt_translations: list[str],
+        context: ContextAnalysisResult,
+        target_lang: str,
+    ) -> list[str]:
+        self.refine_calls += 1
+        return super().refine_batch(sources, nmt_translations, context, target_lang)
+
+
+class FakePipelineWithRecordingLLM(FakePipeline):
+    def __init__(self) -> None:
+        super().__init__()
+        self.llm = RecordingLLM()
+
+
 class FakeMinioClient:
     instances: list["FakeMinioClient"] = []
 
@@ -231,6 +259,68 @@ def test_first_batch_trace_precedes_pipeline_completion(monkeypatch, tmp_path) -
 
     upload_types = [entry["type"] for entry in minio.uploads]
     assert upload_types.index("batch") < upload_types.index("final")
+
+
+def test_pipeline_skips_llm_context_and_refinement_when_disabled(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(async_mod, "update_media_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_chunk_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_batch_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "NMTTranslator", FakeNMTTranslatorHolder)
+    monkeypatch.setattr(async_mod.settings, "AI_ENABLE_LLM_REFINEMENT", False)
+
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    pipeline = FakePipelineWithRecordingLLM()
+
+    asyncio.run(
+        async_mod.run_v2_pipeline_async(
+            pipeline,
+            FakeMinioClient(),
+            audio_path,
+            "media-123",
+            user_id="user-123",
+            started_at=time.time(),
+            target_lang="vi",
+        )
+    )
+
+    assert pipeline.llm.analyze_calls == 0
+    assert pipeline.llm.refine_calls == 0
+
+
+def test_pipeline_runs_llm_context_and_refinement_when_enabled(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(async_mod, "update_media_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_chunk_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_batch_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "NMTTranslator", FakeNMTTranslatorHolder)
+    monkeypatch.setattr(async_mod.settings, "AI_ENABLE_LLM_REFINEMENT", True)
+
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    pipeline = FakePipelineWithRecordingLLM()
+
+    asyncio.run(
+        async_mod.run_v2_pipeline_async(
+            pipeline,
+            FakeMinioClient(),
+            audio_path,
+            "media-123",
+            user_id="user-123",
+            started_at=time.time(),
+            target_lang="vi",
+        )
+    )
+
+    assert pipeline.llm.analyze_calls == 1
+    assert pipeline.llm.refine_calls == 2
 
 
 class FakeProfiler:

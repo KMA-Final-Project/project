@@ -163,6 +163,15 @@ export function useSocketSync() {
     [queryClient],
   );
 
+  const refreshArtifacts = useCallback(
+    (mediaId: string) => {
+      void queryClient.invalidateQueries({
+        queryKey: mediaKeys.artifacts(mediaId),
+      });
+    },
+    [queryClient],
+  );
+
   // ─── Connection lifecycle ────────────────────────────────────
 
   useEffect(() => {
@@ -228,79 +237,56 @@ export function useSocketSync() {
       patchList(event.mediaId, patch);
     });
 
-    // 2. media_chunk_ready — append to chunks cache
+    // 2. media_chunk_ready — advance chunk summary and refresh durable artifacts
     const unsubChunk = socketService.onChunkReady((event) => {
       patchArtifacts(event.mediaId, (old) => {
         const next = old ?? createEmptyArtifacts(event.mediaId, "PROCESSING");
-        if (
-          next.chunks.some((chunk) => chunk.chunkIndex === event.chunkIndex)
-        ) {
-          return next;
-        }
-
-        const chunks = [
-          ...next.chunks,
-          {
-            chunkIndex: event.chunkIndex,
-            objectKey: `${event.mediaId}/chunks/${event.chunkIndex}.json`,
-            url: event.url,
-            size: 0,
-            lastModified: null,
-          },
-        ].sort((left, right) => left.chunkIndex - right.chunkIndex);
 
         return {
           ...next,
           status: "PROCESSING",
-          chunks,
           summary: {
             ...next.summary,
-            chunkCount: Math.max(next.summary.chunkCount, chunks.length),
-            latestChunkIndex: chunks[chunks.length - 1]?.chunkIndex ?? null,
+            chunkCount: Math.max(
+              next.summary.chunkCount,
+              next.chunks.length,
+              event.chunkIndex + 1,
+            ),
+            latestChunkIndex:
+              next.summary.latestChunkIndex == null
+                ? event.chunkIndex
+                : Math.max(next.summary.latestChunkIndex, event.chunkIndex),
           },
         };
       });
+
+      refreshArtifacts(event.mediaId);
     });
 
-    // 3. media_batch_ready — append to batches cache + update progress
+    // 3. media_batch_ready — advance batch summary, refresh durable artifacts, update progress
     const unsubBatch = socketService.onBatchReady((event) => {
       patchArtifacts(event.mediaId, (old) => {
         const next = old ?? createEmptyArtifacts(event.mediaId, "PROCESSING");
-        if (
-          next.translatedBatches.some(
-            (batch) => batch.batchIndex === event.batchIndex,
-          )
-        ) {
-          return next;
-        }
-
-        const translatedBatches = [
-          ...next.translatedBatches,
-          {
-            batchIndex: event.batchIndex,
-            objectKey: `${event.mediaId}/translated_batches/${event.batchIndex}.json`,
-            url: event.url,
-            size: 0,
-            lastModified: null,
-          },
-        ].sort((left, right) => left.batchIndex - right.batchIndex);
 
         return {
           ...next,
           status: "PROCESSING",
-          translatedBatches,
           summary: {
             ...next.summary,
             translatedBatchCount: Math.max(
               next.summary.translatedBatchCount,
-              translatedBatches.length,
+              next.translatedBatches.length,
+              event.batchIndex + 1,
             ),
             latestBatchIndex:
-              translatedBatches[translatedBatches.length - 1]?.batchIndex ??
-              null,
+              next.summary.latestBatchIndex == null
+                ? event.batchIndex
+                : Math.max(next.summary.latestBatchIndex, event.batchIndex),
           },
         };
       });
+
+      refreshArtifacts(event.mediaId);
 
       // Also update progress (batch events carry progress)
       const patch: Partial<MediaItem> = {
@@ -376,5 +362,5 @@ export function useSocketSync() {
       unsubCompleted();
       unsubFailed();
     };
-  }, [patchArtifacts, patchList, patchStatus, queryClient]);
+  }, [patchArtifacts, patchList, patchStatus, queryClient, refreshArtifacts]);
 }

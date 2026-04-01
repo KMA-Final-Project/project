@@ -183,6 +183,8 @@ async def run_v2_pipeline_async(
         )
 
     logger.info("🚀 V2 Pipeline: async NMT-based bilingual subtitle generation")
+    if not settings.AI_ENABLE_LLM_REFINEMENT:
+        logger.info("⏭️ AI_ENABLE_LLM_REFINEMENT disabled — using raw NMT output")
 
     # ── Step 1: Audio prep (sync, fast) ──────────────────────────────────
     progress, step, eta = _reserve_progress(0.05, "AUDIO_PREP")
@@ -399,7 +401,11 @@ async def run_v2_pipeline_async(
                 )
 
             # ── Step B: Context analysis (once per job, on first chunk) ──
-            if not context_analyzed:
+            if (
+                settings.AI_ENABLE_LLM_REFINEMENT
+                and not context_analyzed
+                and src != tgt
+            ):
                 context_analyzed = True
                 try:
                     sample = texts[:10]
@@ -415,7 +421,11 @@ async def run_v2_pipeline_async(
 
             # ── Step C: LLM refinement (optional, best-effort) ──
             final_translations = nmt_translations
-            if context_result is not None and src != tgt:
+            if (
+                settings.AI_ENABLE_LLM_REFINEMENT
+                and context_result is not None
+                and src != tgt
+            ):
                 try:
                     t1 = _time.time()
                     refined = llm.refine_batch(

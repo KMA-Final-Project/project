@@ -9,6 +9,7 @@ from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from loguru import logger
 from minio import Minio
@@ -42,9 +43,38 @@ class MinioClient:
             secret_key=settings.MINIO_SECRET_KEY,
             secure=settings.MINIO_USE_SSL,
         )
+        self.public_presign_client = self._build_public_presign_client()
         self.bucket_raw = settings.MINIO_BUCKET_RAW
         self.bucket_processed = settings.MINIO_BUCKET_PROCESSED
         self._ensure_buckets()
+
+    def _build_public_presign_client(self) -> Minio:
+        """Build a dedicated presign client for the public MinIO endpoint.
+
+        Presigned URLs must be signed against the same host clients will call.
+        Rewriting an already-signed internal URL breaks the signature.
+        """
+        public_endpoint = settings.MINIO_PUBLIC_ENDPOINT.strip()
+        if not public_endpoint:
+            return self.client
+
+        parsed = urlparse(public_endpoint)
+        if not parsed.hostname or not parsed.scheme:
+            logger.warning(
+                f"Invalid MINIO_PUBLIC_ENDPOINT '{public_endpoint}' — falling back to internal presign client"
+            )
+            return self.client
+
+        secure = parsed.scheme == "https"
+        default_port = 443 if secure else 80
+        endpoint = f"{parsed.hostname}:{parsed.port or default_port}"
+
+        return Minio(
+            endpoint=endpoint,
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=secure,
+        )
 
     def _ensure_buckets(self):
         """Create buckets if they don't exist."""
@@ -64,19 +94,11 @@ class MinioClient:
         Returns:
             Public-facing presigned GET URL
         """
-        url = self.client.presigned_get_object(
+        return self.public_presign_client.presigned_get_object(
             self.bucket_processed,
             object_key,
             expires=timedelta(seconds=expires),
         )
-        # Rewrite internal Docker endpoint → public-facing domain
-        if settings.MINIO_PUBLIC_ENDPOINT:
-            protocol = "https" if settings.MINIO_USE_SSL else "http"
-            internal_origin = (
-                f"{protocol}://{settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}"
-            )
-            url = url.replace(internal_origin, settings.MINIO_PUBLIC_ENDPOINT)
-        return url
 
     def download_audio(self, object_key: str, local_path: Path) -> Path:
         """

@@ -101,7 +101,8 @@ export class SubmitYoutubeDto {
 
   @ApiPropertyOptional({
     example: 'Rick Astley - Never Gonna Give You Up',
-    description: 'Optional custom title (auto-extracted by worker if omitted)',
+    description:
+      'Optional title override when the client already knows the video name',
   })
   @IsOptional()
   @IsString()
