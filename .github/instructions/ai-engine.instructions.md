@@ -39,8 +39,10 @@ src/
 
 - `main.py` always runs the V2 path through `run_v2_pipeline()`.
 - `processingMode` is gone from the active queue contract. Use `targetLanguage` only.
+- `AI_ENABLE_LLM_REFINEMENT` gates the optional post-NMT Ollama refinement path in `async_pipeline.py`; disabled mode must still preserve the same streaming/output contract.
 - Progress must remain monotonic across both emitted events and DB writes.
 - Durable output artifacts live under `processed/{mediaId}/chunks/`, `processed/{mediaId}/translated_batches/`, and `processed/{mediaId}/final.json`.
+- Any presigned artifact URL intended for clients must be signed directly against `MINIO_PUBLIC_ENDPOINT`; never rewrite the host after signing.
 
 ## Python Conventions
 

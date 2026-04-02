@@ -1,6 +1,6 @@
 # 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-03-21
+> **Last Updated:** 2026-04-02
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -67,9 +67,9 @@ bilingual-subtitle-system/
 │   │   │   ├── db.py                # Direct PostgreSQL helpers (update_media_status, mark_quota_counted)
 │   │   │   ├── events.py            # Redis Pub/Sub event publishers (progress, chunk_ready, batch_ready, etc.)
 │   │   │   ├── pipelines.py         # V2 pipeline entry point (run_v2_pipeline only)
-│   │   │   ├── async_pipeline.py    # V2 asyncio producer-consumer (NMT translation + LLM refinement)
-│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, NMT_*, Redis, MinIO, DB
-│   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/batches/final)
+│   │   │   ├── async_pipeline.py    # V2 asyncio producer-consumer (NMT translation + optional LLM refinement)
+│   │   │   ├── config.py            # Settings: AI_PERF_MODE, WHISPER_MODEL_*, WORKER_MODEL_MODE, NMT_*, AI_ENABLE_LLM_REFINEMENT, Redis, MinIO, DB
+│   │   │   ├── minio_client.py      # MinIO operations (download audio, upload chunks/batches/final, public-endpoint presign)
 │   │   │   ├── schemas.py           # ALL Pydantic models (Sentence, SubtitleOutput, TranslatedBatch, etc.)
 │   │   │   ├── core/
 │   │   │   │   ├── pipeline.py           # PipelineOrchestrator (component registry only — no business logic)
@@ -86,8 +86,10 @@ bilingual-subtitle-system/
 │   │   │   │   └── hardware_profiler.py  # HardwareProfiler (background CPU/RAM/GPU sampler)
 │   │   │   └── scripts/                  # Test/debug scripts
 │   │   ├── tests/                        # Unit tests (pytest)
-│   │   │   ├── test_two_tier_streaming.py # MinIO paths + output contract
-│   │   │   └── test_event_discipline.py  # Event ordering + monotonic progress
+│   │   │   ├── test_event_discipline.py   # Event ordering + monotonic progress
+│   │   │   ├── test_first_batch_streaming.py # Refinement on/off + first-batch output behavior
+│   │   │   ├── test_prewarm_startup.py    # Startup/prewarm behavior
+│   │   │   └── test_streaming_contracts.py # Streaming artifact/output contract
 │   │   ├── outputs/debug/               # Per-batch debug JSON snapshots (auto-generated per job)
 │   │   ├── requirements.txt              # 25+ deps (faster-whisper, bullmq, minio, psycopg2, pynvml, etc.)
 │   │   ├── Dockerfile                    # CUDA 12.1 + cuDNN 8 image
@@ -109,7 +111,7 @@ bilingual-subtitle-system/
 │   │   │   │       ├── upload.tsx    # Upload flow entry
 │   │   │   │       ├── media-picker.tsx # Local file / YouTube ingestion
 │   │   │   │       ├── processing.tsx# Live processing + completed detail screen
-│   │   │   │       ├── player.tsx    # Placeholder player route (real playback pending)
+│   │   │   │       ├── player.tsx    # Incremental bilingual player (translated-batch streaming + optimistic seek state)
 │   │   │   │       └── settings.tsx  # Preferences + logout
 │   │   │   ├── components/
 │   │   │   │   ├── auth/             # LoginForm, RegisterForm
@@ -182,7 +184,7 @@ bilingual-subtitle-system/
   - `transcription` — NestJS Worker (validation + I/O)
   - `ai-processing` — Python AI Engine (GPU processing)
   - Prefix: `bilingual`
-- **Storage Strategy:** Presigned URLs. Backend replaces internal Docker URL with public domain.
+- **Storage Strategy:** Presigned URLs. Public client URLs must be signed directly against the public MinIO endpoint; never sign an internal host and rewrite it afterward.
 - **Database URL:** Local PostgreSQL for dev (previously cloud).
 
 ---
@@ -247,7 +249,7 @@ bilingual-subtitle-system/
 
 - Standalone NestJS app: `NestFactory.createApplicationContext(WorkerModule)`
 - Consumes from `transcription` queue, produces to `ai-processing` queue
-- **YouTube flow:** `yt-dlp` metadata fetch → duration check → audio download → MinIO upload
+- **YouTube flow:** `yt-dlp` metadata/title fetch → duration check → audio download → MinIO upload
 - **Local flow:** MinIO download → `ffprobe` verify → duration check
 - **Quota checks:** Per-file duration limit + monthly aggregate re-check
 - **Error handling:** Validation failures → `FAILED` status (no retries, permanent errors)
@@ -255,7 +257,7 @@ bilingual-subtitle-system/
 
 ### ✅ Supporting Modules — DONE
 
-- **MinioService:** Presigned URLs, object verification, download, upload, URL domain replacement
+- **MinioService:** Presigned URLs, object verification, download, upload, public-host-safe artifact access
 - **RedisService:** ioredis wrapper for caching (registration data, etc.)
 - **MailService:** nodemailer + handlebars templates for OTP emails
 - **OtpService:** Generate & verify OTPs (REGISTER, FORGOT_PASSWORD types)
@@ -284,7 +286,7 @@ bilingual-subtitle-system/
 | 4    | `SmartAligner`   | Faster-Whisper Large-v3, word-level timestamps, CJK split, phonemes, **Tier 1 chunk streaming**                            | ✅ Done      |
 | 5    | `SemanticMerger` | Language-aware LLM line grouping (CJK: grouping + homophone fix; non-CJK: grouping only), via `needs_merge()` heuristic    | ✅ Done      |
 | 6    | `NMTTranslator`  | **V2:** NLLB-200-3.3B via CTranslate2 (GPU, float16). Singleton with async `translate_batch()`. Replaces TranslatorEngine. | ✅ V2 Active |
-| 6b   | LLM Refinement   | **V2:** Optional post-NMT pass via Ollama (`NMT_REFINEMENT_PROMPT`). Fixes NMT artifacts for CJK/complex text.             | ✅ V2 Active |
+| 6b   | LLM Refinement   | **V2:** Optional post-NMT pass via Ollama (`NMT_REFINEMENT_PROMPT`), controlled by `AI_ENABLE_LLM_REFINEMENT`.             | ✅ V2 Active |
 | 7    | Export           | Upload `SubtitleOutput` as `final.json` to MinIO `processed` bucket                                                        | ✅ Done      |
 
 **BullMQ Consumer (`main.py`):**
@@ -333,8 +335,8 @@ Progress semantics (V2 pipeline): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0
 - **Performance Profiles:** LOW/MEDIUM/HIGH → controls `compute_type`, `beam_size`, `batch_size`
 - **LLM:** Ollama with `qwen2.5:7b-instruct` for semantic merging, context analysis, and optional NMT refinement
 - **NMTTranslator (V2):** NLLB-200-3.3B via CTranslate2 (`float16`, singleton). Async `translate_batch()` method. Settings: `NMT_MODEL_DIR`, `NMT_TOKENIZER_NAME`, `NMT_COMPUTE_TYPE`, `NMT_BEAM_SIZE`. Replaces V1 `TranslatorEngine`.
-- **V2 Async Pipeline (`async_pipeline.py`):** asyncio producer-consumer. Producer = SmartAligner transcription → `asyncio.Queue`. Consumer = [CJK: SemanticMerger] → NMTTranslator → [LLM Refinement] → Tier 2 upload. Natural backpressure via bounded queue. Replaces V1 `IncrementalPipeline` + `ThreadPoolExecutor`.
-- **LLM Refinement:** Optional post-NMT pass using `NMT_REFINEMENT_PROMPT`. Fixes CJK particle errors, pronoun consistency, style drift. Controlled per-batch in the async consumer.
+- **V2 Async Pipeline (`async_pipeline.py`):** asyncio producer-consumer. Producer = SmartAligner transcription → `asyncio.Queue`. Consumer = [CJK: SemanticMerger] → NMTTranslator → [optional LLM refinement] → Tier 2 upload. Natural backpressure via bounded queue. Replaces V1 `IncrementalPipeline` + `ThreadPoolExecutor`.
+- **LLM Refinement:** Optional post-NMT pass using `NMT_REFINEMENT_PROMPT`. Fixes CJK particle errors, pronoun consistency, style drift. Controlled by `AI_ENABLE_LLM_REFINEMENT` in `config.py`.
 - **SemanticMerger `needs_merge()` heuristic:** Skips merge when <20% of sentences are fragments (<6 words for non-CJK, <8 chars for CJK). Constants: `MERGE_MIN_WORD_COUNT=6`, `MERGE_FRAGMENT_RATIO=0.2`.
 - **Output Contract:** `SubtitleOutput` = `SubtitleMetadata` + `List[Sentence]`. Every `Sentence` has `translation: str` (never None, `""` default) and `phonetic: str` (CJK pinyin from word phonemes, empty for non-CJK).
 - **Multi-Segment Inspector:** Samples 3 positions (10%, 50%, 90%) with weighted voting to prevent music intro bias
@@ -430,7 +432,7 @@ graph TD
 **Key Changes Summary (V1 Refactor — Phases 1-7):**
 
 - **`schemas.py`:** `Sentence` now has `translation: str = ""` and `phonetic: str = ""`. Models: `SubtitleMetadata`, `SubtitleOutput`, `TranslatedBatch`, `ContextAnalysisResult`.
-- **`minio_client.py`:** Typed uploads: `upload_chunk()` (Tier 1), `upload_translated_batch(TranslatedBatch)` (Tier 2), `upload_final_result(SubtitleOutput)` (final). Path convention: `{mediaId}/chunks/`, `{mediaId}/translated_batches/`, `{mediaId}/final.json`.
+- **`minio_client.py`:** Typed uploads: `upload_chunk()` (Tier 1), `upload_translated_batch(TranslatedBatch)` (Tier 2), `upload_final_result(SubtitleOutput)` (final). Path convention: `{mediaId}/chunks/`, `{mediaId}/translated_batches/`, `{mediaId}/final.json`. Public artifact URLs are signed against `MINIO_PUBLIC_ENDPOINT` directly.
 - **Backend DTOs:** `targetLanguage?: string` added to `ConfirmUploadDto`, `SubmitYoutubeDto`, both job payload types, and wired through `media.service.ts` → `media.processor.ts`.
 
 **Key Changes Summary (V2 Pipeline — Phases 0-5):**
@@ -572,10 +574,17 @@ interface AiProcessingJobPayload {
 - Library cards show a small readiness badge when at least one translated batch exists
 - "Open Player" CTA appears as soon as translated output exists
 
+### ✅ Phase 5: Incremental Player Screen — DONE
+
+- `/(app)/player` now hydrates from `translated_batches/` before `final.json` exists, so playback can start on the first translated batch
+- Incoming translated-batch refreshes preserve the existing subtitle session and avoid full-screen reloads while the player is open
+- Seek/loading logic uses optimistic player time so scrubbing back into already-covered ranges clears the pending state immediately
+- Translation layer defaults on and only auto-disables when subtitle metadata says source and target languages are the same
+- YouTube submissions preserve preview titles on mobile, with backend `yt-dlp` metadata fallback when the client does not send one
+
 ### 🟡 Still Pending
 
-- Real subtitle player implementation (the current `/(app)/player` route is only a placeholder)
-- Karaoke playback UI and subtitle rendering inside the player
+- Karaoke playback polish and richer subtitle rendering inside the player
 - Forgot-password and social login (future, optional)
 
 ---
@@ -603,7 +612,7 @@ interface AiProcessingJobPayload {
 
 ## 11. Priority TODO (Next Steps)
 
-1. **🟡 Mobile App — Subtitle Player:** Replace the placeholder player route with real bilingual playback and Karaoke rendering.
+1. **🟡 Mobile App — Player Polish:** Continue improving karaoke rendering, layer toggles, and long-session player UX now that incremental playback is shipped.
 2. **🟡 Mobile App — Final Preview Cleanup:** Remove or repurpose any remaining unused preview-only helpers now that the processing screen is artifact-summary-first.
 3. **🟡 Backend — Artifact Summary Performance:** `GET /media` currently derives artifact summaries per item from MinIO; revisit if library latency becomes noticeable.
 4. **🟡 AI Engine — NMT Quality Tuning:** Continue tuning `NMT_BEAM_SIZE`, `NMT_COMPUTE_TYPE`, and refinement prompts per language pair.
