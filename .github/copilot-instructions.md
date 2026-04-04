@@ -54,6 +54,7 @@
   - preserve soft-delete behavior
   - keep BullMQ payloads typed and compatible with the Python worker
   - artifact inventory is now part of the media contract: `/media/:id/artifacts` and media list `artifacts` summaries are used by mobile
+  - YouTube submissions may carry a client title; preserve it when present, otherwise prefer `yt-dlp` metadata before falling back to a generic URL-derived placeholder
 
 ### AI engine (`apps/ai-engine`)
 
@@ -64,6 +65,8 @@
   - keep all Pydantic models in `src/schemas.py`
   - `SmartAligner` and `VADManager` are singleton-style classes
 - Active translation runtime is `core/nmt_translator.py` via CTranslate2; do not reintroduce the deleted `translator_engine.py` path
+- `AI_ENABLE_LLM_REFINEMENT` controls the optional post-NMT Ollama refinement path in `async_pipeline.py`; preserve the non-refinement path when disabled
+- Public artifact URLs must be signed directly with a MinIO client configured for `MINIO_PUBLIC_ENDPOINT`; never sign an internal host and rewrite the URL afterward
 - Progress writes are expected to be monotonic across events and DB updates
 - Fast sanity/test commands once the environment is ready:
   - `python -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"`
@@ -82,6 +85,8 @@
   - mobile should extract audio client-side before upload when the source is video
   - processing/detail flows are socket-first; avoid reintroducing aggressive polling on status/artifact queries
   - durable output state comes from `/media/:id/artifacts`, not temporary preview caches
+  - `/(app)/player` is now an incremental subtitle player fed by `translated_batches` before `final.json`; avoid reintroducing full-screen reloads when new batches arrive
+  - translation layer should default on and only auto-disable when subtitle metadata shows source and target languages are the same
 
 ## Bootstrap and validation checklist
 

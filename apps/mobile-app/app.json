@@ -47,7 +47,9 @@
           "savePhotosPermission": "Allow Kapter to save exported subtitles to your device.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

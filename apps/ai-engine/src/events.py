@@ -27,21 +27,24 @@ def publish_progress(
     progress: float,
     current_step: str,
     eta: int | None,
+    source_lang: str | None = None,
 ) -> None:
     """Publish a MediaProgressEvent to the media_updates channel."""
     try:
+        payload = {
+            "type": "progress",
+            "mediaId": media_id,
+            "userId": user_id,
+            "progress": progress,
+            "currentStep": current_step,
+            "estimatedTimeRemaining": eta,
+        }
+        if source_lang:
+            payload["sourceLanguage"] = source_lang
+
         redis_client.publish(
             "media_updates",
-            json.dumps(
-                {
-                    "type": "progress",
-                    "mediaId": media_id,
-                    "userId": user_id,
-                    "progress": progress,
-                    "currentStep": current_step,
-                    "estimatedTimeRemaining": eta,
-                }
-            ),
+            json.dumps(payload),
         )
     except Exception as e:
         logger.error(f"Failed to publish progress event for {media_id}: {e}")

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useAuthStore } from "@/stores/auth.store";
 import { hydrateLanguagePreference } from "@/hooks";
 import { setAuthInvalidatedHandler } from "@/services";
@@ -72,9 +73,11 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <StatusBar style="auto" />
-      <Slot />
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <StatusBar style="auto" />
+        <Slot />
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

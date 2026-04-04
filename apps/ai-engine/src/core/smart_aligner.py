@@ -48,6 +48,10 @@ class SmartAligner:
     _model_full: WhisperModel | None = None
     _batched_turbo: BatchedInferencePipeline | None = None
     _batched_full: BatchedInferencePipeline | None = None
+    _cjk_pattern = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+    _punctuation_pattern = re.compile(r"\s+([,.;:!?%\)\]\}])")
+    _opening_bracket_pattern = re.compile(r"([\(\[\{])\s+")
+    _apostrophe_pattern = re.compile(r"\s+(['’][A-Za-z]+)")
 
     def __new__(cls):
         if cls._instance is None:
@@ -298,9 +302,13 @@ class SmartAligner:
             words = []
             if res_seg.words:
                 for w in res_seg.words:
+                    token = w.word.strip()
+                    if not token:
+                        continue
+
                     words.append(
                         Word(
-                            word=w.word,
+                            word=token,
                             start=round(vad_seg.start + w.start, 3),
                             end=round(vad_seg.start + w.end, 3),
                             confidence=round(w.probability, 3),
@@ -386,10 +394,17 @@ class SmartAligner:
         return sub_sentences
 
     def _create_sentence_from_words(self, words: List[Word]) -> Sentence:
-        text = "".join([w.word for w in words])  # Simple join for CJK, space?
-        # Ideally handle spaces for non-CJK. But prompt focused on CJK.
-        # For mixed, might need smarter join.
-        # Whisper words usually come with leading spaces if En?
+        tokens = [w.word.strip() for w in words if w.word.strip()]
+        if not tokens:
+            text = ""
+        elif any(self._cjk_pattern.search(token) for token in tokens):
+            text = "".join(tokens)
+        else:
+            text = " ".join(tokens)
+            text = self._punctuation_pattern.sub(r"\1", text)
+            text = self._opening_bracket_pattern.sub(r"\1", text)
+            text = self._apostrophe_pattern.sub(r"\1", text)
+
         return Sentence(text=text, start=words[0].start, end=words[-1].end, words=words)
 
     def _add_phonemes(self, sentences: List[Sentence], language: str):
@@ -422,3 +437,9 @@ class SmartAligner:
                             w.phoneme = ipa
                 except Exception as e:
                     logger.warning(f"Phonetic error for '{text}': {e}")
+
+            sent.phonetic = " ".join(
+                phoneme.strip()
+                for phoneme in (word.phoneme for word in sent.words)
+                if phoneme and phoneme.strip()
+            )

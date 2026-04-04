@@ -130,3 +130,17 @@ export interface MediaArtifactsResponse {
   translatedBatches: MediaTranslatedBatchArtifact[];
   final: MediaFinalArtifact | null;
 }
+
+export interface MediaDownloadUrlResponse {
+  url: string;
+}
+
+export interface MediaStreamResponse {
+  videoUrl: string | null;
+  audioUrl: string;
+  title: string;
+  durationSeconds: number;
+  originUrl: string;
+  thumbnailUrl: string | null;
+  expiresInSeconds: number;
+}

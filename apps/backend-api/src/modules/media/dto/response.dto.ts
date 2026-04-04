@@ -64,8 +64,9 @@ export class SubmitYoutubeResponseDto {
   id: string;
 
   @ApiProperty({
-    description: 'Media title (auto-extracted from URL if not provided)',
-    example: 'YouTube Video (dQw4w9WgXcQ)',
+    description:
+      'Media title from the client, yt-dlp metadata, or URL fallback when metadata is unavailable',
+    example: 'Rick Astley - Never Gonna Give You Up',
   })
   title: string;
 
@@ -327,4 +328,57 @@ export class MediaListItemDto {
 
   @ApiProperty()
   createdAt: Date;
+}
+
+// ==================== Stream URL Response ====================
+
+export class StreamUrlResponseDto {
+  @ApiProperty({
+    description:
+      'Direct video stream URL (may be null for audio-only content or when yt-dlp resolves only audio)',
+    nullable: true,
+    example:
+      'https://rr2---sn-xxx.googlevideo.com/videoplayback?expire=...&itag=248&...',
+  })
+  videoUrl: string | null;
+
+  @ApiProperty({
+    description:
+      'Direct audio-only stream URL. Always present. Falls back to the video URL when no separate audio track exists.',
+    example:
+      'https://rr2---sn-xxx.googlevideo.com/videoplayback?expire=...&itag=251&...',
+  })
+  audioUrl: string;
+
+  @ApiProperty({
+    description: 'Video title from YouTube metadata',
+    example: 'Learn English with Friends | Season 1 Episode 1',
+  })
+  title: string;
+
+  @ApiProperty({
+    description: 'Duration of the video in seconds',
+    example: 1320,
+  })
+  durationSeconds: number;
+
+  @ApiProperty({
+    description: 'Original YouTube URL stored in the media record',
+    example: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+  })
+  originUrl: string;
+
+  @ApiProperty({
+    description: 'YouTube thumbnail URL (null if unavailable)',
+    nullable: true,
+    example: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
+  })
+  thumbnailUrl: string | null;
+
+  @ApiProperty({
+    description:
+      'Approximate seconds until the signed stream URLs expire (~6 hours for YouTube)',
+    example: 21600,
+  })
+  expiresInSeconds: number;
 }

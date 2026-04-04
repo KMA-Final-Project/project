@@ -123,11 +123,10 @@ export const lightTheme: AppTheme = {
     statusBar: palette.white,
 
     player: {
-      // In light mode, player background is white-to-gray gradient to preserve the immersive feel
-      gradientStart: palette.white,
+      gradientStart: palette.whiteBlue,
       gradientEnd: palette.gray50,
       karaokeHighlight: brand.primary,
-      phoneticText: palette.gray500,
+      phoneticText: brand.primaryDark,
       translationText: brand.secondary,
       activeSentenceBg: player.activeSentenceBg, // works in light mode too due to alpha
     },

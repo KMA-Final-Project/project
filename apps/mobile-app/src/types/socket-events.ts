@@ -12,6 +12,7 @@ export interface MediaProgressEvent {
   progress: number;
   currentStep: string;
   estimatedTimeRemaining: number | null;
+  sourceLanguage?: string;
 }
 
 export interface MediaChunkReadyEvent {

@@ -28,6 +28,7 @@ import {
   MediaListItemDto,
   DownloadUrlResponseDto,
   MediaArtifactsResponseDto,
+  StreamUrlResponseDto,
 } from './dto';
 
 @ApiTags('Media')
@@ -115,6 +116,28 @@ export class MediaController {
     @Param('id') id: string,
   ): Promise<MediaArtifactsResponseDto> {
     return this.mediaService.getMediaArtifacts(user.id, id);
+  }
+
+  @Get(':id/stream-url')
+  @ApiOperation({
+    summary: 'Get direct stream URLs for a YouTube-sourced media item',
+    description:
+      'Calls yt-dlp to resolve direct, signed video and audio stream URLs without downloading. ' +
+      'Only available for YouTube-origin media items. ' +
+      'URLs expire after ~6 hours — clients should call this fresh each playback session.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Direct stream URLs resolved successfully',
+    type: StreamUrlResponseDto,
+  })
+  @ApiResponse({ status: 400, type: ErrorResponseDto })
+  @ApiResponse({ status: 404, type: ErrorResponseDto })
+  async getStreamUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<StreamUrlResponseDto> {
+    return this.mediaService.getStreamUrl(user.id, id);
   }
 
   @Get(':id/download-url')

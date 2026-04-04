@@ -36,7 +36,7 @@ import {
 interface YouTubeModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (url: string) => Promise<void>;
+  onSubmit: (payload: { url: string; title?: string }) => Promise<void>;
   loading?: boolean;
 }
 
@@ -105,7 +105,10 @@ export function YouTubeModal({
     }
     setError(null);
     try {
-      await onSubmit(url.trim());
+      await onSubmit({
+        url: url.trim(),
+        title: metadata?.title?.trim() || undefined,
+      });
       setUrl("");
       onClose();
     } catch (e: any) {

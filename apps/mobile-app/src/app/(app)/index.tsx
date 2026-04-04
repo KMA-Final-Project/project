@@ -37,8 +37,11 @@ export default function LibraryScreen() {
   };
 
   const handleMediaPress = (item: MediaItem) => {
+    const pathname =
+      item.status === "COMPLETED" ? ROUTES.PLAYER : ROUTES.PROCESSING;
+
     router.push({
-      pathname: ROUTES.PROCESSING,
+      pathname,
       params: { id: item.id },
     } as any);
   };

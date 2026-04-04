@@ -58,7 +58,12 @@ export function IconButton({
       hitSlop={hitSlop}
       style={[styles.container, animatedStyle]}
     >
-      <Ionicons name={name} size={size} color={color} style={styles.icon} />
+      <Ionicons
+        name={name}
+        size={size}
+        color={color}
+        style={!color ? styles.icon : undefined}
+      />
     </AnimatedPressable>
   );
 }

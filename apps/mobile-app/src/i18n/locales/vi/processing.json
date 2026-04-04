@@ -39,6 +39,11 @@
   },
   "progress": "Tiến độ",
   "eta": "Thời gian dự kiến: ",
+  "sameLanguageNotice": {
+    "title": "Bỏ qua bước dịch",
+    "message": "Ngôn ngữ nguồn được phát hiện trùng với ngôn ngữ đích đã chọn ({{language}}). Hệ thống sẽ bỏ qua bước dịch và dùng lại nguyên văn nội dung gốc.",
+    "confirm": "Tiếp tục"
+  },
   "runBackground": "Chạy ngầm",
   "notificationHint": "Bạn sẽ nhận được thông báo khi hoàn tất",
   "openPlayer": "Mở trình phát",
