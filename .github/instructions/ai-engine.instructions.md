@@ -57,7 +57,16 @@ src/
 
 ## Testing & Validation
 
-If a working Python environment is already available in this workspace, use it directly and do not spend extra turns on venv setup/configuration. Only switch into environment-debugging steps if Python commands fail or the user explicitly asks for help with the environment.
+If a working Python environment is already available in this workspace, use it directly and do not spend extra turns on venv setup/configuration.
+
+In this repository, assume the existing `apps/ai-engine/venv` is already prepared and ready to use unless Python commands actually fail.
+
+Do not create a new venv, reinstall the environment, or spend time on environment setup for `apps/ai-engine` unless one of these is true:
+
+- A Python command fails because the current environment is broken or missing.
+- The user explicitly asks for Python environment help.
+
+Default behavior: activate the existing environment and run the needed command.
 
 Typical commands when you do need to activate the local venv:
 

@@ -24,7 +24,8 @@
     "sync:schema": "tsx scripts/sync-schema.ts",
     "pmigrate:dev": "prisma migrate dev --name",
     "start:local": "cd ../../infra && docker-compose up -d && cd - && npm run start:dev",
-    "clean:env": "tsx scripts/clean-test-env.ts"
+    "clean:env": "tsx scripts/clean-test-env.ts",
+    "test:youtube": "tsx scripts/test-youtube-submit.ts"
   },
   "dependencies": {
     "@nestjs-modules/mailer": "^2.0.2",

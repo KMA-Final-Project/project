@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 import src.async_pipeline as async_mod
 import src.main as main_mod
 from src.schemas import (
@@ -59,7 +61,7 @@ class FakeVADManager:
             VADSegment(start=0.0, end=1.0, type=SegmentType.HAPPY_CASE, duration=1.0),
             VADSegment(start=1.0, end=2.0, type=SegmentType.HAPPY_CASE, duration=1.0),
         ]
-        return segments, standardized_path
+        return segments, standardized_path, np.zeros(32000, dtype=np.float32)
 
 
 class FakeAligner:
@@ -70,6 +72,7 @@ class FakeAligner:
         profile: str = "standard",
         on_chunk=None,
         chunk_size: int = 8,
+        audio_array=None,
     ) -> list[Sentence]:
         batch_1 = [_make_sentence(0, "Hello")]
         batch_2 = [_make_sentence(1, "world")]
@@ -94,6 +97,31 @@ class FakeMerger:
     def correct_homophones(
         self, sentences: list[Sentence], context_style: str = "Speech/Dialogue"
     ) -> list[Sentence]:
+        return list(sentences)
+
+
+class TrackingMerger(FakeMerger):
+    def __init__(self, *, needs_merge_result: bool) -> None:
+        self.needs_merge_result = needs_merge_result
+        self.process_calls = 0
+        self.correct_homophones_calls = 0
+
+    def needs_merge(self, sentences: list[Sentence], source_lang: str = "en") -> bool:
+        return self.needs_merge_result
+
+    def process(
+        self,
+        sentences: list[Sentence],
+        source_lang: str = "en",
+        context_style: str = "Speech/Dialogue",
+    ):
+        self.process_calls += 1
+        return [sentences]
+
+    def correct_homophones(
+        self, sentences: list[Sentence], context_style: str = "Speech/Dialogue"
+    ) -> list[Sentence]:
+        self.correct_homophones_calls += 1
         return list(sentences)
 
 
@@ -170,6 +198,42 @@ class FakePipelineWithRecordingLLM(FakePipeline):
     def __init__(self) -> None:
         super().__init__()
         self.llm = RecordingLLM()
+
+
+class CjkFakeAligner:
+    def process(
+        self,
+        file_path: Path,
+        segments: list[VADSegment],
+        profile: str = "standard",
+        on_chunk=None,
+        chunk_size: int = 8,
+        audio_array=None,
+    ) -> list[Sentence]:
+        batch_1 = [
+            Sentence(
+                text="你好世界",
+                start=0.0,
+                end=0.8,
+                words=[
+                    Word(word="你", start=0.0, end=0.2, confidence=0.98),
+                    Word(word="好", start=0.2, end=0.4, confidence=0.98),
+                    Word(word="世", start=0.4, end=0.6, confidence=0.98),
+                    Word(word="界", start=0.6, end=0.8, confidence=0.98),
+                ],
+                detected_lang="zh",
+            )
+        ]
+        if on_chunk:
+            on_chunk(batch_1, 1)
+        return batch_1
+
+
+class CjkFakePipeline(FakePipeline):
+    def __init__(self, merger: TrackingMerger) -> None:
+        super().__init__()
+        self.aligner = CjkFakeAligner()
+        self.merger = merger
 
 
 class FakeMinioClient:
@@ -321,6 +385,38 @@ def test_pipeline_runs_llm_context_and_refinement_when_enabled(
 
     assert pipeline.llm.analyze_calls == 1
     assert pipeline.llm.refine_calls == 2
+
+
+def test_cjk_buffer_skips_standalone_homophone_correction_when_merge_not_needed(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(async_mod, "update_media_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_chunk_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "publish_batch_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(async_mod, "NMTTranslator", FakeNMTTranslatorHolder)
+    monkeypatch.setattr(async_mod.settings, "AI_ENABLE_LLM_REFINEMENT", False)
+
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+
+    merger = TrackingMerger(needs_merge_result=False)
+    pipeline = CjkFakePipeline(merger)
+
+    asyncio.run(
+        async_mod.run_v2_pipeline_async(
+            pipeline,
+            FakeMinioClient(),
+            audio_path,
+            "media-123",
+            user_id="user-123",
+            started_at=time.time(),
+            target_lang="vi",
+        )
+    )
+
+    assert merger.process_calls == 0
+    assert merger.correct_homophones_calls == 0
 
 
 class FakeProfiler:

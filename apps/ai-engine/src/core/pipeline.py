@@ -23,3 +23,4 @@ class PipelineOrchestrator:
         self.aligner = SmartAligner()
         self.merger = SemanticMerger()
         self.llm = LLMProvider()
+        self.last_run_metrics: dict[str, object] = {}

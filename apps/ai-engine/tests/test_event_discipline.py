@@ -48,6 +48,7 @@ class RaisingAligner:
         profile: str = "standard",
         on_chunk=None,
         chunk_size: int = 8,
+        audio_array=None,
     ) -> list[Any]:
         raise RuntimeError("aligner boom")
 

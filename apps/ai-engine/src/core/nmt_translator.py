@@ -105,6 +105,11 @@ class NMTTranslator:
         if settings.DEVICE == "cuda":
             vram_bytes: int = torch.cuda.memory_allocated()
             vram_mb: float = vram_bytes / (1024**2)
+            if settings.MAX_VRAM_MB > 0:
+                assert vram_mb <= settings.MAX_VRAM_MB, (
+                    f"NMTTranslator loaded {vram_mb:.1f}MB of PyTorch-managed VRAM, "
+                    f"exceeding limit {settings.MAX_VRAM_MB}MB"
+                )
             logger.info(
                 f"NMTTranslator ready — compute_type={actual_compute_type}, "
                 f"VRAM used: {vram_mb:.1f} MB"

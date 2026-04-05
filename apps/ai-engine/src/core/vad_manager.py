@@ -47,10 +47,10 @@ class VADManager:
             logger.info("Silero VAD model loaded successfully.")
 
     def process(
-        self, 
-        file_path: Union[str, Path], 
-        profile: str = "standard"
-    ) -> List[VADSegment]:
+        self,
+        file_path: Union[str, Path],
+        profile: str = "standard",
+    ) -> tuple[List[VADSegment], Path, np.ndarray]:
         """
         Process audio file to detect speech segments.
         
@@ -60,7 +60,8 @@ class VADManager:
                      Music mode uses adaptive thresholds and bandpass proxy.
             
         Returns:
-            List[VADSegment]: List of detected speech segments.
+            Tuple of detected segments, the audio path used for VAD/transcription,
+            and the loaded 16kHz mono audio array.
         """
         path = Path(file_path) if isinstance(file_path, str) else file_path
         
@@ -106,7 +107,7 @@ class VADManager:
         
         # 1. Read Audio (Proxy or Original)
         # wav = read_audio(str(vad_input_path), sampling_rate=16000)
-        logger.info(f"Loading audio via Librosa: {file_path}")
+        logger.info(f"Loading audio via Librosa: {vad_input_path}")
         
         wav_np, sr = librosa.load(str(vad_input_path), sr=16000)
         
@@ -136,7 +137,7 @@ class VADManager:
         
         if not raw_speech_timestamps:
             logger.warning(f"No speech detected in {path.name}")
-            return []
+            return [], vad_input_path, wav_np
             
         logger.debug(f"Raw detected segments: {len(raw_speech_timestamps)}")
         
@@ -152,7 +153,7 @@ class VADManager:
             f"Happy: {happy_count} | Special: {special_count}"
         )
         
-        return segments, vad_input_path
+        return segments, vad_input_path, wav_np
 
     def _greedy_merge(self, raw_timestamps: List[dict]) -> List[VADSegment]:
         """

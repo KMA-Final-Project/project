@@ -147,6 +147,30 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = Field(
         default=8, description="Sentences per streaming chunk (all stages)"
     )
+    SMART_ALIGNER_GROUP_SIZE: int = Field(
+        default=8,
+        description="Number of consecutive VAD segments to concatenate per SmartAligner batch.",
+    )
+    SUBTITLE_MAX_CJK_CHARS: int = Field(
+        default=25,
+        description="Maximum recommended CJK subtitle line length before splitting.",
+    )
+    SUBTITLE_MAX_WORDS: int = Field(
+        default=15,
+        description="Maximum recommended non-CJK subtitle word count before splitting.",
+    )
+    SILENCE_SPLIT_GAP: float = Field(
+        default=0.8,
+        description="Silence gap threshold in seconds for sentence splitting.",
+    )
+    MAX_VRAM_FRACTION: float = Field(
+        default=0.5,
+        description="Per-process CUDA allocator memory fraction for PyTorch-managed VRAM.",
+    )
+    MAX_VRAM_MB: int = Field(
+        default=0,
+        description="Optional soft assertion limit for NMT VRAM usage in MB (0 disables).",
+    )
 
     # Load env vars from .env file (if present)
     model_config = SettingsConfigDict(

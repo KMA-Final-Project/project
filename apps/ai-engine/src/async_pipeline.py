@@ -124,6 +124,8 @@ async def run_v2_pipeline_async(
     ahead of the consumer. Producer blocks when consumer is behind.
     """
 
+    pipeline_started_at = _time.perf_counter()
+
     def _eta(progress: float) -> int | None:
         if progress <= 0:
             return None
@@ -146,6 +148,18 @@ async def run_v2_pipeline_async(
         "step": None,
     }
     source_lang_holder: list[str] = [""]
+    timing_lock = Lock()
+    timing_state: dict[str, float] = {
+        "producer_wait": 0.0,
+        "consumer_merge": 0.0,
+        "consumer_nmt": 0.0,
+        "consumer_upload": 0.0,
+        "consumer_idle": 0.0,
+    }
+
+    def _add_timing(metric: str, value: float) -> None:
+        with timing_lock:
+            timing_state[metric] = timing_state.get(metric, 0.0) + value
 
     def _reserve_progress(
         progress: float, current_step: str
@@ -227,13 +241,14 @@ async def run_v2_pipeline_async(
         estimated_time_remaining=eta,
     )
     _publish_progress(progress, step, eta)
-    segments, clean_audio_path = await asyncio.to_thread(
+    segments, clean_audio_path, audio_array = await asyncio.to_thread(
         pipeline.vad_manager.process, standardized_path, profile=profile
     )
     _trace(
         "vad_done",
         segment_count=len(segments),
         clean_audio_path=str(clean_audio_path),
+        audio_samples=len(audio_array),
     )
     if not segments:
         logger.warning("No speech detected — returning empty result")
@@ -303,12 +318,14 @@ async def run_v2_pipeline_async(
         )
         _publish_progress(progress, step, eta)
         logger.info(
-            f"📤 V2 chunk {tier1_chunk_index[0]} ({len(batch)} sentences, "
+            f"📤 V2 chunk {idx} ({len(batch)} sentences, "
             f"{total_so_far} total) | queue={queue.qsize()}/{queue.maxsize}"
         )
 
         # Push chunk into asyncio queue (blocks if queue is full → backpressure)
+        queue_wait_started_at = _time.perf_counter()
         asyncio.run_coroutine_threadsafe(queue.put(list(batch)), loop).result()
+        _add_timing("producer_wait", _time.perf_counter() - queue_wait_started_at)
 
     async def producer() -> None:
         """Run SmartAligner in a thread and send sentinel when done."""
@@ -320,12 +337,14 @@ async def run_v2_pipeline_async(
                 profile=profile,
                 on_chunk=on_chunk,
                 chunk_size=settings.CHUNK_SIZE,
+                audio_array=audio_array,
             )
         finally:
             await queue.put(None)  # sentinel
 
     async def consumer() -> list[Sentence]:
         """Consume chunks from queue: CJK branch / non-CJK → NMT → Tier 2 upload."""
+        consumer_started_at = _time.perf_counter()
         nmt = await nmt_prefetch_task
         merger = pipeline.merger
         llm = pipeline.llm
@@ -336,6 +355,8 @@ async def run_v2_pipeline_async(
         chunks_since_cjk_flush: int = 0
         context_result: ContextAnalysisResult | None = None
         context_analyzed: bool = False
+        upload_semaphore = asyncio.Semaphore(2)
+        upload_tasks: list[asyncio.Task[None]] = []
 
         def _source_lang() -> str:
             return source_lang_holder[0] or "en"
@@ -362,32 +383,28 @@ async def run_v2_pipeline_async(
                     f"in {_time.time() - t0:.2f}s"
                 )
                 return result
-            else:
-                # Well-formed CJK — still run homophone correction
-                result = merger.correct_homophones(buf, context_style=context_style)
-                logger.info(
-                    f"🔤 CJK homophone correction: {len(buf)} segments "
-                    f"in {_time.time() - t0:.2f}s"
-                )
-                return result
 
-        def _translate_and_upload(sentences: list[Sentence]) -> list[Sentence]:
-            """Translate via NMT, optionally refine with LLM, and upload as Tier 2."""
-            nonlocal batch_index, context_result, context_analyzed
+            logger.info(
+                f"⏭️ CJK passthrough: {len(buf)} segments in {_time.time() - t0:.2f}s"
+            )
+            return list(buf)
+
+        def _translate_batch(
+            sentences: list[Sentence],
+        ) -> tuple[list[Sentence], int, str, str, float]:
+            """Translate via NMT and optional LLM refinement."""
+            nonlocal context_result, context_analyzed
             if not sentences:
-                return []
+                return [], 0, "en", target_lang, _time.perf_counter()
 
-            # Capture the global start index for this batch before any segments are
-            # appended to all_sentences. Used to assign segment_index and
-            # first_segment_index for durable cross-artifact matching.
+            batch_started_at = _time.perf_counter()
             batch_start_index: int = len(all_sentences)
 
             src = _source_lang()
             tgt = target_lang
             texts = [s.text for s in sentences]
 
-            # ── Step A: NMT translation (always runs — fast, deterministic) ──
-            t0 = _time.time()
+            nmt_started_at = _time.perf_counter()
             if src == tgt:
                 nmt_translations = list(texts)
                 logger.debug(
@@ -397,10 +414,10 @@ async def run_v2_pipeline_async(
                 nmt_translations = nmt.translate_batch(texts, src, tgt)
                 logger.info(
                     f"🌐 NMT batch {batch_index}: {len(sentences)} segments "
-                    f"{src}→{tgt} in {_time.time() - t0:.2f}s"
+                    f"{src}→{tgt} in {_time.perf_counter() - nmt_started_at:.2f}s"
                 )
+            _add_timing("consumer_nmt", _time.perf_counter() - nmt_started_at)
 
-            # ── Step B: Context analysis (once per job, on first chunk) ──
             if (
                 settings.AI_ENABLE_LLM_REFINEMENT
                 and not context_analyzed
@@ -419,7 +436,6 @@ async def run_v2_pipeline_async(
                     logger.warning(f"Context analysis failed (continuing without): {e}")
                     context_result = None
 
-            # ── Step C: LLM refinement (optional, best-effort) ──
             final_translations = nmt_translations
             if (
                 settings.AI_ENABLE_LLM_REFINEMENT
@@ -451,59 +467,105 @@ async def run_v2_pipeline_async(
             for s, t in zip(sentences, final_translations):
                 s.translation = t
 
-            # Assign explicit global segment indices for durable cross-artifact matching.
-            # segment_index is absent (None) on raw Tier 1 chunks; always set here on
-            # the translated batch so consumers can match by identity, not array position.
             for i, s in enumerate(sentences):
                 s.segment_index = batch_start_index + i
 
-            # Upload Tier 2 batch
-            tb = TranslatedBatch(
-                batch_index=batch_index,
-                first_segment_index=batch_start_index,
-                segments=sentences,
-            )
-            _batch_key, batch_url = minio_client.upload_translated_batch(media_id, tb)
-            _trace(
-                "batch_uploaded",
-                batch_index=batch_index,
-                segment_count=len(sentences),
-                source_lang=src,
-                target_lang=tgt,
-            )
+            return sentences, batch_start_index, src, tgt, batch_started_at
 
-            # Calculate progress in 0.60-0.90 range
-            total_so_far = len(all_sentences) + len(sentences)
-            progress = min(
-                0.90, 0.60 + (total_so_far / max(total_so_far + 30, 1)) * 0.30
-            )
-            progress, step, eta = _reserve_progress(progress, "TRANSLATING")
-            publish_batch_ready(
-                media_id=media_id,
-                user_id=user_id,
-                batch_index=batch_index,
-                url=batch_url,
-                segment_count=len(sentences),
-                progress=progress,
-            )
-            update_media_status(
-                media_id,
-                user_id=user_id,
-                progress=progress,
-                current_step=step,
-                estimated_time_remaining=eta,
-            )
-            _publish_progress(progress, step, eta)
+        async def _upload_batch(
+            current_batch_index: int,
+            batch_start_index: int,
+            sentences: list[Sentence],
+            src: str,
+            tgt: str,
+            batch_started_at: float,
+        ) -> None:
+            async with upload_semaphore:
+                upload_started_at = _time.perf_counter()
+                tb = TranslatedBatch(
+                    batch_index=current_batch_index,
+                    first_segment_index=batch_start_index,
+                    segments=sentences,
+                )
+                _batch_key, batch_url = await asyncio.to_thread(
+                    minio_client.upload_translated_batch, media_id, tb
+                )
+                upload_elapsed = _time.perf_counter() - upload_started_at
+                _add_timing("consumer_upload", upload_elapsed)
 
+                _trace(
+                    "batch_uploaded",
+                    batch_index=current_batch_index,
+                    segment_count=len(sentences),
+                    source_lang=src,
+                    target_lang=tgt,
+                )
+
+                total_so_far = batch_start_index + len(sentences)
+                progress = min(
+                    0.90, 0.60 + (total_so_far / max(total_so_far + 30, 1)) * 0.30
+                )
+                progress, step, eta = _reserve_progress(progress, "TRANSLATING")
+                publish_batch_ready(
+                    media_id=media_id,
+                    user_id=user_id,
+                    batch_index=current_batch_index,
+                    url=batch_url,
+                    segment_count=len(sentences),
+                    progress=progress,
+                )
+                update_media_status(
+                    media_id,
+                    user_id=user_id,
+                    progress=progress,
+                    current_step=step,
+                    estimated_time_remaining=eta,
+                )
+                _publish_progress(progress, step, eta)
+
+                logger.info(
+                    f"📝 Tier 2 batch {current_batch_index}: {len(sentences)} segments uploaded "
+                    f"(upload={upload_elapsed:.2f}s, total={_time.perf_counter() - batch_started_at:.2f}s)"
+                )
+
+        async def _schedule_translated_batch(sentences: list[Sentence]) -> list[Sentence]:
+            nonlocal batch_index, upload_tasks
+            if not sentences:
+                return []
+
+            translated, batch_start_index, src, tgt, batch_started_at = await asyncio.to_thread(
+                _translate_batch,
+                sentences,
+            )
+            if not translated:
+                return []
+
+            current_batch_index = batch_index
             batch_index += 1
-            logger.info(
-                f"📝 Tier 2 batch {batch_index - 1}: {len(sentences)} segments uploaded "
-                f"(total elapsed: {_time.time() - t0:.2f}s)"
+            all_sentences.extend(translated)
+            upload_tasks.append(
+                asyncio.create_task(
+                    _upload_batch(
+                        current_batch_index,
+                        batch_start_index,
+                        translated,
+                        src,
+                        tgt,
+                        batch_started_at,
+                    )
+                )
             )
-            return sentences
+
+            done_tasks = [task for task in upload_tasks if task.done()]
+            for task in done_tasks:
+                await task
+            upload_tasks = [task for task in upload_tasks if not task.done()]
+            return translated
 
         while True:
+            queue_wait_started_at = _time.perf_counter()
             chunk = await queue.get()
+            _add_timing("consumer_idle", _time.perf_counter() - queue_wait_started_at)
             if chunk is None:
                 # Sentinel received — flush remaining CJK buffer
                 if cjk_buffer:
@@ -513,9 +575,14 @@ async def run_v2_pipeline_async(
                         buffered_sentences=len(cjk_buffer),
                         path="cjk_final_flush",
                     )
+                    merge_started_at = _time.perf_counter()
                     flushed = await asyncio.to_thread(_flush_cjk_buffer)
-                    translated = await asyncio.to_thread(_translate_and_upload, flushed)
-                    all_sentences.extend(translated)
+                    _add_timing(
+                        "consumer_merge", _time.perf_counter() - merge_started_at
+                    )
+                    await _schedule_translated_batch(flushed)
+                if upload_tasks:
+                    await asyncio.gather(*upload_tasks)
                 break
 
             is_cjk_content = _is_cjk(_source_lang())
@@ -540,9 +607,12 @@ async def run_v2_pipeline_async(
                         buffered_sentences=len(cjk_buffer),
                         path="cjk",
                     )
+                    merge_started_at = _time.perf_counter()
                     flushed = await asyncio.to_thread(_flush_cjk_buffer)
-                    translated = await asyncio.to_thread(_translate_and_upload, flushed)
-                    all_sentences.extend(translated)
+                    _add_timing(
+                        "consumer_merge", _time.perf_counter() - merge_started_at
+                    )
+                    await _schedule_translated_batch(flushed)
                     chunks_since_cjk_flush = 0
             else:
                 # Non-CJK: translate directly (no merge needed)
@@ -552,8 +622,17 @@ async def run_v2_pipeline_async(
                     buffered_sentences=len(chunk),
                     path="non_cjk",
                 )
-                translated = await asyncio.to_thread(_translate_and_upload, list(chunk))
-                all_sentences.extend(translated)
+                await _schedule_translated_batch(list(chunk))
+
+        consumer_total = _time.perf_counter() - consumer_started_at
+        logger.info(
+            "⏱️ Consumer: "
+            f"merge={timing_state['consumer_merge']:.3f}s, "
+            f"nmt={timing_state['consumer_nmt']:.3f}s, "
+            f"upload={timing_state['consumer_upload']:.3f}s, "
+            f"idle={timing_state['consumer_idle']:.3f}s, "
+            f"total={consumer_total:.3f}s"
+        )
 
         return all_sentences
 
@@ -607,6 +686,23 @@ async def run_v2_pipeline_async(
     logger.success(
         f"✅ V2 Pipeline complete: {len(all_sentences)} bilingual segments | "
         f"source={detected_source_lang} target={target_lang}"
+    )
+    pipeline_total = _time.perf_counter() - pipeline_started_at
+    pipeline.last_run_metrics = {
+        "smart_aligner": dict(getattr(pipeline.aligner, "last_timing", {})),
+        "consumer": {
+            "merge": round(timing_state["consumer_merge"], 3),
+            "nmt": round(timing_state["consumer_nmt"], 3),
+            "upload": round(timing_state["consumer_upload"], 3),
+            "idle": round(timing_state["consumer_idle"], 3),
+        },
+        "producer_wait": round(timing_state["producer_wait"], 3),
+        "pipeline_total": round(pipeline_total, 3),
+    }
+    logger.info(
+        "⏱️ Pipeline: "
+        f"producer_wait={timing_state['producer_wait']:.3f}s, "
+        f"total={pipeline_total:.3f}s"
     )
     _trace(
         "pipeline_completed",
