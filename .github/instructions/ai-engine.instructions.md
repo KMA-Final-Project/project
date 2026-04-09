@@ -61,6 +61,13 @@ If a working Python environment is already available in this workspace, use it d
 
 In this repository, assume the existing `apps/ai-engine/venv` is already prepared and ready to use unless Python commands actually fail.
 
+Workspace rule for `apps/ai-engine`:
+
+- Never create a new virtual environment for AI-engine work in this workspace.
+- Never switch AI-engine work to `.venv` or any other alternate environment.
+- Reuse `apps/ai-engine/venv` directly for all normal coding, testing, and benchmark tasks.
+- Do not trigger Python environment setup or environment selection flows for AI-engine work unless the user explicitly asks for Python environment help or the existing `venv` is confirmed broken.
+
 Do not create a new venv, reinstall the environment, or spend time on environment setup for `apps/ai-engine` unless one of these is true:
 
 - A Python command fails because the current environment is broken or missing.
@@ -72,24 +79,24 @@ Typical commands when you do need to activate the local venv:
 
 ```bash
 cd apps/ai-engine
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # Linux/macOS (inside Docker)
+venv\Scripts\Activate.ps1     # Windows PowerShell
+# source venv/bin/activate     # Linux/macOS (inside Docker)
 
 # Import sanity check
-python -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"
+venv\Scripts\python.exe -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"
 
 # Unit tests
-python -m pytest tests/ -v
+venv\Scripts\python.exe -m pytest tests/ -v
 
 # Run a specific script
-python -m src.scripts.<script_name>
+venv\Scripts\python.exe -m src.scripts.<script_name>
 ```
 
 Preferred targeted validations when changing the live pipeline:
 
 ```bash
-python -m pytest tests/test_two_tier_streaming.py -v
-python -m pytest tests/test_event_discipline.py -v
+venv\Scripts\python.exe -m pytest tests/test_two_tier_streaming.py -v
+venv\Scripts\python.exe -m pytest tests/test_event_discipline.py -v
 ```
 
 > PyTorch must be installed manually before `requirements.txt`:
