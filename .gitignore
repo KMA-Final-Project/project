@@ -13,7 +13,7 @@ Thumbs.db
 *.swo
 *~
 .idea/
-.vscode/
+# .vscode/
 *.code-workspace
 .env
 .env.*

@@ -19,9 +19,10 @@ import {
 import { Role } from 'prisma/generated/client';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RolesGuard } from 'src/common/guards/roles.guard';
-import { PlanService, VariantService } from './services';
+import { OverviewService, PlanService, VariantService } from './services';
 import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
+import { AdminOverviewDto } from './dto/overview.dto';
 import { ErrorResponseDto } from 'src/common/dto';
 
 @ApiTags('Admin - Subscription Plans')
@@ -31,9 +32,17 @@ import { ErrorResponseDto } from 'src/common/dto';
 @Controller('admin')
 export class AdminController {
   constructor(
+    private readonly overviewService: OverviewService,
     private readonly planService: PlanService,
     private readonly variantService: VariantService,
   ) {}
+
+  @Get('overview')
+  @ApiOperation({ summary: 'Get admin dashboard overview metrics' })
+  @ApiResponse({ status: 200, type: AdminOverviewDto })
+  async getOverview(): Promise<AdminOverviewDto> {
+    return this.overviewService.getOverview();
+  }
 
   // ==================== PLANS ====================
 

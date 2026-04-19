@@ -6,7 +6,8 @@
     "pipeline",
     "docs",
     "apps",
-    "mobile-app"
+    "mobile-app",
+    "dashboard"
   ],
   "java.configuration.updateBuildConfiguration": "interactive"
 }

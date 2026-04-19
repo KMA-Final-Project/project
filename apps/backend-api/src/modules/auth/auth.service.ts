@@ -25,6 +25,7 @@ import {
 import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
 import { AUTH_ERRORS } from 'src/common/constants/error-messages';
 import { OtpType } from 'prisma/generated/client';
+import { Role } from 'prisma/generated/client';
 import { ConfigService } from '@nestjs/config';
 
 interface CachedRegistration {
@@ -391,12 +392,14 @@ export class AuthService {
     email: string;
     fullName: string;
     emailVerified: boolean;
+    role: Role;
   }): UserProfileDto {
     return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
       emailVerified: user.emailVerified,
+      role: user.role,
     };
   }
 

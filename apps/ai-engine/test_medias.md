@@ -1,6 +1,6 @@
 # English
 
-- "https://www.youtube.com/watch?v=-moW9jvvMr4"
+- https://www.youtube.com/watch?v=-moW9jvvMr4
 - https://www.youtube.com/watch?v=8KkKuTCFvzI
 
 # Chinese
