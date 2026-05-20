@@ -55,7 +55,7 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.badge.background,
   },
   chipActive: {
     backgroundColor: theme.colors.primary,
@@ -64,7 +64,7 @@ const styles = StyleSheet.create((theme) => ({
   label: {
     fontSize: theme.typography.sizes.sm,
     fontWeight: theme.typography.weights.medium,
-    color: theme.colors.textSecondary,
+    color: theme.colors.badge.text,
   },
   labelActive: {
     color: theme.colors.textOnPrimary,

@@ -20,6 +20,8 @@ import { useMediaStore } from "@/stores/media.store";
 import { useMediaList } from "@/hooks/useMedia";
 import type { MediaItem } from "@/types/media";
 import { ROUTES } from "@/constants/routes";
+import { useAuthStore } from "@/stores/auth.store";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function LibraryScreen() {
   const { t } = useTranslation();
@@ -29,6 +31,7 @@ export default function LibraryScreen() {
 
   const { filter, setFilter } = useMediaStore();
   const [searchQuery, setSearchQuery] = useState("");
+  const user = useAuthStore((s) => s.user);
 
   const { data: items = [], isLoading, isFetching, refetch } = useMediaList();
 
@@ -81,9 +84,11 @@ export default function LibraryScreen() {
         style={[styles.header, { paddingTop: insets.top + theme.spacing[4] }]}
       >
         <Text style={styles.headerTitle}>{t("library.title")}</Text>
-        {/* Placeholder Avatar */}
+        {/* User Avatar */}
         <View style={styles.avatarContainer}>
-          <Text style={styles.avatarText}>A</Text>
+          <Text style={styles.avatarText}>
+            {user?.fullName ? user.fullName[0].toUpperCase() : "U"}
+          </Text>
         </View>
       </View>
 
@@ -123,8 +128,12 @@ export default function LibraryScreen() {
             <MediaCard item={item} onPress={handleMediaPress} />
           )}
           ListEmptyComponent={
-            <View style={styles.centerContainer}>
-              <Text style={styles.emptyText}>{t("library.empty")}</Text>
+            <View style={styles.emptyContainer}>
+              <Ionicons name="film-outline" size={64} color={theme.colors.border} style={styles.emptyIcon} />
+              <Text style={styles.emptyTitle}>{t("library.empty")}</Text>
+              <Text style={styles.emptySubtitle}>
+                {t("library.emptySubtitle", "Import audio, video or paste a YouTube link to generate subtitles")}
+              </Text>
             </View>
           }
         />
@@ -148,7 +157,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: "800",
+    fontWeight: theme.typography.weights.bold,
     color: theme.colors.text,
     letterSpacing: -0.5,
   },
@@ -185,8 +194,27 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyText: {
-    fontSize: theme.typography.sizes.base,
-    color: theme.colors.textTertiary,
+  emptyContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: theme.spacing[16],
+    gap: theme.spacing[2],
+  },
+  emptyIcon: {
+    marginBottom: theme.spacing[2],
+  },
+  emptyTitle: {
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: theme.typography.weights.bold,
+    color: theme.colors.text,
+    textAlign: "center",
+  },
+  emptySubtitle: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.textSecondary,
+    textAlign: "center",
+    paddingHorizontal: theme.spacing[8],
+    lineHeight: 20,
   },
 }));

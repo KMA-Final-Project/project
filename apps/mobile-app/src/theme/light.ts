@@ -64,6 +64,11 @@ export interface AppTheme {
       translationText: string;
       activeSentenceBg: string;
     };
+
+    badge: {
+      background: string;
+      text: string;
+    };
   };
 
   typography: {
@@ -88,7 +93,7 @@ export const lightTheme: AppTheme = {
     secondaryLight: brand.secondaryLight,
     secondaryDark: brand.secondaryDark,
 
-    background: palette.white,
+    background: palette.iceBlue,
     surface: palette.gray50,
     card: palette.white,
     elevated: palette.white,
@@ -120,7 +125,7 @@ export const lightTheme: AppTheme = {
     tabBar: palette.white,
     tabBarInactive: palette.gray400,
     tabBarActive: brand.primary,
-    statusBar: palette.white,
+    statusBar: palette.iceBlue,
 
     player: {
       gradientStart: palette.whiteBlue,
@@ -129,6 +134,11 @@ export const lightTheme: AppTheme = {
       phoneticText: brand.primaryDark,
       translationText: brand.secondary,
       activeSentenceBg: player.activeSentenceBg, // works in light mode too due to alpha
+    },
+
+    badge: {
+      background: palette.gray200,
+      text: palette.gray900,
     },
   },
 

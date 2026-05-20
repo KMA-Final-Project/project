@@ -99,6 +99,7 @@
       "failed": "Lỗi"
     },
     "empty": "Media trống",
+    "emptySubtitle": "Tải lên âm thanh, video hoặc dán liên kết YouTube để tạo phụ đề",
     "generating": "Đang tạo phụ đề...",
     "playerReady": "Sẵn sàng"
   },
@@ -112,6 +113,7 @@
     "fromYoutube": "Từ YouTube",
     "fromYoutubeDesc": "Dán đường dẫn video",
     "supportedFormats": "Hỗ trợ: MP3, MP4, WAV, M4A",
+    "quotaRemaining": "Hạn mức còn lại: {{remaining}}/{{total}} phút",
     "modalTitle": "Đường dẫn YouTube",
     "pastePlaceholder": "https://youtube.com/...",
     "pasteClipboard": "Dán từ bộ nhớ tạm"
@@ -120,5 +122,43 @@
     "audioMode": "Chế độ Âm thanh",
     "videoMode": "Chế độ Video",
     "speed": "Tốc độ"
+  },
+  "settings": {
+    "quotaTitle": "Hạn mức đăng ký",
+    "quotaMinutes": "Còn {{remaining}} trên {{total}} phút",
+    "quotaReset": "Tự động đặt lại vào chu kỳ thanh toán tiếp theo",
+    "targetLanguage": "Ngôn ngữ dịch phụ đề",
+    "appearance": "Giao diện",
+    "interfaceLanguage": "Ngôn ngữ ứng dụng",
+    "current": "Hiện tại: {{value}}"
+  },
+  "welcome": {
+    "title": "Chào mừng đến với Kapter",
+    "description": "Biến mọi phương tiện truyền thông thành môi trường học tập tương tác với bản dịch đồng bộ, phiên âm và trình phát thông minh.",
+    "getStarted": "Bắt đầu ngay",
+    "tagline": "Biến phương tiện truyền thông thành không gian song ngữ"
+  },
+  "onboarding": {
+    "appLanguage": {
+      "title": "Chọn ngôn ngữ ứng dụng",
+      "subtitle": "Chọn ngôn ngữ giao diện ưa thích của bạn."
+    },
+    "targetLanguage": {
+      "title": "Chọn ngôn ngữ dịch phụ đề",
+      "subtitle": "Chọn ngôn ngữ mặc định mà bạn muốn phụ đề được dịch sang."
+    },
+    "learningLanguages": {
+      "title": "Ngôn ngữ muốn thực hành",
+      "subtitle": "Chọn một hoặc nhiều ngôn ngữ bạn muốn học hoặc xem nội dung.",
+      "done": "Hoàn tất thiết lập"
+    }
+  },
+  "mediaPicker": {
+    "title": "Chọn tập tin",
+    "permissionRequired": "Cần cấp quyền truy cập thư viện tệp tin.",
+    "grantPermission": "Cấp quyền truy cập",
+    "noMedia": "Không tìm thấy tập tin âm thanh hoặc video nào.",
+    "video": "Video",
+    "audio": "Âm thanh"
   }
 }

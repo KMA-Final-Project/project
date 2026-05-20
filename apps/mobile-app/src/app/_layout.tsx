@@ -10,7 +10,7 @@ import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useAuthStore } from "@/stores/auth.store";
-import { hydrateLanguagePreference } from "@/hooks";
+import { hydrateLanguagePreference, useOnboarding } from "@/hooks";
 import { setAuthInvalidatedHandler } from "@/services";
 import { ROUTES } from "../constants/routes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,6 +25,7 @@ export default function RootLayout() {
   const isHydrated = useAuthStore((s) => s.isHydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
   const invalidate = useAuthStore((s) => s.invalidate);
+  const { hasCompletedOnboarding, isLoading: isOnboardingLoading } = useOnboarding();
 
   useEffect(() => {
     hydrate();
@@ -53,18 +54,23 @@ export default function RootLayout() {
   }, [invalidate]);
 
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!isHydrated || isOnboardingLoading) return;
 
     const inAuthGroup = segments[0] === "(auth)";
+    const inOnboardingFlow = (segments as string[])[1] === "onboarding";
 
     if (!isAuthenticated && !inAuthGroup) {
-      router.replace(ROUTES.AUTH);
-    } else if (isAuthenticated && inAuthGroup) {
-      router.replace(ROUTES.HOME);
+      router.replace(ROUTES.AUTH as any);
+    } else if (isAuthenticated) {
+      if (hasCompletedOnboarding === false && !inOnboardingFlow) {
+        router.replace(ROUTES.ONBOARDING_APP_LANG as any);
+      } else if (hasCompletedOnboarding === true && (inAuthGroup || inOnboardingFlow)) {
+        router.replace(ROUTES.HOME as any);
+      }
     }
-  }, [isHydrated, isAuthenticated, segments, router]);
+  }, [isHydrated, isAuthenticated, segments, router, hasCompletedOnboarding, isOnboardingLoading]);
 
-  if (!isHydrated || !isLanguageReady) {
+  if (!isHydrated || !isLanguageReady || isOnboardingLoading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" />

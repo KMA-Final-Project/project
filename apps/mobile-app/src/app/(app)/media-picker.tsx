@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -17,31 +17,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUploadMedia } from "@/hooks/useMedia";
 import { ROUTES } from "@/constants/routes";
+import { useTranslation } from "react-i18next";
 
 export default function MediaPickerScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
 
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
 
   const { mutateAsync: uploadMedia, isPending: uploadPending } =
     useUploadMedia();
 
-  useEffect(() => {
-    if (permissionResponse?.status === "granted") {
-      fetchMedia();
-    } else if (
-      permissionResponse?.status === "undetermined" &&
-      permissionResponse.canAskAgain
-    ) {
-      requestPermission();
-    }
-  }, [permissionResponse?.status]);
-
-  const fetchMedia = async () => {
+  const fetchMedia = useCallback(async () => {
     try {
       setLoading(true);
       const media = await MediaLibrary.getAssetsAsync({
@@ -52,11 +44,22 @@ export default function MediaPickerScreen() {
       setAssets(media.assets);
     } catch (error) {
       console.error("Failed to fetch media", error);
-      Alert.alert("Error", "Failed to load media files from device");
+      Alert.alert(t("common.error", "Error"), t("mediaPicker.errorLoad", "Failed to load media files from device"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    if (permissionResponse?.status === "granted") {
+      fetchMedia();
+    } else if (
+      permissionResponse?.status === "undetermined" &&
+      permissionResponse.canAskAgain
+    ) {
+      requestPermission();
+    }
+  }, [permissionResponse, fetchMedia, requestPermission]);
 
   const handleSelectAsset = async (asset: MediaLibrary.Asset) => {
     try {
@@ -163,7 +166,7 @@ export default function MediaPickerScreen() {
           <Text
             style={[styles.assetType, { color: theme.colors.textSecondary }]}
           >
-            {isVideo ? "Video" : "Audio"} •{" "}
+            {isVideo ? t("mediaPicker.video") : t("mediaPicker.audio")} •{" "}
             {new Date(item.creationTime).toLocaleDateString()}
           </Text>
         </View>
@@ -189,7 +192,7 @@ export default function MediaPickerScreen() {
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={[styles.title, { color: theme.colors.text }]}>
-          Select Media
+          {t("mediaPicker.title")}
         </Text>
         <View style={styles.backBtn} />
       </View>
@@ -199,10 +202,10 @@ export default function MediaPickerScreen() {
           <Text
             style={[styles.emptyText, { color: theme.colors.textSecondary }]}
           >
-            Permission required to access media library.
+            {t("mediaPicker.permissionRequired")}
           </Text>
           <Pressable onPress={requestPermission} style={styles.grantBtn}>
-            <Text style={styles.grantBtnText}>Grant Permission</Text>
+            <Text style={styles.grantBtnText}>{t("mediaPicker.grantPermission")}</Text>
           </Pressable>
         </View>
       ) : loading ? (
@@ -219,7 +222,7 @@ export default function MediaPickerScreen() {
           <Text
             style={[styles.emptyText, { color: theme.colors.textSecondary }]}
           >
-            No audio or video files found.
+            {t("mediaPicker.noMedia")}
           </Text>
         </View>
       ) : (

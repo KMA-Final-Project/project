@@ -72,11 +72,10 @@ export default function VerifyOtpScreen() {
       const msg = extractApiError(err);
       Alert.alert(t("common.error"), msg);
     }
-  }, [pendingEmail, cooldown, setOtpCooldownUntil]);
+  }, [pendingEmail, cooldown, setOtpCooldownUntil, t]);
 
-  // If no pending email, go back
   useEffect(() => {
-    if (!pendingEmail) router.replace(ROUTES.AUTH);
+    if (!pendingEmail) router.replace(ROUTES.AUTH as any);
   }, [pendingEmail, router]);
 
   return (

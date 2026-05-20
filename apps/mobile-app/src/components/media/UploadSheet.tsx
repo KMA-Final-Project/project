@@ -14,6 +14,7 @@ import { View, Text, Pressable } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import { useSubscriptionQuota } from "@/hooks";
 
 interface UploadSheetProps {
   onSelectDevice: () => void;
@@ -28,6 +29,7 @@ export function UploadSheet({
 }: UploadSheetProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
+  const { remainingMinutes, totalMinutes } = useSubscriptionQuota();
 
   return (
     <View style={styles.container}>
@@ -38,6 +40,17 @@ export function UploadSheet({
       <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
         {t("upload.subtitle")}
       </Text>
+
+      {/* Quota Indicator */}
+      <View style={styles.quotaContainer}>
+        <Ionicons name="time-outline" size={16} color={theme.colors.primary} />
+        <Text style={[styles.quotaText, { color: theme.colors.textSecondary }]}>
+          {t("upload.quotaRemaining", "Remaining quota: {{remaining}}/{{total}} mins", {
+            remaining: remainingMinutes,
+            total: totalMinutes,
+          })}
+        </Text>
+      </View>
 
       {/* Option Cards */}
       <View style={styles.cards}>
@@ -144,7 +157,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   subtitle: {
     fontSize: 14,
-    marginBottom: theme.spacing[6],
+    marginBottom: theme.spacing[3],
   },
   cards: {
     gap: theme.spacing[3],
@@ -180,5 +193,20 @@ const styles = StyleSheet.create((theme) => ({
   formatsNote: {
     fontSize: 12,
     textAlign: "center",
+  },
+  quotaContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: theme.spacing[4],
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    borderRadius: theme.radii.md,
+    alignSelf: "flex-start",
+  },
+  quotaText: {
+    fontSize: 12,
+    fontWeight: theme.typography.weights.medium,
   },
 }));

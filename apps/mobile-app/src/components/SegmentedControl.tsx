@@ -27,7 +27,7 @@ export function SegmentedControl({
       duration: 250,
       easing: Easing.out(Easing.cubic),
     });
-  }, [selectedIndex, segments.length]);
+  }, [selectedIndex, segments.length, translateX]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
     left: `${translateX.value}%` as unknown as number,

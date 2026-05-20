@@ -36,6 +36,15 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
 
 ## 3. Recently Completed
 
+- 2026-05-20 — Kapter V1 Production Userflow marked complete. Status: Working.
+  - Implemented App welcome screen and detailed onboarding pipeline (Language preference, subtitle defaults, learning targets).
+  - Formulated AsyncStorage-backed global onboarding state hooks.
+  - Refined Library search/filters/empty views, media picker device library scanner, and YouTube integration.
+  - Configured socket-driven processing timelines and automatic artifact refetching on COMPLETED status.
+  - Implemented interactive player layer views (phonetic, source, translation) and speed/auto-disable rules.
+  - Built comprehensive settings tab with dynamic quota tracking bar, interface language switcher, and state-wipe logout.
+  - Verified 100% clean TypeScript compiler and linter execution with 0 warnings/errors.
+
 - 2026-04-02 — UI/UX foundation marked complete. Status: Working.
   - Theme token system.
   - Light/dark theme support.
