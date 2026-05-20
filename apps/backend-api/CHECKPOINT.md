@@ -36,6 +36,13 @@ Use `Next Candidates` below as the current backend backlog until a new task file
   - Admin-only route protection.
   - Smart deactivation and variant versioning behavior.
 
+- 2026-05-21 — Admin user endpoints added. Status: Working.
+  - `GET /admin/users` — paginated user list with current subscription/plan info (`UserAdminService.findAll`).
+  - `GET /admin/users/:id` — full user detail: profile, subscription snapshot, last 3 usage history cycles, total media count.
+  - New `UserAdminService` injectable from `AdminModule`.
+  - New DTOs: `AdminUsersQueryDto`, `AdminUserListItemDto`, `AdminUserListResponseDto`, `AdminUserDetailDto`.
+  - Validation: `pnpm build` — PASSED (zero errors).
+
 - 2026-04-02 — Media library and upload pipeline marked complete. Status: Working.
   - Presigned upload URL endpoint.
   - Upload confirmation endpoint.
@@ -78,6 +85,7 @@ Use `Next Candidates` below as the current backend backlog until a new task file
 - [ ] Optimize or cache artifact summaries for `GET /media` if library latency becomes noticeable.
 - [ ] Add dictionary lookup and saved vocabulary backend endpoints.
 - [ ] Add or strengthen E2E tests for upload confirmation, worker validation, artifact inventory, and queue handoff.
+- [ ] Swagger operation responses for new admin user endpoints — currently documented but not exhaustively typed in Swagger.
 - [ ] Add monitoring/logging conventions for API and worker processes.
 - [ ] Review quota usage audit behavior under failed, retried, and completed jobs.
 - [ ] Confirm all soft-delete read paths explicitly filter `deletedAt: null`.

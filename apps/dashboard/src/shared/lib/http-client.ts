@@ -30,6 +30,17 @@ class ApiClient {
     })
   }
 
+  async patch<TResponse>(path: string, body: unknown): Promise<TResponse> {
+    return this.request<TResponse>(path, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    })
+  }
+
+  async delete<TResponse>(path: string): Promise<TResponse> {
+    return this.request<TResponse>(path, { method: "DELETE" })
+  }
+
   async get<TResponse>(path: string): Promise<TResponse> {
     return this.request<TResponse>(path)
   }

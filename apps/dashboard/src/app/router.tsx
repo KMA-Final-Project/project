@@ -10,6 +10,7 @@ import { MonitoringQueuesPage } from "@/features/monitoring/pages/monitoring-que
 import { OverviewPage } from "@/features/overview/pages/overview-page.tsx"
 import { PlansPage } from "@/features/plans/pages/plans-page.tsx"
 import { UsersPage } from "@/features/users/pages/users-page.tsx"
+import { UserDetailPage } from "@/features/users/pages/user-detail-page.tsx"
 import { NotFoundPage } from "@/shared/ui/not-found-page.tsx"
 import { RootRedirect } from "@/shared/ui/root-redirect.tsx"
 
@@ -45,6 +46,10 @@ const router = createBrowserRouter([
           {
             path: "/users",
             element: <UsersPage />,
+          },
+          {
+            path: "/users/:id",
+            element: <UserDetailPage />,
           },
           {
             path: "/plans",

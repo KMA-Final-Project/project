@@ -12,6 +12,8 @@ export type PlanVariant = {
   isActive: boolean
   createdAt: string
   updatedAt: string
+  /** Present when fetched via GET /admin/plans/:id */
+  _count?: { subscriptions: number }
 }
 
 export type SubscriptionPlan = {
@@ -29,3 +31,41 @@ export type SubscriptionPlan = {
     variants: number
   }
 }
+
+// ===== Mutation Payloads =====
+
+export type CreatePlanPayload = {
+  id: string
+  code: string
+  name: string
+  description?: string
+  features?: string[]
+  tierLevel?: number
+}
+
+export type UpdatePlanPayload = {
+  name?: string
+  description?: string
+  features?: string[]
+  tierLevel?: number
+  isActive?: boolean
+}
+
+export type CreateVariantPayload = {
+  name: string
+  price: number
+  currency?: string
+  billingCycleType: BillingCycleType
+  maxDurationPerFile: number
+  monthlyQuotaSeconds: number
+}
+
+export type UpdateVariantPayload = {
+  name?: string
+  price?: number
+  currency?: string
+  maxDurationPerFile?: number
+  monthlyQuotaSeconds?: number
+  isActive?: boolean
+}
+
