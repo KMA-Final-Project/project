@@ -5,8 +5,9 @@ Architecture:
   - Producer: SmartAligner transcription → asyncio.Queue
     - Consumer: semantic batching (CJK + non-CJK) → NMTTranslator → Tier 2 upload
 
-The queue provides natural backpressure: if translation falls behind
-transcription, the producer blocks until there is queue space.
+The queue provides natural backpressure when translation overlaps with ASR.
+In the hybrid `after_asr` mode the queue stays unbounded so Tier 1 chunk
+streaming can continue while translation is deferred until ASR releases the GPU.
 """
 
 from __future__ import annotations
@@ -112,21 +113,30 @@ async def run_v2_pipeline_async(
     target_lang: str = "vi",
     duration_seconds: float = 0.0,
     debug_trace: list[dict[str, Any]] | None = None,
-    prefetch_nmt: bool = True,
+    prefetch_nmt: bool | None = None,
+    source_language_hint: str | None = None,
 ) -> SubtitleOutput:
     """
     V2 bilingual subtitle pipeline using asyncio producer-consumer.
 
     Flow:
       AudioProcessor → AudioInspector → VADManager (sync, via asyncio.to_thread)
+      → source-language decision
       → SmartAligner (producer, pushes chunks to queue)
-      → Consumer (CJK branch / non-CJK bypass → NMTTranslator → Tier 2 upload)
+      → Consumer (semantic batching → NMTTranslator → Tier 2 upload)
 
-    Backpressure: Queue(maxsize=4) limits how far the producer can run
-    ahead of the consumer. Producer blocks when consumer is behind.
+    Backpressure: when translation overlaps with ASR, Queue(maxsize=4) limits how
+    far the producer can run ahead of the consumer. In `after_asr` mode the queue
+    is unbounded and drains only after the ASR stage completes.
     """
 
     pipeline_started_at = _time.perf_counter()
+    translation_start_policy = settings.translation_start_policy
+    nmt_prefetch_enabled = (
+        settings.nmt_prefetch_enabled if prefetch_nmt is None else bool(prefetch_nmt)
+    )
+    if translation_start_policy == "after_asr":
+        nmt_prefetch_enabled = False
 
     def _eta(progress: float) -> int | None:
         if progress <= 0:
@@ -263,13 +273,79 @@ async def run_v2_pipeline_async(
             segments=[],
         )
 
+    configured_source_hint = settings.source_language_hint
+    local_source_hint = settings.normalize_language_tag(source_language_hint)
+    selected_source_lang = ""
+    probe_source_lang = ""
+    routing_strategy = "fallback"
+
+    if settings.hybrid_after_asr_mode:
+        await asyncio.to_thread(NMTTranslator.unload_instance)
+
+    if configured_source_hint:
+        selected_source_lang = configured_source_hint
+        routing_strategy = "config_hint"
+    elif local_source_hint:
+        selected_source_lang = local_source_hint
+        routing_strategy = "local_hint"
+    elif settings.AI_SOURCE_LANGUAGE_PROBE_ENABLED:
+        probe_source_lang = (
+            await asyncio.to_thread(
+                pipeline.aligner.probe_source_language,
+                clean_audio_path,
+                segments,
+                audio_array=audio_array,
+                max_segments=settings.AI_SOURCE_LANGUAGE_PROBE_MAX_SEGMENTS,
+                max_seconds=settings.AI_SOURCE_LANGUAGE_PROBE_MAX_SECONDS,
+            )
+            or ""
+        )
+        if probe_source_lang:
+            selected_source_lang = probe_source_lang
+            routing_strategy = "probe"
+
+    selected_route = pipeline.aligner.resolve_route(
+        pipeline.aligner.route_for_language(selected_source_lang or None)
+    )
+    selected_model_name = (
+        settings.WHISPER_MODEL_FULL
+        if selected_route == "full"
+        else settings.WHISPER_MODEL_TURBO
+    )
+
+    if selected_source_lang:
+        source_lang_holder[0] = selected_source_lang
+        update_media_status(
+            media_id,
+            user_id=user_id,
+            source_language=selected_source_lang,
+        )
+
+    if settings.hybrid_after_asr_mode and probe_source_lang and selected_route != "turbo":
+        await asyncio.to_thread(pipeline.aligner.unload_route, "turbo")
+
+    logger.info(
+        f"🧭 Source routing: strategy={routing_strategy} "
+        f"source={selected_source_lang or 'unknown'} route={selected_route} "
+        f"policy={translation_start_policy}"
+    )
+    _trace(
+        "source_routing_decided",
+        strategy=routing_strategy,
+        source_lang=selected_source_lang or "",
+        probe_source_lang=probe_source_lang,
+        route=selected_route,
+        translation_start_policy=translation_start_policy,
+    )
+
     # ── Step 4: Producer-consumer (Alignment + Translation) ──────────────
     #
     # QUEUE PROTOCOL:
     #   Producer puts:  list[Sentence]  (one chunk from SmartAligner)
     #   Producer puts:  None            (sentinel — signals consumer to stop)
     #   Consumer reads until it gets None.
-    queue: asyncio.Queue[list[Sentence] | None] = asyncio.Queue(maxsize=4)
+    queue_maxsize = 0 if translation_start_policy == "after_asr" else 4
+    queue: asyncio.Queue[list[Sentence] | None] = asyncio.Queue(maxsize=queue_maxsize)
     loop = asyncio.get_running_loop()
 
     tier1_chunk_index: list[int] = [0]
@@ -320,7 +396,8 @@ async def run_v2_pipeline_async(
         _publish_progress(progress, step, eta)
         logger.info(
             f"📤 V2 chunk {idx} ({len(batch)} sentences, "
-            f"{total_so_far} total) | queue={queue.qsize()}/{queue.maxsize}"
+            f"{total_so_far} total) | queue={queue.qsize()}/"
+            f"{'unbounded' if queue.maxsize == 0 else queue.maxsize}"
         )
 
         # Push chunk into asyncio queue (blocks if queue is full → backpressure)
@@ -339,6 +416,8 @@ async def run_v2_pipeline_async(
                 on_chunk=on_chunk,
                 chunk_size=settings.CHUNK_SIZE,
                 audio_array=audio_array,
+                source_language=selected_source_lang or None,
+                route_override=selected_route,
             )
         finally:
             await queue.put(None)  # sentinel
@@ -708,30 +787,52 @@ async def run_v2_pipeline_async(
     producer_task = asyncio.create_task(producer())
     nmt_prefetch_task = (
         asyncio.create_task(asyncio.to_thread(NMTTranslator.get_instance))
-        if prefetch_nmt
+        if nmt_prefetch_enabled
         else None
     )
-    consumer_task = asyncio.create_task(consumer())
+    all_sentences: list[Sentence]
 
-    try:
-        await producer_task
-        all_sentences = await consumer_task
-    except Exception:
-        producer_task.cancel()
-        consumer_task.cancel()
-        if nmt_prefetch_task is not None:
-            nmt_prefetch_task.cancel()
-        raise
+    if translation_start_policy == "after_asr":
+        try:
+            await producer_task
+            _trace(
+                "asr_completed",
+                route=selected_route,
+                translation_start_policy=translation_start_policy,
+            )
+            logger.info(
+                f"🎙️ ASR complete on route={selected_route}; releasing ASR residency "
+                "before translation starts"
+            )
+            await asyncio.to_thread(pipeline.aligner.unload_all)
+            all_sentences = await consumer()
+        except Exception:
+            producer_task.cancel()
+            if nmt_prefetch_task is not None:
+                nmt_prefetch_task.cancel()
+            raise
+    else:
+        consumer_task = asyncio.create_task(consumer())
+        try:
+            await producer_task
+            _trace(
+                "asr_completed",
+                route=selected_route,
+                translation_start_policy=translation_start_policy,
+            )
+            all_sentences = await consumer_task
+        except Exception:
+            producer_task.cancel()
+            consumer_task.cancel()
+            if nmt_prefetch_task is not None:
+                nmt_prefetch_task.cancel()
+            raise
 
     # ── Step 5: Final metadata + export ──────────────────────────────────
     detected_source_lang = (
         _detect_source_language(all_sentences) if all_sentences else "en"
     )
-    model_used = (
-        settings.WHISPER_MODEL_FULL
-        if detected_source_lang in settings.WHISPER_CJK_LANGUAGES
-        else settings.WHISPER_MODEL_TURBO
-    )
+    model_used = selected_model_name
     source_lang_holder[0] = detected_source_lang
 
     progress, step, eta = _reserve_progress(0.98, "EXPORTING")
@@ -759,6 +860,11 @@ async def run_v2_pipeline_async(
         },
         "producer_wait": round(timing_state["producer_wait"], 3),
         "pipeline_total": round(pipeline_total, 3),
+        "route": selected_route,
+        "selected_asr_model": selected_model_name,
+        "probe_source_lang": probe_source_lang,
+        "translation_start_policy": translation_start_policy,
+        "nmt_prefetch_used": nmt_prefetch_task is not None,
     }
     logger.info(
         "⏱️ Pipeline: "

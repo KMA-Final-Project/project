@@ -43,6 +43,7 @@ When changing an accepted decision:
 - [ADR-012 — Enforce quota and subscription rules in the backend using snapshot-style records](#adr-012--enforce-quota-and-subscription-rules-in-the-backend-using-snapshot-style-records)
 - [ADR-013 — Sign client-facing MinIO URLs with the public endpoint client directly](#adr-013--sign-client-facing-minio-urls-with-the-public-endpoint-client-directly)
 - [ADR-014 — Keep mobile dependent on Backend API, not directly on AI Engine](#adr-014--keep-mobile-dependent-on-backend-api-not-directly-on-ai-engine)
+- [ADR-015 — Adopt the V2.1 hybrid after-ASR runtime for single-GPU AI Engine workers](#adr-015--adopt-the-v21-hybrid-after-asr-runtime-for-single-gpu-ai-engine-workers)
 
 ---
 
@@ -329,7 +330,7 @@ Processing can be long-running. Socket-first UX provides better feedback and avo
 
 ## ADR-009 — Use the V2 async NMT-first AI pipeline as the only active production path
 
-Status: Accepted
+Status: Superseded by ADR-015 for single-GPU runtime scheduling
 
 ### Decision
 
@@ -523,6 +524,51 @@ Backend is the authenticated product boundary. Direct mobile-to-AI Engine commun
 - `apps/backend-api/INSTRUCTION.md`
 - `apps/ai-engine/INSTRUCTION.md`
 - `CONTRACTS.md`
+
+---
+
+## ADR-015 — Adopt the V2.1 hybrid after-ASR runtime for single-GPU AI Engine workers
+
+Status: Accepted
+
+### Decision
+
+Keep the current V2 public artifact and event protocol, but change the default single-worker AI Engine runtime to a V2.1 hybrid schedule for constrained single-GPU deployments.
+
+The accepted default is:
+
+- lazy per-job Whisper route selection instead of eager dual-route residency;
+- internal source-language routing from config hint, local hint, or short turbo-route probe;
+- live Tier 1 chunk uploads during ASR;
+- `AI_TRANSLATION_START_POLICY=after_asr` by default, so ASR unloads before NMT translation starts;
+- no eager NMT prefetch in the default hybrid path.
+
+### Reason
+
+The previous eager-overlap interpretation of V2 could push one 16GB GPU worker too close to a residency cliff by keeping multiple heavy Whisper routes and NLLB active at once. The hybrid schedule keeps the public contract stable while making the default runtime fit the target hardware more reliably.
+
+### Tradeoffs
+
+- First translated batch may arrive later because translation waits for ASR completion by default.
+- Runtime orchestration is more explicit because models are loaded, unloaded, and routed per job.
+- Benchmark evidence is still required before enabling overlap again on specific hardware profiles.
+- Horizontal scale-out with separate `turbo` and `full` workers still needs an explicit queue-routing strategy.
+
+### Guardrails
+
+- Do not change `chunks/`, `translated_batches/`, `final.json`, socket event names, or monotonic progress semantics as part of this runtime decision.
+- Do not reintroduce `processingMode` or revive deleted V1 translation paths.
+- Do not eagerly load both Whisper routes at worker startup in the default single-GPU path.
+- Do not enable NMT prefetch or `during_asr` overlap by default without benchmark evidence for the target hardware.
+
+### Related Files
+
+- `apps/ai-engine/INSTRUCTION.md`
+- `apps/ai-engine/CHECKPOINT.md`
+- `apps/ai-engine/src/async_pipeline.py`
+- `apps/ai-engine/src/core/smart_aligner.py`
+- `apps/ai-engine/src/core/nmt_translator.py`
+- `apps/ai-engine/src/scripts/benchmark_suite.py`
 
 ---
 

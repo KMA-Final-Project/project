@@ -41,6 +41,32 @@ class CallRecorder:
 
 
 class RaisingAligner:
+    def route_for_language(self, language: str | None) -> str:
+        normalized = (language or "").lower()
+        if normalized == "yue" or normalized.split("-")[0] in {"zh", "ja", "ko"}:
+            return "full"
+        return "turbo"
+
+    def resolve_route(self, route: str) -> str:
+        return route
+
+    def probe_source_language(
+        self,
+        file_path,
+        segments,
+        *,
+        audio_array=None,
+        max_segments: int | None = None,
+        max_seconds: float | None = None,
+    ) -> str | None:
+        return None
+
+    def unload_route(self, route: str, *, to_cpu: bool = False) -> str:
+        return route
+
+    def unload_all(self, *, to_cpu: bool = False) -> None:
+        return None
+
     def process(
         self,
         file_path,
@@ -49,6 +75,8 @@ class RaisingAligner:
         on_chunk=None,
         chunk_size: int = 8,
         audio_array=None,
+        source_language: str | None = None,
+        route_override: str | None = None,
     ) -> list[Any]:
         raise RuntimeError("aligner boom")
 

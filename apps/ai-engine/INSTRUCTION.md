@@ -2,7 +2,7 @@
 
 ## 1. Module Role
 
-`apps/ai-engine` is the queue-driven Python GPU worker that owns the full audio-to-JSON subtitle pipeline. It downloads validated audio from MinIO, runs the active V2 async NMT-first pipeline, uploads streaming and final artifacts, updates PostgreSQL status, and emits Redis progress events.
+`apps/ai-engine` is the queue-driven Python GPU worker that owns the full audio-to-JSON subtitle pipeline. It downloads validated audio from MinIO, runs the active V2.1 hybrid async pipeline, uploads streaming and final artifacts, updates PostgreSQL status, and emits Redis progress events.
 
 ## 2. Tech Stack
 
@@ -16,17 +16,25 @@
 - Settings: `pydantic-settings`
 - Local virtual environment: `apps/ai-engine/venv`
 
-## 3. Active V2 Pipeline
+## 3. Active V2.1 Pipeline
 
-The live orchestration runs through `src/async_pipeline.py` with an internal `asyncio.Queue(maxsize=4)` between transcription and translation.
+The live orchestration runs through `src/async_pipeline.py`. Public behavior stays the same as V2, but the default single-worker runtime is now resource-aware so one 16GB GPU is not asked to keep multiple heavy Whisper routes and NMT resident at the same time.
 
 1. `AudioProcessor` - normalizes input audio to 16kHz mono WAV.
 2. `AudioInspector` - classifies audio as music-oriented or standard speech.
 3. `VADManager` - detects and merges speech regions and can isolate vocals for music-heavy audio.
-4. `SmartAligner` - runs Whisper transcription, produces word timestamps, enriches word phonemes, and emits Tier 1 chunk callbacks.
-5. `SemanticMerger` - performs language-aware line grouping and CJK homophone correction when merge logic is needed.
-6. `NMTTranslator` - translates batches with NLLB-200-3.3B via CTranslate2.
-7. `LLMProvider` refinement (optional) - applies a post-NMT quality pass when `AI_ENABLE_LLM_REFINEMENT` is enabled.
+4. Source-language routing - uses `AI_SOURCE_LANGUAGE_HINT`, any local hint, or a short turbo-route probe to choose the main ASR route before transcription.
+5. `SmartAligner` - lazily loads only the chosen Whisper route for the job, produces word timestamps, enriches word phonemes, and emits Tier 1 chunk callbacks during ASR.
+6. `SemanticMerger` - performs language-aware line grouping and CJK homophone correction when merge logic is needed.
+7. `NMTTranslator` - translates batches with NLLB-200-3.3B via CTranslate2. In the default `AI_TRANSLATION_START_POLICY=after_asr` mode, NMT starts only after ASR unloads its heavy route and releases GPU residency.
+8. `LLMProvider` refinement (optional) - applies a post-NMT quality pass when `AI_ENABLE_LLM_REFINEMENT` is enabled.
+
+Default hybrid guardrails:
+
+- Tier 1 `chunks/` uploads and `chunk_ready` events stay live during ASR.
+- `translated_batches/`, `final.json`, socket event names, and progress semantics stay unchanged.
+- `WORKER_MODEL_MODE=auto` now means lazy per-job route selection, not eager dual-model startup.
+- `AI_ENABLE_NMT_PREFETCH` should stay `False` in the default single-GPU path unless benchmark evidence justifies overlap.
 
 ## 4. Performance Profiles
 
@@ -39,6 +47,12 @@ Do not hardcode performance settings. The runtime is controlled by `AI_PERF_MODE
 | `HIGH`   | Priority jobs and maximum speed | `float16` when possible | Higher batch size | `5+`      |
 
 `MEDIUM` is the default profile.
+
+Single-GPU runtime defaults:
+
+- `AI_TRANSLATION_START_POLICY=after_asr`
+- `AI_SOURCE_LANGUAGE_PROBE_ENABLED=true`
+- `AI_ENABLE_NMT_PREFETCH=false`
 
 ## 5. Coding Standards
 
@@ -112,6 +126,7 @@ Use the smallest check that matches your change, then expand if needed.
 
 ```powershell
 venv\Scripts\python.exe -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"
+venv\Scripts\python.exe -m pytest tests/test_hybrid_routing.py -v
 venv\Scripts\python.exe -m pytest tests/test_streaming_contracts.py -q
 venv\Scripts\python.exe -m pytest tests/test_event_discipline.py -v
 venv\Scripts\python.exe -m pytest tests/ -v

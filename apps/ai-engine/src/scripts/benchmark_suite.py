@@ -320,8 +320,8 @@ def _hardware_metrics(report: ProfileReport | None) -> dict[str, Any] | None:
 
 def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
     rows = [
-        "| Case | Status | Source | Duration (s) | Wall Clock (s) | RTF | First Batch (s) | Segments | Profile | Model |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Case | Status | Source | Route | Policy | Prefetch | Duration (s) | Wall Clock (s) | RTF | First Chunk (s) | First Batch (s) | Segments | Profile | Model |",
+        "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for result in case_results:
         metrics = result.get("metrics", {})
@@ -329,13 +329,17 @@ def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
         detected = metrics.get("detected", {})
         output_stats = metrics.get("output", {})
         rows.append(
-            "| {case_id} | {status} | {source} | {duration} | {wall_clock} | {rtf} | {first_batch} | {segments} | {profile} | {model} |".format(
+            "| {case_id} | {status} | {source} | {route} | {policy} | {prefetch} | {duration} | {wall_clock} | {rtf} | {first_chunk} | {first_batch} | {segments} | {profile} | {model} |".format(
                 case_id=result["case_id"],
                 status=result["status"],
                 source=detected.get("source_lang", result["source_family"]),
+                route=detected.get("route", "-"),
+                policy=detected.get("translation_start_policy", "-"),
+                prefetch="yes" if detected.get("nmt_prefetch_used") else "no",
                 duration=runtime.get("audio_duration_s", "-"),
                 wall_clock=runtime.get("wall_clock_s", "-"),
                 rtf=runtime.get("real_time_factor", "-"),
+                first_chunk=metrics.get("stages", {}).get("time_to_first_chunk_s", "-"),
                 first_batch=metrics.get("stages", {}).get(
                     "time_to_first_translated_batch_s", "-"
                 ),
@@ -361,6 +365,7 @@ def _family_averages(
             {
                 "wall_clock_s": [],
                 "real_time_factor": [],
+                "first_chunk_s": [],
                 "first_batch_s": [],
                 "segments": [],
                 "consumer_merge_s": [],
@@ -373,6 +378,9 @@ def _family_averages(
         grouped[family]["real_time_factor"].append(
             float(metrics["runtime"]["real_time_factor"])
         )
+        first_chunk = metrics["stages"].get("time_to_first_chunk_s")
+        if first_chunk is not None:
+            grouped[family]["first_chunk_s"].append(float(first_chunk))
         first_batch = metrics["stages"].get("time_to_first_translated_batch_s")
         if first_batch is not None:
             grouped[family]["first_batch_s"].append(float(first_batch))
@@ -427,7 +435,11 @@ def _render_case_markdown(case_result: dict[str, Any]) -> str:
         "## Detection",
         f"- Audio profile: {detected['profile']}",
         f"- Source language: {detected['source_lang']}",
+        f"- Probe source language: {detected['probe_source_lang']}",
         f"- Target language: {detected['target_lang']}",
+        f"- Selected route: {detected['route']}",
+        f"- Translation start policy: {detected['translation_start_policy']}",
+        f"- NMT prefetch used: {detected['nmt_prefetch_used']}",
         f"- Whisper model: {detected['model_used']}",
         f"- LLM refinement enabled: {detected['llm_refinement_enabled']}",
         "",
@@ -641,6 +653,13 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
             "target_lang": output.metadata.target_lang,
             "model_used": output.metadata.model_used,
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "route": run_metrics.get("route", ""),
+            "probe_source_lang": run_metrics.get("probe_source_lang", ""),
+            "translation_start_policy": run_metrics.get(
+                "translation_start_policy",
+                settings.translation_start_policy,
+            ),
+            "nmt_prefetch_used": bool(run_metrics.get("nmt_prefetch_used", False)),
         }
         output_stats = _output_metrics(output)
     else:
@@ -648,8 +667,17 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
             "profile": settings.AI_PERF_MODE.value,
             "source_lang": "",
             "target_lang": case.target_lang,
-            "model_used": "",
+            "model_used": str(run_metrics.get("selected_asr_model", "")),
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "route": str(run_metrics.get("route", "")),
+            "probe_source_lang": str(run_metrics.get("probe_source_lang", "")),
+            "translation_start_policy": str(
+                run_metrics.get(
+                    "translation_start_policy",
+                    settings.translation_start_policy,
+                )
+            ),
+            "nmt_prefetch_used": bool(run_metrics.get("nmt_prefetch_used", False)),
         }
         output_stats = {
             "segment_count": 0,

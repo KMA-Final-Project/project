@@ -8,6 +8,7 @@ Aligns text with VAD segments and ensures word-level timestamps for Karaoke.
 
 from __future__ import annotations
 
+import gc
 import re
 import time
 from pathlib import Path
@@ -33,10 +34,10 @@ class SmartAligner:
       - Turbo model (large-v3-turbo): fast, for EN/VI and common languages
       - Full model  (large-v3):       accurate, for CJK languages
 
-    Model loading is controlled by WORKER_MODEL_MODE:
-      - "auto"       → both models loaded (~8 GB VRAM)
-      - "turbo_only" → only turbo loaded  (~3 GB VRAM)
-      - "full_only"  → only full loaded   (~5 GB VRAM)
+    Model loading is lazy and controlled by WORKER_MODEL_MODE:
+      - "auto"       → turbo or full may be loaded per job
+      - "turbo_only" → only turbo may be loaded
+      - "full_only"  → only full may be loaded
     """
 
     SILENCE_GAP_S = 0.3
@@ -60,27 +61,82 @@ class SmartAligner:
 
         self._initialized = True
         self.last_timing: dict[str, float] = {}
-
-        mode = settings.WORKER_MODEL_MODE.lower()
-        compute_type = settings.whisper_compute_type
-
-        if mode in ("auto", "turbo_only"):
-            self._model_turbo = self._load_model(
-                settings.WHISPER_MODEL_TURBO, compute_type, "turbo"
-            )
-            self._batched_turbo = BatchedInferencePipeline(model=self._model_turbo)
-
-        if mode in ("auto", "full_only"):
-            self._model_full = self._load_model(
-                settings.WHISPER_MODEL_FULL, compute_type, "full"
-            )
-            self._batched_full = BatchedInferencePipeline(model=self._model_full)
-
         logger.success(
-            f"SmartAligner ready | mode={mode} | "
-            f"turbo={'✅' if self._model_turbo else '—'} | "
-            f"full={'✅' if self._model_full else '—'}"
+            f"SmartAligner ready | mode={settings.WORKER_MODEL_MODE.lower()} | "
+            "lazy_load=enabled"
         )
+
+    @staticmethod
+    def _allowed_routes() -> tuple[str, ...]:
+        mode = settings.WORKER_MODEL_MODE.lower()
+        if mode == "turbo_only":
+            return ("turbo",)
+        if mode == "full_only":
+            return ("full",)
+        return ("turbo", "full")
+
+    @staticmethod
+    def route_for_language(language: str | None) -> str:
+        normalized = settings.normalize_language_tag(language)
+        if not normalized:
+            return "turbo"
+
+        base = normalized.split("-")[0]
+        if normalized == "yue" or base in {"zh", "ja", "ko"}:
+            return "full"
+        if normalized in {
+            settings.normalize_language_tag(code)
+            for code in settings.WHISPER_CJK_LANGUAGES
+        }:
+            return "full"
+        return "turbo"
+
+    def resolve_route(self, route: str) -> str:
+        requested = route.strip().lower()
+        allowed = self._allowed_routes()
+        if requested in allowed:
+            return requested
+
+        fallback = allowed[0]
+        logger.warning(
+            f"Requested ASR route '{requested}' is not available in "
+            f"WORKER_MODEL_MODE={settings.WORKER_MODEL_MODE}; falling back to '{fallback}'"
+        )
+        return fallback
+
+    @staticmethod
+    def _is_model_loaded(model: WhisperModel | None) -> bool:
+        if model is None:
+            return False
+        ct2_model = getattr(model, "model", None)
+        if ct2_model is None:
+            return True
+        return bool(getattr(ct2_model, "model_is_loaded", True))
+
+    def _get_route_state(
+        self, route: str
+    ) -> tuple[WhisperModel | None, BatchedInferencePipeline | None]:
+        if route == "full":
+            return self._model_full, self._batched_full
+        return self._model_turbo, self._batched_turbo
+
+    def _set_route_state(
+        self,
+        route: str,
+        *,
+        model: WhisperModel | None = None,
+        batched: BatchedInferencePipeline | None = None,
+    ) -> None:
+        if route == "full":
+            if model is not None:
+                self._model_full = model
+            if batched is not None:
+                self._batched_full = batched
+            return
+        if model is not None:
+            self._model_turbo = model
+        if batched is not None:
+            self._batched_turbo = batched
 
     @staticmethod
     def _load_model(model_name: str, compute_type: str, label: str) -> WhisperModel:
@@ -95,6 +151,63 @@ class SmartAligner:
         logger.success(f"✅ {label} model loaded: {model_name}")
         return model
 
+    def ensure_route_loaded(self, route: str) -> str:
+        resolved = self.resolve_route(route)
+        model, batched = self._get_route_state(resolved)
+
+        if model is None:
+            model_name = (
+                settings.WHISPER_MODEL_FULL
+                if resolved == "full"
+                else settings.WHISPER_MODEL_TURBO
+            )
+            model = self._load_model(
+                model_name,
+                settings.whisper_compute_type,
+                resolved,
+            )
+            batched = BatchedInferencePipeline(model=model)
+            self._set_route_state(resolved, model=model, batched=batched)
+            return resolved
+
+        if not self._is_model_loaded(model):
+            logger.info(f"Reloading {resolved} model on {settings.DEVICE}")
+            model.model.load_model(keep_cache=True)
+
+        if batched is None:
+            batched = BatchedInferencePipeline(model=model)
+            self._set_route_state(resolved, batched=batched)
+
+        return resolved
+
+    def _unload_route_state(self, route: str, *, to_cpu: bool = False) -> str:
+        model, _batched = self._get_route_state(route)
+        if model is None or not self._is_model_loaded(model):
+            return route
+
+        logger.info(f"Unloading {route} model from {settings.DEVICE}")
+        model.model.unload_model(to_cpu=to_cpu)
+        gc.collect()
+        return route
+
+    def unload_route(self, route: str, *, to_cpu: bool = False) -> str:
+        return self._unload_route_state(self.resolve_route(route), to_cpu=to_cpu)
+
+    def unload_all(self, *, to_cpu: bool = False) -> None:
+        for route in ("turbo", "full"):
+            self._unload_route_state(route, to_cpu=to_cpu)
+
+    def _select_batched_for_route(
+        self, route: str
+    ) -> tuple[BatchedInferencePipeline, bool]:
+        resolved = self.ensure_route_loaded(route)
+        _model, batched = self._get_route_state(resolved)
+        if batched is None:
+            raise RuntimeError(
+                f"No batched pipeline available for route '{resolved}'"
+            )
+        return batched, resolved == "turbo"
+
     def _select_batched(
         self, language: str | None
     ) -> tuple[BatchedInferencePipeline, bool]:
@@ -103,16 +216,72 @@ class SmartAligner:
         Returns:
             Tuple of (pipeline, is_turbo) — is_turbo=True when the turbo model is selected.
         """
-        need_full = language in settings.WHISPER_CJK_LANGUAGES
+        return self._select_batched_for_route(self.route_for_language(language))
 
-        if need_full and self._batched_full:
-            return self._batched_full, False
-        if self._batched_turbo:
-            return self._batched_turbo, True
-        if self._batched_full:
-            return self._batched_full, False
+    def probe_source_language(
+        self,
+        file_path: Path | str,
+        segments: list[VADSegment],
+        *,
+        audio_array: np.ndarray | None = None,
+        max_segments: int | None = None,
+        max_seconds: float | None = None,
+    ) -> str | None:
+        """Probe early speech with the fast ASR route to infer source language."""
+        if not segments:
+            return None
 
-        raise RuntimeError("No batched pipeline available — check WORKER_MODEL_MODE")
+        path = Path(file_path)
+        if not path.exists() and audio_array is None:
+            raise FileNotFoundError(f"Audio file not found: {path}")
+
+        if audio_array is None:
+            audio_full, _sample_rate = librosa.load(str(path), sr=16000)
+        else:
+            audio_full = audio_array.astype(np.float32, copy=False)
+
+        probe_segments: list[VADSegment] = []
+        covered_seconds = 0.0
+        limit_segments = max_segments or len(segments)
+
+        for segment in segments[:limit_segments]:
+            probe_segments.append(segment)
+            covered_seconds += float(segment.duration)
+            if max_seconds and covered_seconds >= max_seconds:
+                break
+
+        if not probe_segments:
+            return None
+
+        batched, is_turbo = self._select_batched_for_route("turbo")
+        grouped_audio, offset_map = self._concatenate_audio(audio_full, probe_segments)
+        if len(grouped_audio) < 160 or not offset_map:
+            return None
+
+        clip_ts = [
+            {
+                "start": float(mapping["concat_start"]),
+                "end": float(mapping["concat_end"]),
+            }
+            for mapping in offset_map
+        ]
+        result = self._transcribe_segment(
+            batched,
+            grouped_audio,
+            self._construct_prompt("standard", ""),
+            language=None,
+            clip_timestamps=clip_ts,
+            is_turbo=is_turbo,
+        )
+        detected = settings.normalize_language_tag(
+            getattr(result.get("info"), "language", None)
+        )
+        if detected:
+            logger.info(
+                f"Source-language probe detected '{detected}' from "
+                f"{len(probe_segments)} segment(s)"
+            )
+        return detected or None
 
     def process(
         self,
@@ -122,6 +291,8 @@ class SmartAligner:
         on_chunk: Callable[[list[Sentence], int], None] | None = None,
         chunk_size: int = 20,
         audio_array: np.ndarray | None = None,
+        source_language: str | None = None,
+        route_override: str | None = None,
     ) -> list[Sentence]:
         """
         Transcribe audio with Dynamic Anchor Strategy and Advanced Prompting.
@@ -132,6 +303,8 @@ class SmartAligner:
                       Enables streaming uploads while transcription continues.
             chunk_size: Number of sentences to accumulate before firing on_chunk.
             audio_array: Optional preloaded 16kHz mono audio from VADManager.
+            source_language: Optional ISO language tag used to anchor Whisper.
+            route_override: Optional explicit ASR route ("turbo" or "full").
         """
         started_at = time.perf_counter()
         stage_timing = {
@@ -170,7 +343,9 @@ class SmartAligner:
         sentences: list[Sentence] = []
         pending_chunk: list[Sentence] = []
         previous_text_context = ""
-        anchor_language: str | None = None
+        anchor_language: str | None = (
+            settings.normalize_language_tag(source_language) or None
+        )
 
         def _flush_if_ready() -> None:
             nonlocal pending_chunk
@@ -185,7 +360,11 @@ class SmartAligner:
         ):
             prompt = self._construct_prompt(profile, previous_text_context)
             current_lang = anchor_language
-            batched, is_turbo = self._select_batched(current_lang)
+            batched, is_turbo = (
+                self._select_batched_for_route(route_override)
+                if route_override
+                else self._select_batched(current_lang)
+            )
 
             remapped_group: list[list[Sentence]] = [[] for _ in segment_group]
             primary_result: dict[str, Any] | None = None

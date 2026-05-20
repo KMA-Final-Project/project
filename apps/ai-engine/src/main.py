@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import tempfile
 import time as _time
 from pathlib import Path
 
@@ -61,12 +60,29 @@ def prewarm_heavy_components() -> None:
     Intentionally excludes Ollama/LLM warmup because the external model runner is
     heavier, less stable under VRAM pressure, and not required for the fast path.
     """
-    components: list[tuple[str, callable]] = [
-        ("SmartAligner", SmartAligner),
+    def _prewarm_aligner() -> None:
+        aligner = SmartAligner()
+        if settings.hybrid_after_asr_mode:
+            logger.info(
+                "   SmartAligner prewarm kept lazy because "
+                "AI_TRANSLATION_START_POLICY=after_asr"
+            )
+            return
+
+        for route in ("turbo", "full"):
+            if route == "turbo" and settings.WORKER_MODEL_MODE.lower() == "full_only":
+                continue
+            if route == "full" and settings.WORKER_MODEL_MODE.lower() == "turbo_only":
+                continue
+            aligner.ensure_route_loaded(route)
+
+    components: list[tuple[str, object]] = [
+        ("SmartAligner", _prewarm_aligner),
         ("AudioInspector", AudioInspector.prewarm),
-        ("NMTTranslator", NMTTranslator.get_instance),
         ("VADManager", VADManager),
     ]
+    if not settings.hybrid_after_asr_mode:
+        components.insert(2, ("NMTTranslator", NMTTranslator.get_instance))
 
     logger.info("🔥 AI_PREWARM_MODELS enabled — prewarming heavy components...")
     started_at = _time.perf_counter()
@@ -79,6 +95,22 @@ def prewarm_heavy_components() -> None:
 
     total_elapsed = _time.perf_counter() - started_at
     logger.success(f"✅ Heavy component prewarm complete in {total_elapsed:.2f}s")
+
+
+def release_hybrid_residency() -> None:
+    """Release heavy ASR/NMT residency for the single-GPU hybrid runtime."""
+    if not settings.hybrid_after_asr_mode:
+        return
+
+    try:
+        SmartAligner().unload_all()
+    except Exception as exc:
+        logger.warning(f"Hybrid cleanup: failed to unload SmartAligner routes: {exc}")
+
+    try:
+        NMTTranslator.unload_instance()
+    except Exception as exc:
+        logger.warning(f"Hybrid cleanup: failed to unload NMTTranslator: {exc}")
 
 
 # ============================================================================
@@ -102,6 +134,7 @@ async def process_job(job, token):
     audio_s3_key = job_data["audioS3Key"]
     duration_seconds = job_data.get("durationSeconds", 0)
     user_id = job_data["userId"]
+    source_language_hint = job_data.get("sourceLanguage") or None
 
     logger.info(
         f"🚀 Job {job.id} started | media: {media_id} | "
@@ -112,9 +145,13 @@ async def process_job(job, token):
     minio_client = MinioClient()
     pipeline = PipelineOrchestrator()
     profiler = HardwareProfiler(interval=2.0)
+    release_hybrid_residency()
 
     # Create temp working directory
-    work_dir = Path(tempfile.mkdtemp(prefix=f"bilingual-ai-{media_id[:8]}-"))
+    work_dir = settings.TEMP_DIR.resolve() / (
+        f"bilingual-ai-{media_id[:8]}-{int(_time.time() * 1000)}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         # Start hardware profiling
@@ -139,6 +176,7 @@ async def process_job(job, token):
             started_at=started_at,
             target_lang=target_lang,
             duration_seconds=duration_seconds,
+            source_language_hint=source_language_hint,
         )
         pipeline_elapsed = _time.perf_counter() - pipeline_started_at
         logger.info(
@@ -192,6 +230,7 @@ async def process_job(job, token):
     finally:
         # Stop profiler (writes report even on failure)
         profiler.stop()
+        release_hybrid_residency()
         # Clean up temp directory
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -208,6 +247,9 @@ async def main():
     logger.info(f"   MinIO: {settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}")
     logger.info(f"   Device: {settings.DEVICE} (index {settings.DEVICE_INDEX})")
     logger.info(f"   Mode: {settings.AI_PERF_MODE.value}")
+    logger.info(f"   Worker model mode: {settings.WORKER_MODEL_MODE}")
+    logger.info(f"   Translation start policy: {settings.translation_start_policy}")
+    logger.info(f"   NMT prefetch enabled: {settings.nmt_prefetch_enabled}")
 
     configure_vram_limit()
 

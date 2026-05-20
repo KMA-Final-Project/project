@@ -34,7 +34,8 @@ class Settings(BaseSettings):
         default=False,
         description=(
             "Preload heavy long-lived inference components at worker startup "
-            "(Whisper, AST inspector, VAD, NMT) before accepting jobs."
+            "before accepting jobs. The hybrid single-GPU path only prewarms "
+            "components that do not create conflicting GPU residency."
         ),
     )
 
@@ -49,14 +50,51 @@ class Settings(BaseSettings):
     )
     # Languages that require the full model
     WHISPER_CJK_LANGUAGES: list[str] = Field(
-        default=["zh", "ja", "ko"], description="Languages routed to the full model"
+        default=["zh", "zh-cn", "zh-tw", "yue", "ja", "ko"],
+        description="Languages routed to the full model",
     )
-    # Worker model mode: controls which models are loaded into VRAM
-    #   auto       → load both models (single instance, ~8 GB VRAM)
-    #   turbo_only → load only turbo (~3 GB VRAM, for EN/VI worker)
-    #   full_only  → load only full  (~5 GB VRAM, for CJK worker)
+    # Worker model mode: controls which ASR routes this worker may load.
+    #   auto       → may load turbo or full lazily per job
+    #   turbo_only → may load only turbo
+    #   full_only  → may load only full
     WORKER_MODEL_MODE: str = Field(
         default="auto", description="auto | turbo_only | full_only"
+    )
+    AI_SOURCE_LANGUAGE_HINT: str = Field(
+        default="",
+        description=(
+            "Optional ISO language hint used to choose the ASR route before the "
+            "main transcription pass."
+        ),
+    )
+    AI_SOURCE_LANGUAGE_PROBE_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Probe early speech with the fast ASR route when no source language "
+            "hint is available."
+        ),
+    )
+    AI_SOURCE_LANGUAGE_PROBE_MAX_SECONDS: float = Field(
+        default=12.0,
+        description="Maximum early-audio duration used for source-language probing.",
+    )
+    AI_SOURCE_LANGUAGE_PROBE_MAX_SEGMENTS: int = Field(
+        default=4,
+        description="Maximum VAD segments used for source-language probing.",
+    )
+    AI_TRANSLATION_START_POLICY: str = Field(
+        default="during_asr",
+        description=(
+            "after_asr | during_asr. Controls whether translation starts only "
+            "after ASR releases the GPU or overlaps with ASR."
+        ),
+    )
+    AI_ENABLE_NMT_PREFETCH: bool = Field(
+        default=False,
+        description=(
+            "Load the NMT model before translation starts. Disabled by default "
+            "for the single-GPU hybrid path."
+        ),
     )
 
     # --- Redis (BullMQ) ---
@@ -262,6 +300,36 @@ class Settings(BaseSettings):
         """Initialize directories"""
         os.makedirs(self.TEMP_DIR, exist_ok=True)
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+
+    @staticmethod
+    def normalize_language_tag(language: str | None) -> str:
+        """Normalize a language hint into a lowercase hyphenated tag."""
+        if not language:
+            return ""
+        return language.strip().lower().replace("_", "-")
+
+    @property
+    def source_language_hint(self) -> str:
+        """Return the normalized configured source-language hint."""
+        return self.normalize_language_tag(self.AI_SOURCE_LANGUAGE_HINT)
+
+    @property
+    def translation_start_policy(self) -> str:
+        """Return the normalized translation start policy."""
+        value = str(self.AI_TRANSLATION_START_POLICY or "after_asr").strip().lower()
+        if value not in {"after_asr", "during_asr"}:
+            return "after_asr"
+        return value
+
+    @property
+    def hybrid_after_asr_mode(self) -> bool:
+        """Return True when the single-GPU hybrid schedule is active."""
+        return self.translation_start_policy == "after_asr"
+
+    @property
+    def nmt_prefetch_enabled(self) -> bool:
+        """Return True when NMT prefetch is allowed for this runtime mode."""
+        return self.AI_ENABLE_NMT_PREFETCH and not self.hybrid_after_asr_mode
 
     @staticmethod
     def normalize_llm_capability(capability: str) -> str:
