@@ -1,6 +1,6 @@
-# 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
+﻿# 📂 PROJECT CHECKPOINT: BILINGUAL SUBTITLE SYSTEM
 
-> **Last Updated:** 2026-04-02
+> **Last Updated:** 2026-04-10
 > **Primary Docs:** `apps/INSTRUCTION.md` (root), per-app `INSTRUCTION.md` files
 > **Package Manager (Backend):** pnpm
 
@@ -351,6 +351,29 @@ Progress semantics (V2 pipeline): `0.05` AUDIO_PREP → `0.10` INSPECTING → `0
 
 ---
 
+### 🚀 Pipeline Performance Benchmarks
+
+| Date       | Change                          | Wall Time  | Speedup   | Notes                                                       |
+|------------|---------------------------------|------------|-----------|-------------------------------------------------------------|
+| 2026-04-02 | Baseline (before optimization)  | 217.8s     | 1.00×     | 565s video; producer-bound, transcription bottleneck ~175s  |
+| 2026-04-10 | **P0 + P1a + P1b** (see below)  | **101.8s** | **2.14×** | transcription=82.6s, phonemes=12.0s, NMT consumer=87.3s    |
+
+**Changes applied in P0 + P1:**
+- **P0 (bug fix):** `clip_timestamps` corrected from `list[float]` → `list[dict]` (`{"start": float, "end": float}`) to match `BatchedInferencePipeline.transcribe()` API
+- **P1a:** `SMART_ALIGNER_GROUP_SIZE` increased `4 → 8` (`config.py`)
+- **P1b:** Turbo model `beam_size` set to `1` (`smart_aligner.py`)
+
+**Post-P1 Timing Breakdown (565s video):**
+- SmartAligner (producer): **95.9s** total (transcription=82.6s, phonemes=12.0s, overhead=1.3s)
+- NMT consumer: **87.3s** total — GPU contention: 5/18 batches spiked 7–19s due to simultaneous Whisper+NMT GPU sharing; net wall impact ~6s
+- Producer-bound confirmed: `producer_wait=0.007s`
+
+**Remaining Bottleneck:** 82.6s transcription (~86% of producer time) — primary target for next optimization phase (P2).
+
+**GPU/CPU Trade-off Decision:** CPU NMT (Ryzen 7700 INT8) evaluated — ~6s wall gain with risk of consumer-bound regression. **Decision: keep NMT on GPU.**
+
+---
+
 ## 6b. AI Engine — Docker Deployment
 
 | File                                | Purpose                                                    |
@@ -616,12 +639,13 @@ interface AiProcessingJobPayload {
 2. **🟡 Mobile App — Final Preview Cleanup:** Remove or repurpose any remaining unused preview-only helpers now that the processing screen is artifact-summary-first.
 3. **🟡 Backend — Artifact Summary Performance:** `GET /media` currently derives artifact summaries per item from MinIO; revisit if library latency becomes noticeable.
 4. **🟡 AI Engine — NMT Quality Tuning:** Continue tuning `NMT_BEAM_SIZE`, `NMT_COMPUTE_TYPE`, and refinement prompts per language pair.
-5. **🟡 True Language-Based Routing:** Detect language earlier and route CJK-heavy jobs to the appropriate worker profile when horizontal scaling becomes necessary.
-6. **🟡 AI Engine — Integration Test:** Add an end-to-end test with real Redis + MinIO + Ollama to validate the full streaming contract.
-7. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints.
-8. **🟢 Inspector Tuning:** Further refine the multi-segment audio inspector with real-world audio.
-9. **🟢 VAD Performance:** Investigate VAD processing time on long music files.
-10. **🟢 Monitoring:** Set up basic monitoring and alerting for AI Engine and Worker processes.
+5. **🔴 [P2] AI Engine — Transcription Speed:** 82.6s transcription remains the primary bottleneck post-P1 (2.14× achieved). Candidates: dynamic batching, VAD chunk overlap tuning, INT8 quantization for turbo model, CUDA stream priority scheduling to reduce GPU contention (5/18 NMT batches currently spike 7–19s).
+6. **🟡 True Language-Based Routing:** Detect language earlier and route CJK-heavy jobs to the appropriate worker profile when horizontal scaling becomes necessary.
+7. **🟡 AI Engine — Integration Test:** Add an end-to-end test with real Redis + MinIO + Ollama to validate the full streaming contract.
+8. **🟢 Vocabulary Feature:** Dictionary lookup + word save endpoints.
+9. **🟢 Inspector Tuning:** Further refine the multi-segment audio inspector with real-world audio.
+10. **🟢 VAD Performance:** Investigate VAD processing time on long music files.
+11. **🟢 Monitoring:** Set up basic monitoring and alerting for AI Engine and Worker processes.
 
 ---
 

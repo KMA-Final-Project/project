@@ -24,6 +24,7 @@ import type {
   MediaArtifactsResponseDto,
   StreamUrlResponseDto,
 } from './dto';
+import { Role } from 'prisma/generated/client';
 import { MediaOriginType } from 'prisma/generated/enums';
 import {
   artifactSummariesEqual,
@@ -381,6 +382,7 @@ export class MediaService {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
+        role: true,
         currentSubscription: {
           select: {
             monthlyQuotaSecondsSnapshot: true,
@@ -388,6 +390,10 @@ export class MediaService {
         },
       },
     });
+
+    if (user.role === Role.ADMIN) {
+      return;
+    }
 
     if (!user.currentSubscription) {
       throw new BadRequestException(MEDIA_ERRORS.QUOTA_EXCEEDED);

@@ -16,6 +16,7 @@ import tempfile
 import time as _time
 from pathlib import Path
 
+import torch
 from bullmq import Worker
 from loguru import logger
 
@@ -37,6 +38,21 @@ from src.utils.hardware_profiler import HardwareProfiler
 
 AI_PROCESSING_QUEUE = "ai-processing"
 QUEUE_PREFIX = "bilingual"
+
+
+def configure_vram_limit() -> None:
+    """Apply a per-process CUDA memory fraction when running on GPU."""
+    if settings.DEVICE != "cuda" or not torch.cuda.is_available():
+        return
+
+    if settings.MAX_VRAM_FRACTION <= 0:
+        logger.info("CUDA VRAM fraction limit disabled")
+        return
+
+    torch.cuda.set_per_process_memory_fraction(settings.MAX_VRAM_FRACTION)
+    logger.info(
+        f"CUDA per-process memory fraction set to {settings.MAX_VRAM_FRACTION:.2f}"
+    )
 
 
 def prewarm_heavy_components() -> None:
@@ -113,6 +129,7 @@ async def process_job(job, token):
         started_at = _time.time()
 
         target_lang = job_data.get("targetLanguage", "vi")
+        pipeline_started_at = _time.perf_counter()
         subtitle_output = await run_v2_pipeline(
             pipeline,
             minio_client,
@@ -122,6 +139,11 @@ async def process_job(job, token):
             started_at=started_at,
             target_lang=target_lang,
             duration_seconds=duration_seconds,
+        )
+        pipeline_elapsed = _time.perf_counter() - pipeline_started_at
+        logger.info(
+            f"⏱️ V2 pipeline wall time: {pipeline_elapsed:.2f}s | "
+            f"metrics={pipeline.last_run_metrics}"
         )
 
         # 3. Upload final result
@@ -186,6 +208,8 @@ async def main():
     logger.info(f"   MinIO: {settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}")
     logger.info(f"   Device: {settings.DEVICE} (index {settings.DEVICE_INDEX})")
     logger.info(f"   Mode: {settings.AI_PERF_MODE.value}")
+
+    configure_vram_limit()
 
     if settings.AI_PREWARM_MODELS:
         prewarm_heavy_components()

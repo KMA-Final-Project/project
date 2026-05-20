@@ -4,18 +4,19 @@
 # Scaling:
 #   1 instance (default):   docker compose up
 #   2 instances:            docker compose up --scale ai-engine=2
+#   2 tuned instances:      docker compose --profile dual up
 #   Turbo + Full split:     use profiles (see below)
 #
 # Profiles:
 #   docker compose --profile turbo up    → turbo_only mode
 #   docker compose --profile full up     → full_only mode
 #   docker compose --profile auto up     → auto (both models)
+#   docker compose --profile dual up     → primary + ai-engine-2 on one GPU
 # ============================================================
 
 name: bilingual-ai
 
 services:
-
   # ── Default instance (WORKER_MODEL_MODE from .env) ─────────
   ai-engine:
     build:
@@ -47,6 +48,40 @@ services:
     restart: unless-stopped
     profiles:
       - auto
+      - dual
+
+  # ── Secondary worker for same-GPU dual-instance runs ─────────────────
+  ai-engine-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bilingual-ai-engine:latest
+    container_name: bilingual-ai-engine-2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    env_file:
+      - .env
+    environment:
+      CUDA_VISIBLE_DEVICES: "0"
+      WORKER_MODEL_MODE: turbo_only
+      NMT_COMPUTE_TYPE: int8
+      AI_MAX_VRAM_FRACTION: 0.5
+      REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ai_outputs_2:/app/outputs
+      - ai_temp_2:/app/temp
+      - whisper_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    profiles:
+      - dual
 
   # ── Turbo-only worker (~3 GB VRAM) ─────────────────────────
   # Processes EN/VI/FR/... jobs fast using large-v3-turbo
@@ -113,5 +148,7 @@ services:
 volumes:
   ai_outputs:
   ai_temp:
+  ai_outputs_2:
+  ai_temp_2:
   # Persistent Hugging Face cache — avoids re-downloading Whisper models on container restart
   whisper_cache:

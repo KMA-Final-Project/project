@@ -101,6 +101,9 @@ class HardwareProfiler:
         self._job_id: str = ""
         self._media_id: str = ""
         self._nvml_handle = None
+        self.last_report: Optional[ProfileReport] = None
+        self.last_txt_path: Optional[Path] = None
+        self.last_csv_path: Optional[Path] = None
 
         # Initialize NVML once
         if HAS_NVML:
@@ -124,6 +127,9 @@ class HardwareProfiler:
         self._start_time = time.monotonic()
         self._job_id = job_id
         self._media_id = media_id
+        self.last_report = None
+        self.last_txt_path = None
+        self.last_csv_path = None
 
         self._thread = threading.Thread(target=self._sample_loop, daemon=True)
         self._thread.start()
@@ -144,9 +150,12 @@ class HardwareProfiler:
             return None
 
         report = self._build_report(duration)
-        report_path = self._write_report(report)
-        logger.success(f"📊 Profiler stopped — {report.sample_count} samples over {duration:.1f}s → {report_path}")
-        return report_path
+        txt_path, csv_path = self._write_report(report)
+        self.last_report = report
+        self.last_txt_path = txt_path
+        self.last_csv_path = csv_path
+        logger.success(f"📊 Profiler stopped — {report.sample_count} samples over {duration:.1f}s → {txt_path}")
+        return txt_path
 
     # ── Internal ─────────────────────────────────────────────────────────
 
@@ -237,7 +246,7 @@ class HardwareProfiler:
 
         return report
 
-    def _write_report(self, report: ProfileReport) -> Path:
+    def _write_report(self, report: ProfileReport) -> tuple[Path, Path]:
         """Write human-readable .txt and machine-readable .csv."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -336,4 +345,4 @@ class HardwareProfiler:
                 ])
 
         logger.info(f"Reports written: {txt_path} | {csv_path}")
-        return txt_path
+        return txt_path, csv_path

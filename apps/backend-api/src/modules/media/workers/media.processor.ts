@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { Role } from 'prisma/generated/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { MinioService } from 'src/modules/minio/minio.service';
 import {
@@ -401,11 +402,16 @@ export class MediaProcessor {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
+        role: true,
         currentSubscription: {
           select: { maxDurationPerFileSnapshot: true },
         },
       },
     });
+
+    if (user.role === Role.ADMIN) {
+      return;
+    }
 
     if (!user.currentSubscription) {
       throw new Error('No active subscription — cannot process media');
@@ -434,11 +440,16 @@ export class MediaProcessor {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
+        role: true,
         currentSubscription: {
           select: { monthlyQuotaSecondsSnapshot: true },
         },
       },
     });
+
+    if (user.role === Role.ADMIN) {
+      return;
+    }
 
     if (!user.currentSubscription) {
       throw new Error('No active subscription');

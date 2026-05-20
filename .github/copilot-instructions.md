@@ -64,6 +64,8 @@
   - use `settings` from `src.config`
   - keep all Pydantic models in `src/schemas.py`
   - `SmartAligner` and `VADManager` are singleton-style classes
+- Reuse the existing AI engine virtual environment at `apps/ai-engine/venv` for all normal AI-engine tasks in this workspace.
+- Never create a second AI-engine virtual environment, never switch to `.venv`, and never trigger environment setup/selection flows for AI-engine work unless the user explicitly asks for Python environment help or the existing `venv` is confirmed broken.
 - Active translation runtime is `core/nmt_translator.py` via CTranslate2; do not reintroduce the deleted `translator_engine.py` path
 - `AI_ENABLE_LLM_REFINEMENT` controls the optional post-NMT Ollama refinement path in `async_pipeline.py`; preserve the non-refinement path when disabled
 - Public artifact URLs must be signed directly with a MinIO client configured for `MINIO_PUBLIC_ENDPOINT`; never sign an internal host and rewrite the URL afterward
@@ -103,14 +105,13 @@ These were reproduced in this repository during onboarding and are worth knowing
 - `pnpm: command not found` when trying to run backend/mobile scripts in this sandbox.
   - Workaround: install `pnpm` first, then run `pnpm install` inside the Node app you are working on before using `pnpm lint`, `pnpm test`, or dev commands.
 - AI engine import sanity check fails immediately with `ModuleNotFoundError: No module named 'loguru'` in a fresh clone.
-  - Workaround: create/activate the AI engine virtual environment, install PyTorch first, then install `requirements.txt`:
+  - Workaround: reuse and activate the existing AI engine virtual environment at `apps/ai-engine/venv`. Do not create a replacement `.venv` in this workspace unless the user explicitly asks for environment recovery. Then install PyTorch first, then install `requirements.txt` if the environment is missing required packages:
     - `cd apps/ai-engine`
-    - `python -m venv .venv`
-    - `source .venv/bin/activate` on Linux/macOS or `.venv\Scripts\activate` on Windows
+    - `source venv/bin/activate` on Linux/macOS or `venv\Scripts\Activate.ps1` on Windows PowerShell
     - `pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128`
     - `pip install -r requirements.txt`
 - `python -m pytest` currently fails with `No module named pytest` in the same fresh environment.
-  - Workaround: after activating the AI engine venv, install `pytest` if it is not already present in the local environment before running the test suite.
+  - Workaround: after activating `apps/ai-engine/venv`, install `pytest` if it is not already present in that environment before running the test suite.
 - `apps/backend-api/package.json` contains `pnpm start:local`, but this clone does not include a root `infra/docker-compose.yml`.
   - Workaround: start infra services from the per-service compose directories under `infra/postgres`, `infra/redis`, and `infra/minio` instead of assuming a single root compose file exists.
 - On Windows, native Android builds for `apps/mobile-app` can fail because `react-native-unistyles` hits CMake path-length limits.

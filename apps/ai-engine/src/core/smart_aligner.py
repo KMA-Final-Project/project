@@ -8,22 +8,20 @@ Aligns text with VAD segments and ensures word-level timestamps for Karaoke.
 
 from __future__ import annotations
 
-import torch
-import numpy as np
-import librosa
+import re
+import time
 from pathlib import Path
-from typing import List, Optional, Callable
-import re  # moved up for reuse
+from typing import Any, Callable
 
-# Phonetics
-import pypinyin
 import eng_to_ipa
-
+import librosa
+import numpy as np
+import pypinyin
+from faster_whisper import BatchedInferencePipeline, WhisperModel
 from loguru import logger
-from faster_whisper import WhisperModel, BatchedInferencePipeline
 
 from src.config import settings
-from src.schemas import VADSegment, Sentence, Word
+from src.schemas import Sentence, VADSegment, Word
 
 
 class SmartAligner:
@@ -40,10 +38,11 @@ class SmartAligner:
       - "full_only"  → only full loaded   (~5 GB VRAM)
     """
 
+    SILENCE_GAP_S = 0.3
+
     _instance = None
     _initialized: bool = False
 
-    # Model slots — filled based on WORKER_MODEL_MODE
     _model_turbo: WhisperModel | None = None
     _model_full: WhisperModel | None = None
     _batched_turbo: BatchedInferencePipeline | None = None
@@ -52,6 +51,7 @@ class SmartAligner:
     _punctuation_pattern = re.compile(r"\s+([,.;:!?%\)\]\}])")
     _opening_bracket_pattern = re.compile(r"([\(\[\{])\s+")
     _apostrophe_pattern = re.compile(r"\s+(['’][A-Za-z]+)")
+    _preferred_split_punctuation = re.compile(r"[.!?;:,—-]$")
 
     def __new__(cls):
         if cls._instance is None:
@@ -61,7 +61,9 @@ class SmartAligner:
     def __init__(self):
         if self._initialized:
             return
+
         self._initialized = True
+        self.last_timing: dict[str, float] = {}
 
         mode = settings.WORKER_MODEL_MODE.lower()
         compute_type = settings.whisper_compute_type
@@ -86,7 +88,6 @@ class SmartAligner:
 
     @staticmethod
     def _load_model(model_name: str, compute_type: str, label: str) -> WhisperModel:
-        """Load a single WhisperModel onto the configured device."""
         logger.info(
             f"Loading {label} model: {model_name} ({compute_type}, {settings.DEVICE})"
         )
@@ -98,46 +99,32 @@ class SmartAligner:
         logger.success(f"✅ {label} model loaded: {model_name}")
         return model
 
-    def _select_model(self, language: str | None) -> WhisperModel:
+    def _select_batched(self, language: str | None) -> tuple[BatchedInferencePipeline, bool]:
+        """Select the batched pipeline for the given language.
+
+        Returns:
+            Tuple of (pipeline, is_turbo) — is_turbo=True when the turbo model is selected.
         """
-        Pick the right model for the detected/anchor language.
-
-        CJK languages → full model (if loaded)
-        Everything else → turbo model (if loaded)
-        If only one model is loaded, always use that one.
-        """
-        need_full = language in settings.WHISPER_CJK_LANGUAGES
-
-        if need_full and self._model_full:
-            return self._model_full
-        if self._model_turbo:
-            return self._model_turbo
-        if self._model_full:
-            return self._model_full
-
-        raise RuntimeError("No Whisper model loaded — check WORKER_MODEL_MODE")
-
-    def _select_batched(self, language: str | None) -> BatchedInferencePipeline:
-        """Pick the batched pipeline matching _select_model logic."""
         need_full = language in settings.WHISPER_CJK_LANGUAGES
 
         if need_full and self._batched_full:
-            return self._batched_full
+            return self._batched_full, False
         if self._batched_turbo:
-            return self._batched_turbo
+            return self._batched_turbo, True
         if self._batched_full:
-            return self._batched_full
+            return self._batched_full, False
 
         raise RuntimeError("No batched pipeline available — check WORKER_MODEL_MODE")
 
     def process(
         self,
         file_path: Path | str,
-        segments: List[VADSegment],
+        segments: list[VADSegment],
         profile: str = "standard",
-        on_chunk: Callable[[List[Sentence], int], None] | None = None,
+        on_chunk: Callable[[list[Sentence], int], None] | None = None,
         chunk_size: int = 20,
-    ) -> List[Sentence]:
+        audio_array: np.ndarray | None = None,
+    ) -> list[Sentence]:
         """
         Transcribe audio with Dynamic Anchor Strategy and Advanced Prompting.
 
@@ -146,139 +133,396 @@ class SmartAligner:
                       Signature: on_chunk(batch: List[Sentence], total_so_far: int)
                       Enables streaming uploads while transcription continues.
             chunk_size: Number of sentences to accumulate before firing on_chunk.
+            audio_array: Optional preloaded 16kHz mono audio from VADManager.
         """
+        started_at = time.perf_counter()
+        stage_timing = {
+            "audio_load": 0.0,
+            "transcription": 0.0,
+            "phonemes": 0.0,
+            "post_proc": 0.0,
+            "remap": 0.0,
+        }
+
         path = Path(file_path)
-        if not path.exists():
+        if not path.exists() and audio_array is None:
             raise FileNotFoundError(f"Audio file not found: {path}")
+
+        if not segments:
+            self.last_timing = {
+                "transcription": 0.0,
+                "phonemes": 0.0,
+                "post_proc": 0.0,
+                "overhead": 0.0,
+                "total": 0.0,
+            }
+            return []
 
         logger.info(
             f"Starting Smart Alignment for: {path.name} ({len(segments)} segments) | Profile: {profile}"
         )
 
-        # Loading audio (16kHz mono)
-        audio_full, sr = librosa.load(str(path), sr=16000)
+        if audio_array is None:
+            audio_load_started_at = time.perf_counter()
+            audio_full, _sample_rate = librosa.load(str(path), sr=16000)
+            stage_timing["audio_load"] += time.perf_counter() - audio_load_started_at
+        else:
+            audio_full = audio_array.astype(np.float32, copy=False)
 
-        sentences: List[Sentence] = []
-        pending_chunk: List[Sentence] = []  # Buffer for streaming
+        sentences: list[Sentence] = []
+        pending_chunk: list[Sentence] = []
         previous_text_context = ""
-
-        # Pillar 1: Anchor Language State
         anchor_language: str | None = None
 
-        logger.debug(f"Processing {len(segments)} VAD segments...")
-
-        def _flush_if_ready():
-            """Flush pending sentences to callback if we have enough."""
+        def _flush_if_ready() -> None:
             nonlocal pending_chunk
             if on_chunk and len(pending_chunk) >= chunk_size:
-                # Flush full chunks
                 while len(pending_chunk) >= chunk_size:
                     batch = pending_chunk[:chunk_size]
                     pending_chunk = pending_chunk[chunk_size:]
                     on_chunk(batch, len(sentences))
 
-        for i, seg in enumerate(segments):
-            logger.debug(f"--- Segment {i+1}: {seg.start:.2f}s -> {seg.end:.2f}s ---")
-            start_sample = int(seg.start * 16000)
-            end_sample = int(seg.end * 16000)
-
-            if start_sample >= len(audio_full):
-                break
-            audio_segment = audio_full[start_sample:end_sample]
-            if len(audio_segment) < 160:
-                continue
-
-            # --- Pillar 2: Dynamic Prompt Injection ---
+        for group_index, segment_group in enumerate(self._group_segments(segments), start=1):
             prompt = self._construct_prompt(profile, previous_text_context)
+            current_lang = anchor_language
+            batched, is_turbo = self._select_batched(current_lang)
 
-            # --- Pillar 1: Language Strategy ---
-            current_lang = anchor_language  # None if not set
-            batched = self._select_batched(current_lang)
+            remapped_group: list[list[Sentence]] = [[] for _ in segment_group]
+            primary_result: dict[str, Any] | None = None
 
-            transcription_result = self._transcribe_segment(
-                batched, audio_segment, prompt, language=current_lang
-            )
+            try:
+                grouped_audio, offset_map = self._concatenate_audio(audio_full, segment_group)
+                if len(grouped_audio) < 160:
+                    continue
 
-            # Logic: Anchor Detection & Fallback
-            if anchor_language is None:
-                best_segment = transcription_result["best_segment"]
-                if best_segment and best_segment.avg_logprob > -0.5:
-                    anchor_language = transcription_result["info"].language
-                    selected = (
-                        "full"
-                        if anchor_language in settings.WHISPER_CJK_LANGUAGES
-                        else "turbo"
+                # Build clip_timestamps from offset_map so BatchedInferencePipeline
+                # knows where each VAD segment starts/ends in the concatenated audio.
+                # BatchedInferencePipeline expects List[dict] with "start"/"end" keys.
+                clip_ts: list[dict] = []
+                for mapping in offset_map:
+                    clip_ts.append({
+                        "start": float(mapping["concat_start"]),
+                        "end": float(mapping["concat_end"]),
+                    })
+
+                transcribe_started_at = time.perf_counter()
+                primary_result = self._transcribe_segment(
+                    batched,
+                    grouped_audio,
+                    prompt,
+                    language=current_lang,
+                    clip_timestamps=clip_ts,
+                    is_turbo=is_turbo,
+                )
+                stage_timing["transcription"] += (
+                    time.perf_counter() - transcribe_started_at
+                )
+
+                remap_started_at = time.perf_counter()
+                remapped_group = self._remap_timestamps(primary_result, offset_map)
+                stage_timing["remap"] += time.perf_counter() - remap_started_at
+            except Exception as exc:
+                logger.warning(
+                    f"Grouped transcription failed for SmartAligner group {group_index} "
+                    f"({len(segment_group)} segments): {exc}. Retrying individually."
+                )
+                remapped_group, primary_result = self._fallback_transcribe_individual(
+                    audio_full=audio_full,
+                    segment_group=segment_group,
+                    batched=batched,
+                    prompt=prompt,
+                    language=current_lang,
+                    stage_timing=stage_timing,
+                    is_turbo=is_turbo,
+                )
+
+            detected_lang = self._update_anchor_language(anchor_language, primary_result)
+            if detected_lang and anchor_language is None:
+                anchor_language = detected_lang
+
+            output_language = detected_lang or anchor_language or ""
+            for segment_sentences in remapped_group:
+                for sentence in segment_sentences:
+                    post_process_started_at = time.perf_counter()
+                    self._split_cjk_words(sentence)
+                    silence_split_sentences = self._apply_silence_splitting(sentence)
+                    split_sentences: list[Sentence] = []
+                    for candidate in silence_split_sentences:
+                        split_sentences.extend(self._split_long_sentences(candidate))
+                    stage_timing["post_proc"] += (
+                        time.perf_counter() - post_process_started_at
                     )
-                    logger.success(
-                        f"⚓ Anchor Language Set: {anchor_language} "
-                        f"(Conf: {best_segment.avg_logprob:.2f}) → using {selected} model"
-                    )
-            else:
-                best_segment = transcription_result["best_segment"]
-                if best_segment and (
-                    best_segment.avg_logprob < -0.8
-                    or best_segment.compression_ratio > 2.4
-                ):
-                    logger.warning(
-                        f"⚠️ Low confidence with Anchor ({best_segment.avg_logprob:.2f}). Retrying with Auto-Detect..."
-                    )
-                    fallback_result = self._transcribe_segment(
-                        batched, audio_segment, prompt, language=None
-                    )
-                    transcription_result = fallback_result
 
-            # Extract Results
-            res_sentences = self._process_transcription_result(
-                transcription_result, seg
-            )
+                    if split_sentences:
+                        previous_text_context += f" {split_sentences[-1].text}"
+                        phoneme_started_at = time.perf_counter()
+                        self._add_phonemes(split_sentences, output_language)
+                        stage_timing["phonemes"] += (
+                            time.perf_counter() - phoneme_started_at
+                        )
+                        for aligned_sentence in split_sentences:
+                            aligned_sentence.detected_lang = output_language
 
-            # --- Pillar 3 & 4: Post-Processing ---
-            for sent in res_sentences:
-                self._split_cjk_words(sent)
-                split_sents = self._apply_silence_splitting(sent)
+                    sentences.extend(split_sentences)
+                    pending_chunk.extend(split_sentences)
+                    _flush_if_ready()
 
-                if split_sents:
-                    previous_text_context += " " + split_sents[-1].text
-                    detected_lang = transcription_result["info"].language
-                    self._add_phonemes(split_sents, detected_lang)
-                    for sent in split_sents:
-                        sent.detected_lang = detected_lang
-
-                sentences.extend(split_sents)
-                pending_chunk.extend(split_sents)
-
-            # Check if we should flush a chunk
-            _flush_if_ready()
-
-        # Flush any remaining sentences
         if on_chunk and pending_chunk:
             on_chunk(pending_chunk, len(sentences))
-            pending_chunk = []
 
+        total_elapsed = time.perf_counter() - started_at
+        accounted = (
+            stage_timing["audio_load"]
+            + stage_timing["transcription"]
+            + stage_timing["phonemes"]
+            + stage_timing["post_proc"]
+            + stage_timing["remap"]
+        )
+        overhead = max(0.0, total_elapsed - accounted)
+        self.last_timing = {
+            "transcription": round(stage_timing["transcription"], 3),
+            "phonemes": round(stage_timing["phonemes"], 3),
+            "post_proc": round(
+                stage_timing["post_proc"] + stage_timing["remap"], 3
+            ),
+            "overhead": round(overhead, 3),
+            "total": round(total_elapsed, 3),
+        }
+
+        logger.info(
+            "⏱️ SmartAligner: "
+            f"transcription={self.last_timing['transcription']:.3f}s, "
+            f"phonemes={self.last_timing['phonemes']:.3f}s, "
+            f"post_proc={self.last_timing['post_proc']:.3f}s, "
+            f"overhead={self.last_timing['overhead']:.3f}s, "
+            f"total={self.last_timing['total']:.3f}s"
+        )
         logger.success(f"Alignment Complete. Generated {len(sentences)} sentences.")
         return sentences
 
+    def _group_segments(self, segments: list[VADSegment]) -> list[list[VADSegment]]:
+        group_size = max(1, settings.SMART_ALIGNER_GROUP_SIZE)
+        return [
+            segments[index : index + group_size]
+            for index in range(0, len(segments), group_size)
+        ]
+
+    def _concatenate_audio(
+        self,
+        audio_full: np.ndarray,
+        segment_group: list[VADSegment],
+    ) -> tuple[np.ndarray, list[dict[str, float | VADSegment]]]:
+        gap_samples = int(self.SILENCE_GAP_S * 16000)
+        silence_gap = np.zeros(gap_samples, dtype=np.float32)
+        parts: list[np.ndarray] = []
+        offset_map: list[dict[str, float | VADSegment]] = []
+        cursor_samples = 0
+
+        for index, segment in enumerate(segment_group):
+            start_sample = max(0, int(segment.start * 16000))
+            end_sample = max(start_sample, int(segment.end * 16000))
+            segment_audio = audio_full[start_sample:end_sample]
+            if segment_audio.size == 0:
+                continue
+
+            concat_start = cursor_samples / 16000.0
+            concat_end = concat_start + (len(segment_audio) / 16000.0)
+            offset_map.append(
+                {
+                    "vad_segment": segment,
+                    "concat_start": concat_start,
+                    "concat_end": concat_end,
+                }
+            )
+            parts.append(segment_audio.astype(np.float32, copy=False))
+            cursor_samples += len(segment_audio)
+
+            if index < len(segment_group) - 1:
+                parts.append(silence_gap)
+                cursor_samples += len(silence_gap)
+
+        if not parts:
+            return np.array([], dtype=np.float32), offset_map
+
+        return np.concatenate(parts), offset_map
+
+    def _remap_timestamps(
+        self,
+        result: dict[str, Any],
+        offset_map: list[dict[str, float | VADSegment]],
+    ) -> list[list[Sentence]]:
+        remapped_sentences: list[list[Sentence]] = [[] for _ in offset_map]
+
+        for res_seg in result["segments"]:
+            if res_seg.no_speech_prob > 0.6 or not res_seg.words:
+                continue
+
+            grouped_words: dict[int, list[Word]] = {}
+            for word in res_seg.words:
+                token = word.word.strip()
+                if not token:
+                    continue
+
+                target_index = self._find_offset_index(word.start, word.end, offset_map)
+                if target_index is None:
+                    continue
+
+                mapping = offset_map[target_index]
+                vad_segment = mapping["vad_segment"]
+                assert isinstance(vad_segment, VADSegment)
+                concat_start = float(mapping["concat_start"])
+
+                relative_start = max(0.0, word.start - concat_start)
+                relative_end = min(vad_segment.duration, word.end - concat_start)
+                grouped_words.setdefault(target_index, []).append(
+                    Word(
+                        word=token,
+                        start=round(vad_segment.start + relative_start, 3),
+                        end=round(vad_segment.start + relative_end, 3),
+                        confidence=round(word.probability, 3),
+                    )
+                )
+
+            for target_index, words in grouped_words.items():
+                if not words:
+                    continue
+                remapped_sentences[target_index].append(
+                    self._create_sentence_from_words(words)
+                )
+
+        return remapped_sentences
+
+    def _find_offset_index(
+        self,
+        word_start: float,
+        word_end: float,
+        offset_map: list[dict[str, float | VADSegment]],
+    ) -> int | None:
+        midpoint = (word_start + word_end) / 2
+        for index, mapping in enumerate(offset_map):
+            concat_start = float(mapping["concat_start"])
+            concat_end = float(mapping["concat_end"])
+            if concat_start <= midpoint <= concat_end:
+                return index
+        return None
+
+    def _fallback_transcribe_individual(
+        self,
+        *,
+        audio_full: np.ndarray,
+        segment_group: list[VADSegment],
+        batched: BatchedInferencePipeline,
+        prompt: str,
+        language: str | None,
+        stage_timing: dict[str, float],
+        is_turbo: bool = False,
+    ) -> tuple[list[list[Sentence]], dict[str, Any] | None]:
+        remapped_group: list[list[Sentence]] = [[] for _ in segment_group]
+        primary_result: dict[str, Any] | None = None
+
+        for index, segment in enumerate(segment_group):
+            start_sample = max(0, int(segment.start * 16000))
+            end_sample = max(start_sample, int(segment.end * 16000))
+            segment_audio = audio_full[start_sample:end_sample]
+            if len(segment_audio) < 160:
+                continue
+
+            transcribe_started_at = time.perf_counter()
+            segment_result = self._transcribe_segment(
+                batched,
+                segment_audio,
+                prompt,
+                language=language,
+                is_turbo=is_turbo,
+            )
+            stage_timing["transcription"] += time.perf_counter() - transcribe_started_at
+
+            if primary_result is None:
+                primary_result = segment_result
+
+            remap_started_at = time.perf_counter()
+            remapped = self._remap_timestamps(
+                segment_result,
+                [
+                    {
+                        "vad_segment": segment,
+                        "concat_start": 0.0,
+                        "concat_end": segment.duration,
+                    }
+                ],
+            )
+            stage_timing["remap"] += time.perf_counter() - remap_started_at
+            remapped_group[index] = remapped[0]
+
+        return remapped_group, primary_result
+
+    def _update_anchor_language(
+        self,
+        anchor_language: str | None,
+        transcription_result: dict[str, Any] | None,
+    ) -> str | None:
+        if transcription_result is None:
+            return anchor_language
+
+        best_segment = transcription_result.get("best_segment")
+        detected_lang = getattr(transcription_result.get("info"), "language", None)
+
+        if anchor_language is None and best_segment is not None and detected_lang:
+            if best_segment.avg_logprob > -0.5:
+                selected = (
+                    "full"
+                    if detected_lang in settings.WHISPER_CJK_LANGUAGES
+                    else "turbo"
+                )
+                logger.success(
+                    f"⚓ Anchor Language Set: {detected_lang} "
+                    f"(Conf: {best_segment.avg_logprob:.2f}) → using {selected} model"
+                )
+                return detected_lang
+
+        if anchor_language is not None and best_segment is not None:
+            if best_segment.avg_logprob < -0.8 or best_segment.compression_ratio > 2.4:
+                logger.warning(
+                    f"⚠️ Low confidence with Anchor ({best_segment.avg_logprob:.2f})."
+                )
+
+        return detected_lang or anchor_language
+
     def _transcribe_segment(
-        self, batched: BatchedInferencePipeline, audio, prompt, language
-    ):
-        """Run transcription using the batched pipeline for throughput."""
+        self,
+        batched: BatchedInferencePipeline,
+        audio: np.ndarray,
+        prompt: str,
+        language: str | None,
+        clip_timestamps: list[dict] | None = None,
+        is_turbo: bool = False,
+    ) -> dict[str, Any]:
+        # Turbo model is optimised for greedy decoding; beam search adds
+        # latency with negligible quality gain.  Use beam=1 for turbo.
+        beam_size = 1 if is_turbo else settings.whisper_beam_size
+
+        # BatchedInferencePipeline expects clip_timestamps as List[dict]
+        # with "start"/"end" keys.  When none supplied, cover the full audio.
+        if clip_timestamps is None:
+            duration = len(audio) / 16000.0
+            clip_timestamps = [{"start": 0.0, "end": duration}]
+
         gen, info = batched.transcribe(
             audio,
             batch_size=settings.batch_size,
-            beam_size=settings.whisper_beam_size,
+            beam_size=beam_size,
             word_timestamps=True,
             condition_on_previous_text=False,
             initial_prompt=prompt,
             language=language,
-            vad_filter=False,  # We already ran Silero VAD upstream
+            vad_filter=False,
+            clip_timestamps=clip_timestamps,
         )
         segments = list(gen)
-        best = max(segments, key=lambda s: s.avg_logprob) if segments else None
-
-        return {"segments": segments, "info": info, "best_segment": best}
+        best_segment = max(segments, key=lambda segment: segment.avg_logprob) if segments else None
+        return {"segments": segments, "info": info, "best_segment": best_segment}
 
     def _construct_prompt(self, profile: str, prev_context: str) -> str:
-        """Pillar 2: Construct prompt based on profile."""
         if profile == "music":
             genre = "Genre: Lyrics, Song, Ancient/Xianxia context."
         else:
@@ -287,114 +531,113 @@ class SmartAligner:
         context = prev_context[-200:].strip() if prev_context else ""
         return f"{genre} Previous context: {context}"
 
-    def _process_transcription_result(
-        self, result, vad_seg: VADSegment
-    ) -> List[Sentence]:
-        """Convert Whisper segments to Schema Sentences."""
-        sentences = []
-        processed_sigs = set()
-
-        for res_seg in result["segments"]:
-            # Basic Filters
-            if res_seg.no_speech_prob > 0.6:
-                continue
-
-            words = []
-            if res_seg.words:
-                for w in res_seg.words:
-                    token = w.word.strip()
-                    if not token:
-                        continue
-
-                    words.append(
-                        Word(
-                            word=token,
-                            start=round(vad_seg.start + w.start, 3),
-                            end=round(vad_seg.start + w.end, 3),
-                            confidence=round(w.probability, 3),
-                        )
-                    )
-
-            if words:
-                # Deduplication Check
-                sig = (res_seg.text.strip(), words[0].start, words[-1].end)
-                if sig in processed_sigs:
-                    logger.warning(f"Skipping duplicate segment: {sig}")
-                    continue
-
-                processed_sigs.add(sig)
-
-                sentences.append(
-                    Sentence(
-                        text=res_seg.text.strip(),
-                        start=words[0].start,  # Precise word-based start
-                        end=words[-1].end,
-                        words=words,
-                    )
-                )
-        return sentences
-
-    def _split_cjk_words(self, sentence: Sentence):
-        """Pillar 3: Split CJK words into characters."""
-        import re
-
-        new_words = []
+    def _split_cjk_words(self, sentence: Sentence) -> None:
+        new_words: list[Word] = []
         cjk_pattern = re.compile(r"[\u4e00-\u9fff]")
 
-        for w in sentence.words:
-            # Check if CJK and length > 1
-            if len(w.word) > 1 and cjk_pattern.search(w.word):
-                # Split
-                chars = list(w.word)
-                duration = w.end - w.start
+        for word in sentence.words:
+            if len(word.word) > 1 and cjk_pattern.search(word.word):
+                chars = list(word.word)
+                duration = word.end - word.start
                 char_duration = duration / len(chars)
 
-                for i, char in enumerate(chars):
-                    c_start = w.start + (i * char_duration)
-                    c_end = w.start + ((i + 1) * char_duration)
+                for index, char in enumerate(chars):
+                    char_start = word.start + (index * char_duration)
+                    char_end = word.start + ((index + 1) * char_duration)
                     new_words.append(
                         Word(
                             word=char,
-                            start=round(c_start, 3),
-                            end=round(c_end, 3),
-                            confidence=w.confidence,
+                            start=round(char_start, 3),
+                            end=round(char_end, 3),
+                            confidence=word.confidence,
                         )
                     )
             else:
-                new_words.append(w)
+                new_words.append(word)
 
         sentence.words = new_words
 
-    def _apply_silence_splitting(self, sentence: Sentence) -> List[Sentence]:
-        """Pillar 4: Split sentence if gap > 1.0s."""
+    def _apply_silence_splitting(self, sentence: Sentence) -> list[Sentence]:
         if not sentence.words:
             return [sentence]
 
-        sub_sentences = []
+        sub_sentences: list[Sentence] = []
         current_words = [sentence.words[0]]
 
-        for i in range(1, len(sentence.words)):
-            prev_w = sentence.words[i - 1]
-            curr_w = sentence.words[i]
-            gap = curr_w.start - prev_w.end
+        for index in range(1, len(sentence.words)):
+            previous_word = sentence.words[index - 1]
+            current_word = sentence.words[index]
+            gap = current_word.start - previous_word.end
 
-            if gap > 1.0:
-                # Split here
+            if gap > settings.SILENCE_SPLIT_GAP:
                 if current_words:
-                    sub_sentences.append(
-                        self._create_sentence_from_words(current_words)
-                    )
-                current_words = [curr_w]
+                    sub_sentences.append(self._create_sentence_from_words(current_words))
+                current_words = [current_word]
             else:
-                current_words.append(curr_w)
+                current_words.append(current_word)
 
         if current_words:
             sub_sentences.append(self._create_sentence_from_words(current_words))
 
         return sub_sentences
 
-    def _create_sentence_from_words(self, words: List[Word]) -> Sentence:
-        tokens = [w.word.strip() for w in words if w.word.strip()]
+    def _split_long_sentences(self, sentence: Sentence) -> list[Sentence]:
+        if not sentence.words:
+            return [sentence]
+
+        queue: list[Sentence] = [sentence]
+        result: list[Sentence] = []
+
+        while queue:
+            current = queue.pop(0)
+            if not current.words or self._within_sentence_limits(current):
+                result.append(current)
+                continue
+
+            split_index = self._find_split_index(current)
+            if split_index is None or split_index <= 0 or split_index >= len(current.words):
+                result.append(current)
+                continue
+
+            left = self._create_sentence_from_words(current.words[:split_index])
+            right = self._create_sentence_from_words(current.words[split_index:])
+            queue = [left, right, *queue]
+
+        return result
+
+    def _within_sentence_limits(self, sentence: Sentence) -> bool:
+        if self._is_cjk_sentence(sentence):
+            return len(sentence.text.strip()) <= settings.SUBTITLE_MAX_CJK_CHARS
+        return len(sentence.words) <= settings.SUBTITLE_MAX_WORDS
+
+    def _find_split_index(self, sentence: Sentence) -> int | None:
+        if len(sentence.words) < 2:
+            return None
+
+        if self._is_cjk_sentence(sentence):
+            total_chars = sum(len(word.word.strip()) or 1 for word in sentence.words)
+            target = total_chars / 2
+            running = 0
+            candidates: list[tuple[float, int]] = []
+            for index, word in enumerate(sentence.words[:-1], start=1):
+                running += len(word.word.strip()) or 1
+                candidates.append((abs(running - target), index))
+            return min(candidates, key=lambda item: item[0])[1] if candidates else None
+
+        midpoint = len(sentence.words) // 2
+        lower_bound = max(1, midpoint - 3)
+        upper_bound = min(len(sentence.words) - 1, midpoint + 3)
+        for index in range(upper_bound, lower_bound - 1, -1):
+            token = sentence.words[index - 1].word.strip()
+            if self._preferred_split_punctuation.search(token):
+                return index
+        return midpoint if 0 < midpoint < len(sentence.words) else None
+
+    def _is_cjk_sentence(self, sentence: Sentence) -> bool:
+        return bool(self._cjk_pattern.search(sentence.text))
+
+    def _create_sentence_from_words(self, words: list[Word]) -> Sentence:
+        tokens = [word.word.strip() for word in words if word.word.strip()]
         if not tokens:
             text = ""
         elif any(self._cjk_pattern.search(token) for token in tokens):
@@ -407,39 +650,34 @@ class SmartAligner:
 
         return Sentence(text=text, start=words[0].start, end=words[-1].end, words=words)
 
-    def _add_phonemes(self, sentences: List[Sentence], language: str):
-        """Pillar 5: Add Pinyin (CN) or IPA (EN)."""
+    def _add_phonemes(self, sentences: list[Sentence], language: str) -> None:
         if language not in ["zh", "en"]:
             return
 
-        for sent in sentences:
-            for w in sent.words:
-                text = w.word.strip()
+        for sentence in sentences:
+            for word in sentence.words:
+                text = word.word.strip()
                 if not text:
                     continue
 
                 try:
                     if language == "zh":
-                        # Only apply to CJK characters
                         if re.search(r"[\u4e00-\u9fff]", text):
-                            # Use TONE style (e.g., nǐ hǎo)
-                            pys = pypinyin.pinyin(
-                                text, style=pypinyin.Style.TONE, heteronym=False
+                            pinyin = pypinyin.pinyin(
+                                text,
+                                style=pypinyin.Style.TONE,
+                                heteronym=False,
                             )
-                            # Flatten: [['ni'], ['hao']] -> "nihao" (but usually it's per character in our new logic)
-                            w.phoneme = "".join([x[0] for x in pys])
-
+                            word.phoneme = "".join(item[0] for item in pinyin)
                     elif language == "en":
-                        # Convert to IPA
-                        # Note: eng_to_ipa.convert returns output with '*' if unknown
                         ipa = eng_to_ipa.convert(text)
                         if ipa and "*" not in ipa:
-                            w.phoneme = ipa
-                except Exception as e:
-                    logger.warning(f"Phonetic error for '{text}': {e}")
+                            word.phoneme = ipa
+                except Exception as exc:
+                    logger.warning(f"Phonetic error for '{text}': {exc}")
 
-            sent.phonetic = " ".join(
+            sentence.phonetic = " ".join(
                 phoneme.strip()
-                for phoneme in (word.phoneme for word in sent.words)
+                for phoneme in (current.phoneme for current in sentence.words)
                 if phoneme and phoneme.strip()
             )

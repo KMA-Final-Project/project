@@ -139,6 +139,7 @@ models/
 # --- Logs ---
 logs/
 *.log
+run_logs.txt
 
 # --- OS files ---
 .DS_Store
