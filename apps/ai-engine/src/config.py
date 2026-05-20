@@ -144,6 +144,87 @@ class Settings(BaseSettings):
             "translated batch delivery and rely on raw NMT output only."
         ),
     )
+    DEFAULT_LLM_PROVIDER_FOR_MERGER: str = Field(
+        default="gemini",
+        description="Primary LLM provider for semantic merge windows: ollama | openai | gemini.",
+    )
+    DEFAULT_LLM_PROVIDER_FOR_ANALYSIS: str = Field(
+        default="gemini",
+        description="Primary LLM provider for context analysis: ollama | openai | gemini.",
+    )
+    DEFAULT_LLM_PROVIDER_FOR_REFINEMENT: str = Field(
+        default="gemini",
+        description="Primary LLM provider for optional post-NMT refinement: ollama | openai | gemini.",
+    )
+    LLM_REMOTE_TO_OLLAMA_FALLBACK: bool = Field(
+        default=True,
+        description="If a remote LLM provider fails, retry the same capability with Ollama.",
+    )
+    OLLAMA_HOST: str = Field(
+        default="",
+        description="Optional Ollama base URL override, for example http://localhost:11434.",
+    )
+    OLLAMA_TIMEOUT_SECONDS: int = Field(
+        default=120, description="Request timeout for Ollama chat calls."
+    )
+    OLLAMA_CPU_FALLBACK_ON_ERROR: bool = Field(
+        default=True,
+        description="Retry Ollama on CPU when the default runtime fails, even if it is slower.",
+    )
+    OLLAMA_LLM_MODEL_FOR_MERGER: str = Field(
+        default="qwen2.5:7b-instruct",
+        description="Ollama model used for semantic merge windows.",
+    )
+    OLLAMA_LLM_MODEL_FOR_ANALYSIS: str = Field(
+        default="qwen2.5:7b-instruct",
+        description="Ollama model used for context analysis.",
+    )
+    OLLAMA_LLM_MODEL_FOR_REFINEMENT: str = Field(
+        default="qwen2.5:7b-instruct",
+        description="Ollama model used for optional refinement.",
+    )
+    OLLAMA_NUM_CTX_FOR_MERGER: int = Field(
+        default=8192,
+        description="Bounded Ollama context size for merge windows.",
+    )
+    OLLAMA_NUM_CTX_FOR_ANALYSIS: int = Field(
+        default=4096,
+        description="Bounded Ollama context size for context analysis.",
+    )
+    OLLAMA_NUM_CTX_FOR_REFINEMENT: int = Field(
+        default=8192,
+        description="Bounded Ollama context size for refinement windows.",
+    )
+    OPENAI_API_KEY: str = Field(default="")
+    OPENAI_BASE_URL: str = Field(
+        default="",
+        description="Optional OpenAI-compatible base URL override.",
+    )
+    OPENAI_LLM_MODEL_FOR_MERGER: str = Field(
+        default="gpt-4.1-mini",
+        description="OpenAI model used for semantic merge windows.",
+    )
+    OPENAI_LLM_MODEL_FOR_ANALYSIS: str = Field(
+        default="gpt-4.1-mini",
+        description="OpenAI model used for context analysis.",
+    )
+    OPENAI_LLM_MODEL_FOR_REFINEMENT: str = Field(
+        default="gpt-4.1-mini",
+        description="OpenAI model used for optional refinement.",
+    )
+    GEMINI_API_KEY: str = Field(default="")
+    GEMINI_LLM_MODEL_FOR_MERGER: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model used for semantic merge windows.",
+    )
+    GEMINI_LLM_MODEL_FOR_ANALYSIS: str = Field(
+        default="gemini-2.5-flash-lite",
+        description="Gemini model used for context analysis.",
+    )
+    GEMINI_LLM_MODEL_FOR_REFINEMENT: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model used for optional refinement.",
+    )
     CHUNK_SIZE: int = Field(
         default=8, description="Sentences per streaming chunk (all stages)"
     )
@@ -181,6 +262,42 @@ class Settings(BaseSettings):
         """Initialize directories"""
         os.makedirs(self.TEMP_DIR, exist_ok=True)
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+
+    @staticmethod
+    def normalize_llm_capability(capability: str) -> str:
+        """Map capability aliases onto the three supported LLM task buckets."""
+        normalized = capability.strip().lower()
+        if normalized in {"merge", "merger"}:
+            return "merger"
+        if normalized in {"analysis", "analyze", "context_analysis"}:
+            return "analysis"
+        if normalized in {"refine", "refinement"}:
+            return "refinement"
+        raise ValueError(f"Unsupported LLM capability: {capability}")
+
+    def llm_provider_for(self, capability: str) -> str:
+        """Resolve the configured primary provider for a capability."""
+        capability_name = self.normalize_llm_capability(capability)
+        field_name = f"DEFAULT_LLM_PROVIDER_FOR_{capability_name.upper()}"
+        provider = str(getattr(self, field_name, "ollama") or "ollama").strip().lower()
+        if provider not in {"ollama", "openai", "gemini"}:
+            return "ollama"
+        return provider
+
+    def llm_model_for(self, provider: str, capability: str) -> str:
+        """Resolve the configured model name for a provider/capability pair."""
+        capability_name = self.normalize_llm_capability(capability)
+        provider_name = provider.strip().lower()
+        if provider_name not in {"ollama", "openai", "gemini"}:
+            raise ValueError(f"Unsupported LLM provider: {provider}")
+        field_name = f"{provider_name.upper()}_LLM_MODEL_FOR_{capability_name.upper()}"
+        return str(getattr(self, field_name)).strip()
+
+    def ollama_num_ctx_for(self, capability: str) -> int:
+        """Resolve bounded Ollama context settings by capability."""
+        capability_name = self.normalize_llm_capability(capability)
+        field_name = f"OLLAMA_NUM_CTX_FOR_{capability_name.upper()}"
+        return int(getattr(self, field_name))
 
 
 settings = Settings()

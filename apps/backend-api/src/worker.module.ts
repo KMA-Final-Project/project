@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { PrismaService } from './prisma/prisma.service';
 import { MinioModule } from './modules/minio/minio.module';
+import { YtDlpService } from './modules/media/yt-dlp.service';
 import { MediaProcessor } from './modules/media/workers/media.processor';
 import {
   TRANSCRIPTION_QUEUE,
@@ -46,6 +47,6 @@ import {
     // MinIO — for downloading/uploading media files
     MinioModule,
   ],
-  providers: [PrismaService, MediaProcessor],
+  providers: [PrismaService, MediaProcessor, YtDlpService],
 })
 export class WorkerModule {}

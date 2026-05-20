@@ -2,152 +2,152 @@
 
 ## 0. Read This First
 
-This file is the mandatory entry point for every coding agent working in this repository, including Claude Code, Cursor, Copilot, Codex, Windsurf, and similar tools. Read it before inspecting code, editing files, or running commands; then continue into the active module's `INSTRUCTION.md` and `CHECKPOINT.md`.
+This file is the mandatory entry point for every coding agent working in this repository, including Claude Code, Cursor, Copilot, Codex, Windsurf, and similar tools.
 
-## 1. Repository Map
+Read this file before inspecting code, editing files, or running commands. Then route yourself to the smallest relevant project docs for the current task.
+
+## 1. Documentation Map
 
 ```text
 .
-|- AGENTS.md                    # Mandatory agent onboarding, behavior rules, and shared contracts.
-|- INSTRUCTION.md               # Project-wide orientation: product vision, architecture, and main use cases.
+|- AGENTS.md                  # Mandatory agent onboarding, behavior rules, and routing protocol.
+|- INSTRUCTION.md             # Product vision, architecture overview, and main use cases.
+|- PROJECT_MAP.md             # Repository structure, module ownership, and important file locations.
+|- CONTRACTS.md               # Source of truth for cross-module queue/API/artifact/socket/auth contracts.
+|- COMMANDS.md                # Known commands, validation checks, infra startup, and cleanup commands.
+|- DECISIONS.md               # Architecture decision records, if present.
 |- apps/
-|  |- INSTRUCTION.md            # Shared SaaS and product rules that apply across the active apps.
-|  |- backend-api/              # NestJS API gateway, auth/media endpoints, and BullMQ worker producer.
-|  |- ai-engine/                # Python GPU worker that produces bilingual subtitle artifacts.
-|  `- mobile-app/               # Expo/React Native client for upload, processing UX, and playback.
-|- infra/
-|  |- postgres/                 # PostgreSQL compose setup for local relational data.
-|  |- redis/                    # Redis compose setup for BullMQ queues and caching.
-|  `- minio/                    # MinIO compose setup for raw and processed media artifacts.
-|- scripts/                     # Helper scripts
+|  |- backend-api/
+|  |  |- INSTRUCTION.md        # Backend-specific rules.
+|  |  `- CHECKPOINT.md         # Backend current progress and known issues.
+|  |- ai-engine/
+|  |  |- INSTRUCTION.md        # AI Engine-specific rules.
+|  |  `- CHECKPOINT.md         # AI Engine current progress and known issues.
+|  `- mobile-app/
+|     |- INSTRUCTION.md        # Mobile-specific rules.
+|     `- CHECKPOINT.md         # Mobile current progress and known issues.
+|- .agent/
+|  `- workflows/
+|     |- contract-change.md
+|     `- checkpoint-maintenance.md
 ```
 
 ## 2. Session Startup Protocol
 
-1. Read this file (`AGENTS.md`) fully.
-2. Identify which module(s) the current task touches (`backend-api`, `ai-engine`, `mobile-app`). If ambiguous, ask before proceeding.
-3. Read the active module's `INSTRUCTION.md`.
-4. Read the active module's `CHECKPOINT.md` to understand current feature status, known issues, and in-flight work.
-5. If the task crosses module boundaries, read all affected modules' files.
-6. State assumptions explicitly before writing any code.
+1. Read this file fully.
+2. Identify the task type:
+   - feature development
+   - bug fix/debugging
+   - contract change
+   - checkpoint/documentation maintenance
+   - performance/evaluation/demo work
+3. Read `PROJECT_MAP.md` to locate the affected module(s) and entry points.
+4. Read root `INSTRUCTION.md` for product and architecture context when the task affects user flows or architecture.
+5. Read only the affected module's `INSTRUCTION.md` and `CHECKPOINT.md`.
+6. If the task touches queue payloads, media API DTOs, artifact paths/schema, socket events, progress semantics, auth flow, quota behavior, or language/translation behavior, read `CONTRACTS.md` and follow `.agent/workflows/contract-change.md`.
+7. If the task requires command execution or validation, read `COMMANDS.md` before inventing commands.
+8. State assumptions explicitly before writing code.
+9. Inspect actual source files before changing behavior. Do not rely on docs alone.
 
-## 3. Module Directory
+## 3. Active Modules
 
-| Module      | Path               | Stack                                                                                         | Entry Points                           |
+| Module      | Path               | Stack                                                                                         | Main entry points                      |
 | ----------- | ------------------ | --------------------------------------------------------------------------------------------- | -------------------------------------- |
 | Backend API | `apps/backend-api` | NestJS v11, TypeScript, Prisma, BullMQ, Redis, MinIO, JWT                                     | `src/main.ts`, `src/worker.ts`         |
 | AI Engine   | `apps/ai-engine`   | Python 3.12, faster-whisper, stable-ts, silero-vad, CTranslate2, NLLB-200-3.3B, BullMQ, MinIO | `src/main.py`, `src/async_pipeline.py` |
 | Mobile App  | `apps/mobile-app`  | Expo 54, React Native, Expo Router, Zustand, Axios, Zod, i18next, react-native-unistyles      | `src/entry.ts`, `src/app/_layout.tsx`  |
 
-## 4. Cross-Cutting Contracts
+Do not assume inactive or future modules exist unless the repository contains them.
 
-### 4.1 BullMQ Queue Payload Schema
+## 4. Contract Routing Rules
 
-The live pipeline is two queues on Redis with BullMQ prefix `bilingual`.
+`CONTRACTS.md` is the source of truth for cross-module contracts.
 
-```ts
-interface TranscriptionJobPayload {
-  mediaId: string;
-  type: "LOCAL" | "YOUTUBE";
-  filePath?: string;
-  url?: string;
-  userId: string;
-  targetLanguage?: string;
-}
+Read it before changing:
 
-interface AiProcessingJobPayload {
-  mediaId: string;
-  audioS3Key: string;
-  durationSeconds: number;
-  userId: string;
-  targetLanguage?: string;
-}
-```
+- BullMQ queue payloads, names, prefixes, or producer/consumer behavior
+- Media API request/response DTOs
+- MinIO bucket/path/signing behavior
+- `chunks/`, `translated_batches/`, or `final.json` structure
+- Socket events or Redis Pub/Sub behavior
+- Media status, `currentStep`, progress, ETA, or failure reason behavior
+- Auth token flow or mobile token persistence assumptions
+- Quota/subscription enforcement visible to users or jobs
+- `targetLanguage`, bilingual behavior, or any translation mode logic
 
-`processingMode` is removed from the active contract. The bilingual flow is driven by `targetLanguage` only.
-
-### 4.2 Artifact URL Contract
-
-- `GET /media/:id/artifacts` is the durable processed-object inventory endpoint used by clients after upload and during playback readiness.
-- Processed artifacts are written under `processed/{mediaId}/` with three durable surfaces: `chunks/`, `translated_batches/`, and `final.json`.
-- Tier 1 chunk files are arrays of `Sentence` objects with `segment_index = null`.
-- Tier 2 translated batch files are objects with `batch_index`, `first_segment_index`, and `segments`.
-- `final.json` is the authoritative ordered output and carries consecutive 0-based `segment_index` values.
-- Media list responses include artifact summaries so the mobile app can show readiness without reconstructing storage inventory client-side.
-
-### 4.3 Socket Event Contract
-
-- The AI engine publishes Redis Pub/Sub events on channel `media_updates`.
-- The documented event types are `progress`, `chunk_ready`, `batch_ready`, `completed`, and `failed`.
-- The backend mirrors these payloads through its socket layer for the mobile app.
-- Progress is expected to stay monotonic across both emitted events and persisted DB writes.
-
-### 4.4 Auth Token Flow
-
-- Registration follows a verify-first flow: register, receive OTP, verify OTP, then finalize the account and issue tokens.
-- Access token: short-lived JWT.
-- Refresh token: UUID wrapped in a signed JWT, stored in the database, and rotated on refresh.
+Any such task must follow `.agent/workflows/contract-change.md`.
 
 ## 5. Agent Behavior Rules
 
 ### 5.1 Think Before Coding
 
-> **5.1 Think Before Coding**
-> Don't assume. Don't hide confusion. Surface tradeoffs.
-> Before implementing: state assumptions explicitly. If uncertain, ask. If multiple
-> interpretations exist, present them — don't pick silently. If a simpler approach
-> exists, say so. Push back when warranted. If something is unclear, stop. Name what's
-> confusing. Ask.
+Do not assume. Do not hide confusion. Surface tradeoffs.
+
+Before implementing:
+
+- state assumptions explicitly
+- name uncertainty
+- ask when a blocker is real
+- present alternatives when multiple interpretations exist
+- push back when a requested change would damage architecture, security, or maintainability
 
 ### 5.2 Simplicity First
 
-> **5.2 Simplicity First**
-> Minimum code that solves the problem. Nothing speculative.
-> No features beyond what was asked. No abstractions for single-use code. No
-> "flexibility" or "configurability" that wasn't requested. No error handling for
-> impossible scenarios. If you write 200 lines and it could be 50, rewrite it.
-> Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+Minimum code that solves the problem. Nothing speculative.
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No flexibility/configurability that was not requested.
+- No error handling for impossible scenarios.
+- If a 200-line solution can be 50 lines, simplify it.
 
 ### 5.3 Surgical Changes
 
-> **5.3 Surgical Changes**
-> Touch only what you must. Clean up only your own mess.
-> When editing existing code: don't "improve" adjacent code, comments, or formatting.
-> Don't refactor things that aren't broken. Match existing style, even if you'd do it
-> differently. If you notice unrelated dead code, mention it — don't delete it.
-> When your changes create orphans: remove imports/variables/functions that YOUR
-> changes made unused. Don't remove pre-existing dead code unless asked.
-> The test: every changed line should trace directly to the user's request.
+Touch only what the task requires.
+
+- Do not refactor adjacent code unless asked.
+- Do not reformat unrelated files.
+- Match existing style even if you would personally write it differently.
+- If you notice unrelated dead code, mention it instead of deleting it.
+- Remove imports, variables, and functions only when your own changes made them unused.
+- Every changed line should trace back to the user's request.
 
 ### 5.4 Goal-Driven Execution
 
-> **5.4 Goal-Driven Execution**
-> Define success criteria. Loop until verified.
-> Transform tasks into verifiable goals. For multi-step tasks, state a brief plan:
->
-> 1. [Step] → verify: [check]
-> 2. [Step] → verify: [check]
->    For every task, identify the validation command (lint, test, type-check) and run it
->    before declaring done.
+Define success criteria and verify them.
 
-## 6. Checkpoint Update Protocol (Mandatory)
+For multi-step tasks, state a brief plan:
 
-After completing any task that involves any of the following, the relevant module `CHECKPOINT.md` must be updated before the task is considered complete:
+```text
+1. [Step] -> verify: [check]
+2. [Step] -> verify: [check]
+```
+
+Before declaring done, identify and run the smallest validation command that proves the change. If a check cannot be run, state why and provide the exact command that should be run manually.
+
+## 6. Checkpoint Update Protocol
+
+After completing a task, update the relevant module `CHECKPOINT.md` when the task involves:
 
 - a new feature or endpoint
-- a schema or payload change
-- a pipeline stage change (ai-engine)
-- a bug fix that reveals a systemic issue
+- a schema, DTO, payload, artifact, or event change
+- a pipeline stage change
+- a bug fix that reveals or resolves a systemic issue
 - a dependency add or upgrade
+- a meaningful validation result
+- a newly discovered known issue or resolved known issue
 
-Each checkpoint update must include:
+Use `.agent/workflows/checkpoint-maintenance.md` for update format and rules.
 
-- the date of change
+A checkpoint update must include:
+
+- date of change
 - what changed and why
-- the current status of the affected feature (`Working`, `Partial`, `Broken`, or `In-Progress`)
-- any known follow-up items
+- current status: `Working`, `Partial`, `Broken`, `In-Progress`, `Blocked`, or `Deprecated`
+- known follow-up items, if any
+- validation result or validation command, when relevant
 
-Failure to update the checkpoint is an incomplete task.
+Failure to update the correct checkpoint after qualifying work means the task is incomplete.
 
 ## 7. What NOT to Do
 
@@ -159,21 +159,26 @@ Failure to update the checkpoint is an incomplete task.
 - Do not use `db push` for Prisma schema changes in production; use migrations.
 - Do not hardcode colors, strings, or hex values in the mobile app.
 - Do not add polling where socket events already exist.
-- Do not touch multiple modules unless the task explicitly crosses module boundaries.
+- Do not touch multiple modules unless the task explicitly crosses module boundaries or the contract workflow requires it.
+- Do not duplicate full cross-module contracts in checkpoints or module instructions; keep authoritative contract details in `CONTRACTS.md`.
 
-## 8. Infra Quick Reference
+## 8. Definition of Done
 
-| Area              | Path                                | Notes                                                                                                                |
-| ----------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL        | `infra/postgres/docker-compose.yml` | Local relational store on port `5432`; the current checkpoint documents `POSTGRES_USER / PASSWORD / DB` env vars.    |
-| Redis             | `infra/redis/docker-compose.yml`    | Local BullMQ and cache store on port `6379`; queues are `transcription` and `ai-processing` with prefix `bilingual`. |
-| MinIO             | `infra/minio/docker-compose.yml`    | Object storage on ports `9000` and `9001`; buckets are `raw` and `processed`.                                        |
-| AI Engine Compose | `apps/ai-engine/docker-compose.yml` | GPU worker profiles: `auto`, `turbo_only`, `full_only`.                                                              |
+A task is done only when:
 
-Key environment variables documented in the current docs:
+- the affected source files were inspected
+- the implementation is complete and minimal
+- relevant types, DTOs, schemas, or tests are updated
+- cross-module contracts remain aligned
+- the smallest useful validation was run or clearly documented as not run
+- the relevant module checkpoint was updated when required
+- no unrelated files were modified
 
-- AI engine runtime: `AI_PERF_MODE`, `WORKER_MODEL_MODE`, `AI_ENABLE_LLM_REFINEMENT`, `NMT_MODEL_DIR`, `NMT_TOKENIZER_NAME`, `NMT_COMPUTE_TYPE`, `NMT_BEAM_SIZE`
-- AI engine connectivity: `REDIS_HOST`, `MINIO_ENDPOINT`, `MINIO_PUBLIC_ENDPOINT`
-- Mobile client: `EXPO_PUBLIC_API_URL`
+## 9. Preferred Workflow Files
 
-There is no single root compose file in this clone. Start local services from the per-service compose directories under `infra/`.
+Use these workflow files when applicable:
+
+- `.agent/workflows/contract-change.md` — queue/API/artifact/socket/auth/progress/language contract changes
+- `.agent/workflows/checkpoint-maintenance.md` — updating module checkpoints cleanly
+
+Future workflow files may be added for feature development, debugging, E2E verification, AI quality evaluation, performance tuning, and graduation demo preparation.

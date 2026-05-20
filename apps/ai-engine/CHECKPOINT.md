@@ -1,66 +1,210 @@
 # AI Engine - Checkpoint
 
-> Last updated: 2026-05-06
+> Last updated: 2026-05-08
 > Maintained by: agents - update this file after every significant change.
 
-## Current Status
+## 1. Current Status
 
-| Area                                         | Status  | Notes                                                                                             |
-| -------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| V2 async NMT-first pipeline                  | Working | `main.py` delegates to the V2 async path and `async_pipeline.py` owns the real orchestration.     |
-| Tier 1 and Tier 2 streaming artifacts        | Working | `chunks/`, `translated_batches/`, and `final.json` are the live durable output surfaces.          |
-| NMT translation with optional LLM refinement | Working | CTranslate2 / NLLB is primary; Ollama refinement is optional and best effort.                     |
-| Docker worker profiles                       | Working | Compose profiles `auto`, `turbo_only`, and `full_only` are documented for GPU deployment.         |
-| End-to-end automated coverage                | Partial | Automated coverage is contract-focused and does not fully cover BullMQ, DB writes, or live infra. |
+AI Engine is in the active V2 production-path state.
 
-## Active Pipeline / Architecture Notes
+The module is a queue-driven Python GPU worker that consumes `ai-processing` jobs, downloads validated audio from MinIO, runs the V2 async NMT-first pipeline, uploads streaming and final subtitle artifacts, updates PostgreSQL progress/status, and emits Redis Pub/Sub processing events.
 
-- The runtime boundary is: BullMQ job in -> MinIO raw audio download -> V2 subtitle pipeline -> MinIO processed artifact upload -> PostgreSQL status update -> Redis progress events.
-- Queue name: `ai-processing`; BullMQ prefix: `bilingual`; concurrency: `1`; lock duration: `10 minutes`; stalled interval: `5 minutes`.
-- `src/async_pipeline.py` is the active orchestration layer, not `src/core/pipeline.py`.
-- The producer path is `AudioProcessor -> AudioInspector -> VADManager -> SmartAligner`; translation is decoupled behind `asyncio.Queue(maxsize=4)`.
-- Tier 1 chunk files are arrays with `segment_index = null`.
-- Tier 2 batch files are objects with `batch_index`, `first_segment_index`, and `segments`.
-- `final.json` is the authoritative ordered output and carries consecutive 0-based `segment_index` values.
-- The AI engine publishes `progress`, `chunk_ready`, `batch_ready`, `completed`, and `failed` events on `media_updates`.
-- Cross-module queue payloads and artifact expectations are summarized in the repository root `AGENTS.md`.
+The active production path is:
 
-## Known Issues & Workarounds
-
-- `final.json` is still stored under transcript-style naming in some DB and event fields (`transcriptS3Key` / `transcript_s3_key`); downstream consumers must treat that key as the final subtitle artifact.
-- CJK content can collapse Tier 1 chunks into fewer Tier 2 segments after semantic merge; use `segment_index` and `first_segment_index` for matching instead of array position.
-- Automated tests are contract-focused and do not fully exercise BullMQ, DB writes, Redis sequencing, or live MinIO/Ollama behavior; use the documented live-infra harness when validating those boundaries.
-- `src/scripts/test_pipeline.py` is stale and calls a nonexistent API; use `src.scripts.test_v2_pipeline` instead.
-- Legacy remnants still exist (`TRANSLATOR_PROVIDER`, `USE_V2_PIPELINE`, `subtitle_s3_key`, `ContextAnalysis` alias); do not build new behavior on them.
-
-## Environment & Commands
-
-```powershell
-venv\Scripts\python.exe -m src.main
-venv\Scripts\python.exe -m pytest tests/test_streaming_contracts.py -q
-venv\Scripts\python.exe -m pytest tests/test_streaming_contracts.py -v --tb=short
-venv\Scripts\python.exe -m pytest tests/ -v
-venv\Scripts\python.exe -m src.scripts.test_v2_pipeline
-venv\Scripts\python.exe -m src.scripts.test_v2_pipeline demo_audio_3.mp3 --lang vi --live-infra
-docker compose --profile auto up
-docker compose --profile turbo_only up
-docker compose --profile full_only up
+```text
+main.py
+  -> pipelines.py / run_v2_pipeline()
+  -> async_pipeline.py
+  -> AudioProcessor
+  -> AudioInspector
+  -> VADManager
+  -> SmartAligner
+  -> SemanticMerger when needed
+  -> NMTTranslator
+  -> optional LLMProvider refinement
+  -> MinIO chunks / translated_batches / final.json
 ```
 
-## Recent Changes
+Deprecated V1 paths must not be reintroduced.
 
-| Date       | Change                                                                                                                     | Author              |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| 2026-04-02 | P0 + P1a + P1b optimization pass reduced wall time from 217.8s to 101.8s on the benchmarked 565s video.                    | existing checkpoint |
-| 2026-04-10 | Root checkpoint documents the V2 pipeline as the only active production path with `targetLanguage` and monotonic progress. | existing checkpoint |
-| 2026-05-06 | Split AI-engine-specific status into `apps/ai-engine/CHECKPOINT.md`.                                                       | agent               |
+## 2. Active Work
 
-## Follow-up Items
+No single active AI Engine task is recorded in the imported checkpoint.
 
-- Continue NMT quality tuning for `NMT_BEAM_SIZE`, `NMT_COMPUTE_TYPE`, and refinement prompts.
-- Tackle transcription speed as the main remaining bottleneck after P1.
-- Add true language-based worker routing when horizontal scaling becomes necessary.
-- Add an end-to-end integration test with real Redis, MinIO, and Ollama.
-- Further refine the multi-segment inspector with real-world audio.
-- Investigate VAD performance on long music files.
-- Add monitoring and alerting for worker processes.
+Use `Next Candidates` below as the current AI Engine backlog until a new task file or issue exists.
+
+## 3. Recently Completed
+
+- 2026-04-02 — V2 async NMT-first pipeline marked active. Status: Working.
+  - `async_pipeline.py` owns producer-consumer processing.
+  - `core/nmt_translator.py` is the active translation runtime.
+  - Optional LLM refinement remains available through `LLMProvider`.
+
+- 2026-04-02 — V1 translation cleanup completed. Status: Working.
+  - Old `translator_engine.py` path removed.
+  - Old `incremental_pipeline.py` path removed.
+  - `processingMode` branching removed.
+  - `targetLanguage` is the active bilingual flow input.
+
+- 2026-04-02 — Two-tier streaming artifact protocol completed. Status: Working.
+  - Tier 1 chunks uploaded during alignment.
+  - Tier 2 translated batches uploaded during async translation.
+  - `final.json` uploaded as the canonical completed output.
+
+- 2026-04-02 — Progress discipline completed. Status: Working.
+  - In-memory reservation prevents progress rollback.
+  - Database writes preserve monotonic progress.
+  - Event discipline tests exist for progress/event behavior.
+
+- 2026-04-02 — Docker deployment path added. Status: Working.
+  - CUDA image.
+  - Profile-based GPU worker modes.
+  - `auto`, `turbo`, and `full` profile usage.
+
+## 4. Known Issues
+
+- Full E2E streaming integration test is still missing.
+  - Impact: Redis + MinIO + Ollama + backend worker + AI Engine streaming contract is not fully validated in one automated flow.
+  - Current workaround: targeted pytest coverage plus manual integration testing.
+  - Related areas: `tests/`, Redis, MinIO, backend worker, mobile player.
+
+- NMT quality tuning is ongoing.
+  - Impact: translation quality may vary by language pair and media style.
+  - Current workaround: tune `NMT_BEAM_SIZE`, `NMT_COMPUTE_TYPE`, and refinement prompts per language pair.
+  - Related areas: `core/nmt_translator.py`, `core/llm_provider.py`, `core/prompts.py`, `config.py`.
+
+- True language-based worker routing is not fully implemented.
+  - Impact: CJK-heavy jobs may not always route to the best worker profile when horizontal scaling is used.
+  - Current workaround: current model routing works within the active worker; scaling/routing can be revisited later.
+  - Related areas: language detection, worker profiles, queue payloads.
+
+- Long music-heavy files may need further VAD and inspector tuning.
+  - Impact: processing time and segmentation quality may vary on real-world music content.
+  - Current workaround: current AudioInspector, VADManager, and vocal isolation fallback behavior.
+
+## 5. Next Candidates
+
+- [ ] Add an end-to-end AI Engine integration test with real Redis, MinIO, and optional Ollama.
+- [ ] Continue NMT quality tuning for important language pairs.
+- [ ] Improve language-based routing for CJK-heavy jobs when horizontal scaling becomes necessary.
+- [ ] Further tune the multi-segment AudioInspector using real-world audio.
+- [ ] Investigate VAD processing time on long music files.
+- [ ] Add basic monitoring and alerting for worker health, GPU memory, processing time, and failure rates.
+- [ ] Build a small evaluation set for transcription timing, translation quality, and latency.
+
+## 6. Contract Touchpoints
+
+### Queue
+
+Consumes `AiProcessingJobPayload` from the `ai-processing` queue.
+
+Required fields:
+
+- `mediaId`
+- `audioS3Key`
+- `durationSeconds`
+- `userId`
+- `targetLanguage?`
+
+Do not reintroduce `processingMode`.
+
+### Artifacts
+
+Writes durable artifacts under:
+
+```text
+processed/{mediaId}/chunks/
+processed/{mediaId}/translated_batches/
+processed/{mediaId}/final.json
+```
+
+Expected surfaces:
+
+- Tier 1 chunk files: raw transcription sentence arrays.
+- Tier 2 translated batch files: translated batch objects.
+- Final output: full `SubtitleOutput`.
+
+### Progress and Events
+
+Expected processing events:
+
+- `progress`
+- `chunk_ready`
+- `batch_ready`
+- `completed`
+- `failed`
+
+Progress must remain monotonic across emitted events and persisted database writes.
+
+### Mobile Impact
+
+Mobile player depends on:
+
+- translated batch availability before `final.json`;
+- final JSON shape;
+- word timestamps;
+- source text;
+- translation text;
+- phonetic field;
+- stable artifact URLs.
+
+### Backend Impact
+
+Backend depends on:
+
+- queue payload compatibility;
+- progress/status updates;
+- Redis event payloads;
+- artifact path conventions;
+- final completion/failure state.
+
+## 7. Validation Notes
+
+Fast sanity check:
+
+```powershell
+cd apps/ai-engine
+venv\Scripts\python.exe -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"
+```
+
+Full pytest:
+
+```powershell
+cd apps/ai-engine
+venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+Targeted contract tests:
+
+```powershell
+cd apps/ai-engine
+venv\Scripts\python.exe -m pytest tests/test_streaming_contracts.py -q
+venv\Scripts\python.exe -m pytest tests/test_event_discipline.py -v
+```
+
+Docker/GPU profile check:
+
+```bash
+cd apps/ai-engine
+docker compose --profile auto up
+```
+
+Last imported verification state:
+
+- Old checkpoint recorded V2 pipeline and streaming contract as active.
+- No fresh command output is available in this generated checkpoint.
+
+## 8. Update Rules
+
+Update this checkpoint when:
+
+- A pipeline stage changes.
+- A schema or artifact format changes.
+- A queue payload or event payload changes.
+- Translation, alignment, VAD, or audio processing behavior changes.
+- A runtime profile or GPU setting changes.
+- A systemic bug or quality issue is discovered.
+- A dependency is added or upgraded.
+- A validation result changes the known state.
+
+Do not add long migration history here. Move stable architecture to `INSTRUCTION.md`, cross-module contracts to a future `CONTRACTS.md`, and historical migration details to `docs/archive/`.

@@ -121,8 +121,7 @@ export class MediaService {
     await this.assertQuotaNotExceeded(userId);
 
     const placeholderKey = `audio/${userId}/${randomUUID()}/youtube-pending`;
-    const title =
-      dto.title?.trim() || (await this.resolveYoutubeSubmissionTitle(dto.url));
+    const title = dto.title?.trim() || this.extractYoutubeTitle(dto.url);
 
     const mediaItem = await this.prisma.mediaItem.create({
       data: {
@@ -432,27 +431,6 @@ export class MediaService {
     } catch {
       return 'YouTube Video';
     }
-  }
-
-  private async resolveYoutubeSubmissionTitle(url: string): Promise<string> {
-    try {
-      const ytDlpTitleResolver = this.ytDlpService as {
-        resolveTitle: (youtubeUrl: string) => Promise<string>;
-      };
-      const title = await ytDlpTitleResolver.resolveTitle(url);
-      const normalizedTitle = title.trim();
-
-      if (normalizedTitle.length > 0) {
-        return normalizedTitle;
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `Falling back to parsed YouTube title for ${url}: ${message}`,
-      );
-    }
-
-    return this.extractYoutubeTitle(url);
   }
 
   private async persistArtifactSummary(

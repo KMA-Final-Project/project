@@ -84,7 +84,7 @@ Windows PowerShell:
 
 ```powershell
 cd apps/ai-engine
-venv\Scripts\Activate.ps1
+venv\Scripts\activate
 ```
 
 Linux/macOS:

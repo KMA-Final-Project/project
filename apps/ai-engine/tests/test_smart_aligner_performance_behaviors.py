@@ -47,14 +47,16 @@ def test_smart_aligner_uses_supplied_audio_array_without_loading_from_librosa(
         smart_aligner_mod.librosa,
         "load",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("librosa.load should not be called when audio_array is provided")
+            AssertionError(
+                "librosa.load should not be called when audio_array is provided"
+            )
         ),
     )
-    monkeypatch.setattr(aligner, "_select_batched", lambda language: object())
+    monkeypatch.setattr(aligner, "_select_batched", lambda language: (object(), False))
     monkeypatch.setattr(
         aligner,
         "_transcribe_segment",
-        lambda batched, audio, prompt, language=None: _make_transcription_result(),
+        lambda batched, audio, prompt, language=None, clip_timestamps=None, is_turbo=False: _make_transcription_result(),
     )
 
     sentences = aligner.process(
@@ -90,30 +92,50 @@ def test_group_segments_uses_configured_group_size() -> None:
         settings.SMART_ALIGNER_GROUP_SIZE = original_group_size
 
 
-def test_split_long_sentences_limits_non_cjk_word_count() -> None:
+def test_process_keeps_long_non_cjk_sentence_intact_without_silence_gap(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     aligner = _build_aligner()
-    original_max_words = settings.SUBTITLE_MAX_WORDS
-    settings.SUBTITLE_MAX_WORDS = 5
-    try:
-        words = [
-            Word(
-                word=f"word{index}",
-                start=float(index),
-                end=float(index) + 0.4,
-                confidence=0.99,
+    audio_array = np.zeros(96000, dtype=np.float32)
+    audio_path = tmp_path / "audio.wav"
+    audio_path.write_bytes(b"placeholder")
+    segments = [
+        VADSegment(start=0.0, end=6.0, type=SegmentType.HAPPY_CASE, duration=6.0)
+    ]
+    words = [
+        _make_segment_word(f"word{index}", float(index) * 0.3, float(index) * 0.3 + 0.2)
+        for index in range(12)
+    ]
+    transcription_result = {
+        "segments": [
+            SimpleNamespace(
+                text=" ".join(word.word for word in words),
+                no_speech_prob=0.0,
+                avg_logprob=-0.1,
+                compression_ratio=1.0,
+                words=words,
             )
-            for index in range(12)
-        ]
-        sentence = Sentence(
-            text=" ".join(word.word for word in words),
-            start=words[0].start,
-            end=words[-1].end,
-            words=words,
-        )
+        ],
+        "info": SimpleNamespace(language="en"),
+        "best_segment": SimpleNamespace(avg_logprob=-0.1, compression_ratio=1.0),
+    }
 
-        split_sentences = aligner._split_long_sentences(sentence)
+    monkeypatch.setattr(aligner, "_select_batched", lambda language: (object(), False))
+    monkeypatch.setattr(
+        aligner,
+        "_transcribe_segment",
+        lambda batched, audio, prompt, language=None, clip_timestamps=None, is_turbo=False: transcription_result,
+    )
+    monkeypatch.setattr(aligner, "_add_phonemes", lambda sentences, language: None)
 
-        assert len(split_sentences) >= 3
-        assert all(len(item.text.split()) <= 5 for item in split_sentences)
-    finally:
-        settings.SUBTITLE_MAX_WORDS = original_max_words
+    sentences = aligner.process(
+        audio_path,
+        segments,
+        profile="standard",
+        audio_array=audio_array,
+    )
+
+    assert len(sentences) == 1
+    assert len(sentences[0].words) == 12
+    assert sentences[0].text == " ".join(f"word{index}" for index in range(12))

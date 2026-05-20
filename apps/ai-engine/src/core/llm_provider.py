@@ -1,26 +1,316 @@
+from __future__ import annotations
+
 import json
 import re
+from typing import Any, List, Optional
+
 import ollama
 from loguru import logger
-from typing import List, Dict, Any, Optional
+
+from src.config import settings
 from src.schemas import ContextAnalysisResult, TranslationStyle, VietnamesePronoun
-from .prompts import (
-    ANALYSIS_SYSTEM_PROMPT,
-    NMT_REFINEMENT_PROMPT,
-)
+
+from .prompts import ANALYSIS_SYSTEM_PROMPT, NMT_REFINEMENT_PROMPT
+
+SUPPORTED_PROVIDERS = {"ollama", "openai", "gemini"}
+
+MERGE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "groups": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": ["string", "null"]},
+                    "source_indices": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 1,
+                    },
+                },
+                "required": ["source_indices"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["groups"],
+    "additionalProperties": False,
+}
+
+REFINEMENT_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "translations": {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["translations"],
+    "additionalProperties": False,
+}
+
+ANALYSIS_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "detected_style": {
+            "type": "string",
+            "enum": [style.value for style in TranslationStyle],
+        },
+        "detected_pronouns": {
+            "type": "string",
+            "enum": [pronoun.value for pronoun in VietnamesePronoun],
+        },
+        "summary": {"type": "string"},
+        "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["detected_style", "detected_pronouns", "summary", "keywords"],
+    "additionalProperties": False,
+}
 
 
 class LLMProvider:
     """
-    Wrapper for LLM interactions (Ollama).
+    Capability-aware LLM wrapper with remote providers and Ollama fallback.
     """
 
-    def __init__(self, model_name: str = "qwen2.5:7b-instruct", timeout: int = 120):
+    def __init__(self, model_name: str | None = None, timeout: int | None = None):
         self.model_name = model_name
-        self.timeout = timeout
-        self._client = ollama.Client(timeout=timeout)
+        self.timeout = timeout or settings.OLLAMA_TIMEOUT_SECONDS
+        client_kwargs: dict[str, Any] = {"timeout": self.timeout}
+        if settings.OLLAMA_HOST:
+            client_kwargs["host"] = settings.OLLAMA_HOST
+        self._ollama_client = ollama.Client(**client_kwargs)
         logger.info(
-            f"LLMProvider initialized with model: {self.model_name}, timeout: {timeout}s"
+            "LLMProvider initialized | providers={} | ollama_timeout={}s".format(
+                ", ".join(sorted(SUPPORTED_PROVIDERS)),
+                self.timeout,
+            )
+        )
+
+    def _provider_model(self, provider: str, capability: str) -> str:
+        if provider == "ollama" and self.model_name:
+            return self.model_name
+        return settings.llm_model_for(provider, capability)
+
+    def _temperature_for(self, capability: str) -> float:
+        capability_name = settings.normalize_llm_capability(capability)
+        if capability_name == "analysis":
+            return 0.2
+        if capability_name == "refinement":
+            return 0.2
+        return 0.1
+
+    def _normalize_provider(self, provider: str) -> str:
+        normalized = provider.strip().lower()
+        if normalized not in SUPPORTED_PROVIDERS:
+            raise ValueError(f"Unsupported LLM provider: {provider}")
+        return normalized
+
+    def _load_openai_client(self):
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "The openai package is required for OpenAI LLM usage"
+            ) from exc
+
+        client_kwargs: dict[str, Any] = {"api_key": settings.OPENAI_API_KEY}
+        if settings.OPENAI_BASE_URL:
+            client_kwargs["base_url"] = settings.OPENAI_BASE_URL
+        return OpenAI(**client_kwargs)
+
+    def _load_gemini_client(self):
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+        try:
+            from google import genai
+        except ImportError as exc:
+            raise RuntimeError(
+                "The google-genai package is required for Gemini LLM usage"
+            ) from exc
+        return genai.Client(api_key=settings.GEMINI_API_KEY)
+
+    def _ollama_options(
+        self, capability: str, *, use_cpu: bool = False
+    ) -> dict[str, Any]:
+        options: dict[str, Any] = {
+            "temperature": self._temperature_for(capability),
+            "num_ctx": settings.ollama_num_ctx_for(capability),
+        }
+        if use_cpu:
+            options["num_gpu"] = 0
+        return options
+
+    def _coerce_response_text(self, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if text:
+                        parts.append(str(text))
+                else:
+                    parts.append(str(item))
+            return "\n".join(parts)
+        return str(content)
+
+    def _maybe_unwrap_json(self, raw_text: str, unwrap_key: str | None) -> str:
+        if not unwrap_key:
+            return raw_text
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return raw_text
+
+        if isinstance(parsed, dict) and unwrap_key in parsed:
+            return json.dumps(parsed[unwrap_key], ensure_ascii=False)
+        return raw_text
+
+    def _generate_with_ollama(
+        self,
+        capability: str,
+        prompt: str,
+        system_prompt: str | None,
+        response_schema: dict[str, Any] | None,
+        unwrap_key: str | None,
+    ) -> str:
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        model = self._provider_model("ollama", capability)
+        base_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "options": self._ollama_options(capability),
+        }
+        if response_schema is not None:
+            base_kwargs["format"] = "json"
+
+        try:
+            response = self._ollama_client.chat(**base_kwargs)
+            text = response["message"]["content"]
+            return self._maybe_unwrap_json(text, unwrap_key)
+        except Exception as exc:
+            if not settings.OLLAMA_CPU_FALLBACK_ON_ERROR:
+                raise exc
+
+            logger.warning(
+                "Ollama {} failed on default runtime, retrying on CPU: {}",
+                capability,
+                exc,
+            )
+            cpu_kwargs = dict(base_kwargs)
+            cpu_kwargs["options"] = self._ollama_options(capability, use_cpu=True)
+            response = self._ollama_client.chat(**cpu_kwargs)
+            text = response["message"]["content"]
+            return self._maybe_unwrap_json(text, unwrap_key)
+
+    def _generate_with_openai(
+        self,
+        capability: str,
+        prompt: str,
+        system_prompt: str | None,
+        response_schema: dict[str, Any] | None,
+        response_schema_name: str | None,
+        unwrap_key: str | None,
+    ) -> str:
+        client = self._load_openai_client()
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        kwargs: dict[str, Any] = {
+            "model": self._provider_model("openai", capability),
+            "messages": messages,
+            "temperature": self._temperature_for(capability),
+        }
+        if response_schema is not None:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_schema_name or f"{capability}_response",
+                    "strict": True,
+                    "schema": response_schema,
+                },
+            }
+
+        completion = client.chat.completions.create(**kwargs)
+        text = self._coerce_response_text(completion.choices[0].message.content)
+        return self._maybe_unwrap_json(text, unwrap_key)
+
+    def _generate_with_gemini(
+        self,
+        capability: str,
+        prompt: str,
+        system_prompt: str | None,
+        response_schema: dict[str, Any] | None,
+        unwrap_key: str | None,
+    ) -> str:
+        client = self._load_gemini_client()
+        config: dict[str, Any] = {
+            "temperature": self._temperature_for(capability),
+        }
+        if system_prompt:
+            config["system_instruction"] = system_prompt
+        if response_schema is not None:
+            config["response_mime_type"] = "application/json"
+            config["response_json_schema"] = response_schema
+
+        response = client.models.generate_content(
+            model=self._provider_model("gemini", capability),
+            contents=prompt,
+            config=config,
+        )
+        text = self._coerce_response_text(response.text)
+        return self._maybe_unwrap_json(text, unwrap_key)
+
+    def _generate_with_provider(
+        self,
+        provider: str,
+        capability: str,
+        prompt: str,
+        system_prompt: str | None,
+        response_schema: dict[str, Any] | None,
+        response_schema_name: str | None,
+        unwrap_key: str | None,
+    ) -> str:
+        provider_name = self._normalize_provider(provider)
+        if provider_name == "ollama":
+            return self._generate_with_ollama(
+                capability,
+                prompt,
+                system_prompt,
+                response_schema,
+                unwrap_key,
+            )
+        if provider_name == "openai":
+            return self._generate_with_openai(
+                capability,
+                prompt,
+                system_prompt,
+                response_schema,
+                response_schema_name,
+                unwrap_key,
+            )
+        return self._generate_with_gemini(
+            capability,
+            prompt,
+            system_prompt,
+            response_schema,
+            unwrap_key,
         )
 
     def analyze_context(
@@ -60,26 +350,16 @@ class LLMProvider:
         user_msg = f"Text Samples:\n" + "\n".join(text_samples)
 
         try:
-            response = self._client.chat(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": user_msg},
-                ],
-                format="json",  # Force JSON mode
-                options={"temperature": 0.2},  # Low temp for deterministic analysis
+            content = self.generate(
+                user_msg,
+                system_prompt=system_msg,
+                capability="analysis",
+                response_schema=ANALYSIS_RESPONSE_SCHEMA,
+                response_schema_name="context_analysis",
             )
-
-            content = response["message"]["content"]
             logger.debug(f"LLM Analysis Response: {content}")
 
-            # Parse JSON
             data = json.loads(content)
-
-            # Convert string values to Enums (handling potential mismatches gracefully?)
-            # Pydantic validation will handle this if we pass strict data,
-            # but let's assume LLM follows instructions effectively with 'format=json'.
-
             result = ContextAnalysisResult(**data)
             logger.info(
                 f"Analysis Complete: Style={result.detected_style}, Pronouns={result.detected_pronouns}"
@@ -175,22 +455,58 @@ class LLMProvider:
 
         return None
 
-    def generate(self, prompt: str, system_prompt: str = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        *,
+        capability: str = "merge",
+        response_schema: dict[str, Any] | None = None,
+        response_schema_name: str | None = None,
+        unwrap_key: str | None = None,
+    ) -> str:
         """
-        Generic generation method for flexible tasks.
+        Generic generation method with provider routing and optional structured output.
         """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+        capability_name = settings.normalize_llm_capability(capability)
+        schema = response_schema
+        schema_name = response_schema_name
+        unwrap = unwrap_key
 
-        messages.append({"role": "user", "content": prompt})
+        if schema is None and capability_name == "merger":
+            schema = MERGE_RESPONSE_SCHEMA
+            schema_name = "semantic_merge_groups"
+            unwrap = "groups"
+
+        primary_provider = settings.llm_provider_for(capability_name)
 
         try:
-            response = self._client.chat(
-                model=self.model_name, messages=messages, options={"temperature": 0.3}
+            return self._generate_with_provider(
+                primary_provider,
+                capability_name,
+                prompt,
+                system_prompt,
+                schema,
+                schema_name,
+                unwrap,
             )
-            return response["message"]["content"]
         except Exception as e:
+            if primary_provider != "ollama" and settings.LLM_REMOTE_TO_OLLAMA_FALLBACK:
+                logger.warning(
+                    "{} via {} failed, retrying with Ollama fallback: {}",
+                    capability_name,
+                    primary_provider,
+                    e,
+                )
+                return self._generate_with_provider(
+                    "ollama",
+                    capability_name,
+                    prompt,
+                    system_prompt,
+                    schema,
+                    schema_name,
+                    unwrap,
+                )
             logger.error(f"LLM Generation Failed: {e}")
             raise e
 
@@ -280,7 +596,14 @@ class LLMProvider:
         user_msg = "\n".join(lines)
 
         try:
-            raw = self.generate(user_msg, system_prompt=system_msg)
+            raw = self.generate(
+                user_msg,
+                system_prompt=system_msg,
+                capability="refinement",
+                response_schema=REFINEMENT_RESPONSE_SCHEMA,
+                response_schema_name="nmt_refinement",
+                unwrap_key="translations",
+            )
             refined = self._parse_string_list(raw)
 
             if refined is None:

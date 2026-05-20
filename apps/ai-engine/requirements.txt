@@ -36,6 +36,8 @@ ffmpeg-python>=0.2.0
 # Tool for translating text (Placeholder for future Offline Model)
 deep-translator>=1.11.4
 ollama>=0.1.6
+openai>=1.99.0
+google-genai>=1.36.0
 
 # --- Translation (NMT via NLLB-200 + CTranslate2) ---
 # CTranslate2 is already installed via faster-whisper

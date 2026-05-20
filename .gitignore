@@ -32,3 +32,5 @@ vendor/
 coverage/
 .cache/
 tmp/
+
+docs/

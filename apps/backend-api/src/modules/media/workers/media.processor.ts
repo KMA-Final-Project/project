@@ -10,6 +10,10 @@ import { Role } from 'prisma/generated/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { MinioService } from 'src/modules/minio/minio.service';
 import {
+  YtDlpService,
+  isRetryableYtDlpError,
+} from 'src/modules/media/yt-dlp.service';
+import {
   TranscriptionJobPayload,
   AiProcessingJobPayload,
   TRANSCRIPTION_QUEUE,
@@ -26,14 +30,6 @@ const execFileAsync = promisify(execFile);
 interface FfprobeResult {
   durationSeconds: number;
   formatName: string;
-}
-
-/** Parsed metadata from yt-dlp */
-interface YtDlpMetadata {
-  title: string;
-  durationSeconds: number;
-  /** Direct audio URL for thumbnail etc — not used for download */
-  url?: string;
 }
 
 // ============================================================================
@@ -61,6 +57,7 @@ export class MediaProcessor {
   constructor(
     private readonly prisma: PrismaService,
     private readonly minioService: MinioService,
+    private readonly ytDlpService: YtDlpService,
     @InjectQueue(AI_PROCESSING_QUEUE)
     private readonly aiQueue: Queue,
   ) {}
@@ -75,7 +72,10 @@ export class MediaProcessor {
 
     try {
       // Step 1: Mark as VALIDATING
-      await this.updateMedia(mediaId, { status: 'VALIDATING' });
+      await this.updateMedia(mediaId, {
+        status: 'VALIDATING',
+        failReason: null,
+      });
 
       // Step 2: Validate and prepare audio
       let audioS3Key: string;
@@ -131,7 +131,10 @@ export class MediaProcessor {
       });
 
       // Step 6: Mark as PROCESSING (AI Engine will take over)
-      await this.updateMedia(mediaId, { status: 'PROCESSING' });
+      await this.updateMedia(mediaId, {
+        status: 'PROCESSING',
+        failReason: null,
+      });
 
       this.logger.log(
         `[Job ${job.id}] Validated & dispatched to AI queue (aiJob: ${aiJob.id}) | ` +
@@ -140,6 +143,30 @@ export class MediaProcessor {
     } catch (error) {
       const reason =
         error instanceof Error ? error.message : 'Unknown validation error';
+
+      if (isRetryableYtDlpError(error)) {
+        if (this.hasAttemptsRemaining(job)) {
+          await this.updateMedia(mediaId, {
+            status: 'VALIDATING',
+            failReason: reason,
+          });
+
+          this.logger.warn(
+            `[Job ${job.id}] RETRYABLE YouTube failure, retrying: ${reason}`,
+          );
+
+          throw error;
+        }
+
+        await this.updateMedia(mediaId, {
+          status: 'FAILED',
+          failReason: reason,
+        });
+
+        this.logger.error(`[Job ${job.id}] FAILED after retries: ${reason}`);
+
+        throw error;
+      }
 
       await this.updateMedia(mediaId, {
         status: 'FAILED',
@@ -193,34 +220,18 @@ export class MediaProcessor {
 
     try {
       this.logger.log(`[Job ${jobId}] Downloading YouTube audio...`);
-      const { stdout } = await execFileAsync(
-        'yt-dlp',
-        [
-          '-x', // Extract audio only
-          '--audio-format',
-          'mp3',
-          '--audio-quality',
-          '5', // Medium quality (saves bandwidth)
-          '-o',
-          outputTemplate,
-          '--print',
-          'after_move:filepath', // Print actual output path
-          '--no-playlist',
-          '--no-warnings',
-          url,
-        ],
-        { timeout: 300_000 }, // 5 min download timeout
+      const downloadResult = await this.ytDlpService.downloadAudio(
+        url,
+        outputTemplate,
       );
 
-      // yt-dlp prints the final filepath
-      const downloadedFile = stdout.trim().split('\n').pop()?.trim();
-      if (!downloadedFile || !fs.existsSync(downloadedFile)) {
+      if (!fs.existsSync(downloadResult.filePath)) {
         throw new Error('yt-dlp did not produce an output file');
       }
 
       // 4. Upload to MinIO
       const s3Key = `audio/${userId}/${mediaId}/youtube-audio.mp3`;
-      await this.minioService.uploadFile(s3Key, downloadedFile);
+      await this.minioService.uploadFile(s3Key, downloadResult.filePath);
 
       this.logger.log(
         `[Job ${jobId}] YouTube audio uploaded to MinIO: ${s3Key}`,
@@ -240,30 +251,18 @@ export class MediaProcessor {
   /**
    * Fetch YouTube video metadata without downloading.
    */
-  private async fetchYoutubeMetadata(url: string): Promise<YtDlpMetadata> {
-    try {
-      const { stdout } = await execFileAsync(
-        'yt-dlp',
-        ['--dump-json', '--no-playlist', '--no-warnings', url],
-        { timeout: 30_000 },
-      );
+  private async fetchYoutubeMetadata(url: string): Promise<{
+    title: string;
+    durationSeconds: number;
+    url?: string;
+  }> {
+    const metadata = await this.ytDlpService.resolveMetadata(url);
 
-      const data = JSON.parse(stdout) as {
-        title: string;
-        duration: number;
-        url?: string;
-      };
-
-      return {
-        title: data.title,
-        durationSeconds: data.duration,
-        url: data.url,
-      };
-    } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : 'Failed to fetch metadata';
-      throw new Error(`YouTube metadata fetch failed: ${msg}`);
-    }
+    return {
+      title: metadata.title,
+      durationSeconds: metadata.durationSeconds,
+      url: metadata.originUrl,
+    };
   }
 
   // ==========================================================================
@@ -500,5 +499,14 @@ export class MediaProcessor {
       where: { id: mediaId },
       data,
     });
+  }
+
+  private hasAttemptsRemaining(job: Job<TranscriptionJobPayload>): boolean {
+    const configuredAttempts =
+      typeof job.opts.attempts === 'number' && job.opts.attempts > 0
+        ? job.opts.attempts
+        : 1;
+
+    return job.attemptsMade + 1 < configuredAttempts;
   }
 }

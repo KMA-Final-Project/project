@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -8,6 +9,32 @@ const execFileAsync = promisify(execFile);
 // Falls back progressively until something resolves.
 const YT_FORMAT_SELECTOR =
   'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best';
+
+const DEFAULT_YOUTUBE_EXTRACTOR_ARGS = 'youtube:player_client=android';
+
+const RETRYABLE_YT_DLP_PATTERNS = [
+  'sign in to confirm you',
+  'too many requests',
+  'http error 429',
+  'captcha',
+  'timed out',
+  'connection reset',
+  'unable to download api page',
+  'temporarily unavailable',
+];
+
+export class RetryableYtDlpError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetryableYtDlpError';
+  }
+}
+
+export function isRetryableYtDlpError(
+  error: unknown,
+): error is RetryableYtDlpError {
+  return error instanceof RetryableYtDlpError;
+}
 
 /** Resolved direct stream info from yt-dlp */
 export interface StreamUrlInfo {
@@ -32,6 +59,10 @@ export interface YoutubeMetadataInfo {
   durationSeconds: number;
   originUrl: string;
   thumbnailUrl: string | null;
+}
+
+export interface DownloadedYoutubeAudioInfo {
+  filePath: string;
 }
 
 /** Raw JSON from yt-dlp --dump-single-json */
@@ -61,6 +92,8 @@ interface YtDlpJson {
 export class YtDlpService {
   private readonly logger = new Logger(YtDlpService.name);
 
+  constructor(private readonly configService: ConfigService) {}
+
   async resolveTitle(youtubeUrl: string): Promise<string> {
     const metadata = await this.resolveMetadata(youtubeUrl);
     return metadata.title;
@@ -71,7 +104,7 @@ export class YtDlpService {
 
     const rawJson = await this.loadJson(
       youtubeUrl,
-      ['--dump-json', '--no-playlist', '--no-warnings', youtubeUrl],
+      ['--dump-json', youtubeUrl],
       15_000,
       'resolve YouTube metadata',
     );
@@ -99,16 +132,7 @@ export class YtDlpService {
 
     const rawJson = await this.loadJson(
       youtubeUrl,
-      [
-        '--dump-single-json',
-        '-f',
-        YT_FORMAT_SELECTOR,
-        '--no-playlist',
-        '--no-warnings',
-        '--extractor-args',
-        'youtube:player_client=android',
-        youtubeUrl,
-      ],
+      ['--dump-single-json', '-f', YT_FORMAT_SELECTOR, youtubeUrl],
       30_000,
       'resolve stream URLs',
     );
@@ -214,6 +238,38 @@ export class YtDlpService {
     return { videoUrl, audioUrl };
   }
 
+  async downloadAudio(
+    youtubeUrl: string,
+    outputTemplate: string,
+  ): Promise<DownloadedYoutubeAudioInfo> {
+    this.logger.log(`Downloading YouTube audio for: ${youtubeUrl}`);
+
+    const { stdout } = await this.exec(
+      youtubeUrl,
+      [
+        '-x',
+        '--audio-format',
+        'mp3',
+        '--audio-quality',
+        '5',
+        '-o',
+        outputTemplate,
+        '--print',
+        'after_move:filepath',
+        youtubeUrl,
+      ],
+      300_000,
+      'download YouTube audio',
+    );
+
+    const filePath = stdout.trim().split('\n').pop()?.trim();
+    if (!filePath) {
+      throw new Error('yt-dlp did not report a downloaded filepath');
+    }
+
+    return { filePath };
+  }
+
   private async loadJson(
     youtubeUrl: string,
     args: string[],
@@ -221,11 +277,56 @@ export class YtDlpService {
     action: string,
   ): Promise<YtDlpJson> {
     try {
-      const { stdout } = await execFileAsync('yt-dlp', args, { timeout });
+      const { stdout } = await this.exec(youtubeUrl, args, timeout, action);
       return JSON.parse(stdout) as YtDlpJson;
     } catch (error) {
       this.throwYtDlpError(error, action, youtubeUrl);
     }
+  }
+
+  private async exec(
+    youtubeUrl: string,
+    args: string[],
+    timeout: number,
+    action: string,
+  ): Promise<{ stdout: string; stderr: string }> {
+    try {
+      return await execFileAsync('yt-dlp', this.buildCommandArgs(args), {
+        timeout,
+      });
+    } catch (error) {
+      this.throwYtDlpError(error, action, youtubeUrl);
+    }
+  }
+
+  private buildCommandArgs(args: string[]): string[] {
+    const youtubeUrl = args.at(-1);
+    const leadingArgs = youtubeUrl ? args.slice(0, -1) : [...args];
+    const commandArgs = [...leadingArgs, '--no-playlist', '--no-warnings'];
+
+    const cookiesFile = this.configService.get<string>('YT_DLP_COOKIES_FILE');
+    const cookiesFromBrowser = this.configService.get<string>(
+      'YT_DLP_COOKIES_FROM_BROWSER',
+    );
+    const extractorArgs =
+      this.configService.get<string>('YT_DLP_YOUTUBE_EXTRACTOR_ARGS')?.trim() ||
+      DEFAULT_YOUTUBE_EXTRACTOR_ARGS;
+
+    if (cookiesFile?.trim()) {
+      commandArgs.push('--cookies', cookiesFile.trim());
+    } else if (cookiesFromBrowser?.trim()) {
+      commandArgs.push('--cookies-from-browser', cookiesFromBrowser.trim());
+    }
+
+    if (extractorArgs.trim()) {
+      commandArgs.push('--extractor-args', extractorArgs.trim());
+    }
+
+    if (youtubeUrl) {
+      commandArgs.push(youtubeUrl);
+    }
+
+    return commandArgs;
   }
 
   private throwYtDlpError(
@@ -250,6 +351,19 @@ export class YtDlpService {
     if (msg.includes('ENOENT')) {
       throw new Error(
         'yt-dlp is not installed on this server. Contact support.',
+      );
+    }
+
+    const normalizedMessage = msg.toLowerCase();
+    const isRetryable = RETRYABLE_YT_DLP_PATTERNS.some((pattern) =>
+      normalizedMessage.includes(pattern),
+    );
+
+    if (isRetryable) {
+      throw new RetryableYtDlpError(
+        `Temporary YouTube extraction failure while trying to ${action}. ` +
+          `Configure YT_DLP_COOKIES_FILE for authenticated access if this persists. ` +
+          `Original error: ${msg}`,
       );
     }
 

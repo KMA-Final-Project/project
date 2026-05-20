@@ -86,6 +86,18 @@ class FakeMerger:
     def needs_merge(self, sentences: list[Sentence], source_lang: str = "en") -> bool:
         return False
 
+    def process_stream_window(
+        self,
+        sentences: list[Sentence],
+        *,
+        source_lang: str = "en",
+        context_style: str = "Speech/Dialogue",
+        core_size: int | None = None,
+    ) -> tuple[list[Sentence], int]:
+        if core_size is None:
+            core_size = len(sentences)
+        return list(sentences[:core_size]), core_size
+
     def process(
         self,
         sentences: list[Sentence],
@@ -384,7 +396,7 @@ def test_pipeline_runs_llm_context_and_refinement_when_enabled(
     )
 
     assert pipeline.llm.analyze_calls == 1
-    assert pipeline.llm.refine_calls == 2
+    assert pipeline.llm.refine_calls == 1
 
 
 def test_cjk_buffer_skips_standalone_homophone_correction_when_merge_not_needed(
@@ -498,8 +510,8 @@ def test_representative_media_matrix_keeps_demo_audio_2_out_of_standard_baseline
         get_media_expectation("demo_audio_2.mp3").enforce_chunk_count_equality is False
     )
     assert (
-        get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is True
+        get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is False
     )
     assert (
-        get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is True
+        get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is False
     )

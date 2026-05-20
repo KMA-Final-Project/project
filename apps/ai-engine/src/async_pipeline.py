@@ -3,7 +3,7 @@ V2 Async Pipeline — asyncio producer-consumer with NMT translation.
 
 Architecture:
   - Producer: SmartAligner transcription → asyncio.Queue
-  - Consumer: CJK branch (SemanticMerger) / non-CJK bypass → NMTTranslator → Tier 2 upload
+    - Consumer: semantic batching (CJK + non-CJK) → NMTTranslator → Tier 2 upload
 
 The queue provides natural backpressure: if translation falls behind
 transcription, the producer blocks until there is queue space.
@@ -22,7 +22,7 @@ from loguru import logger
 from src.config import settings
 from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
-from src.core.semantic_merger import SemanticMerger
+from src.core.semantic_merger import OVERLAP_LINES, SemanticMerger
 from src.db import update_media_status
 from src.events import publish_batch_ready, publish_chunk_ready, publish_progress
 from src.minio_client import MinioClient
@@ -47,6 +47,7 @@ _CJK_LANGUAGES: frozenset[str] = frozenset({"zh", "ja", "ko", "yue"})
 # (more context = better merge quality). Results in ~24 sentences per merge batch
 # when CHUNK_SIZE=8.
 CJK_MERGE_MULTIPLIER: int = 3
+NON_CJK_LOOKAHEAD_LINES: int = OVERLAP_LINES
 
 _PIPELINE_STAGE_ORDER: dict[str, int] = {
     "AUDIO_PREP": 0,
@@ -111,6 +112,7 @@ async def run_v2_pipeline_async(
     target_lang: str = "vi",
     duration_seconds: float = 0.0,
     debug_trace: list[dict[str, Any]] | None = None,
+    prefetch_nmt: bool = True,
 ) -> SubtitleOutput:
     """
     V2 bilingual subtitle pipeline using asyncio producer-consumer.
@@ -184,9 +186,7 @@ async def run_v2_pipeline_async(
 
             return effective_progress, effective_step, _eta(effective_progress)
 
-    def _publish_progress(
-        progress: float, current_step: str, eta: int | None
-    ) -> None:
+    def _publish_progress(progress: float, current_step: str, eta: int | None) -> None:
         publish_progress(
             media_id,
             user_id,
@@ -273,6 +273,7 @@ async def run_v2_pipeline_async(
     loop = asyncio.get_running_loop()
 
     tier1_chunk_index: list[int] = [0]
+
     def on_chunk(batch: list[Sentence], total_so_far: int) -> None:
         """SmartAligner callback — runs in aligner's thread.
 
@@ -345,12 +346,15 @@ async def run_v2_pipeline_async(
     async def consumer() -> list[Sentence]:
         """Consume chunks from queue: CJK branch / non-CJK → NMT → Tier 2 upload."""
         consumer_started_at = _time.perf_counter()
-        nmt = await nmt_prefetch_task
+        nmt: NMTTranslator | None = (
+            await nmt_prefetch_task if nmt_prefetch_task is not None else None
+        )
         merger = pipeline.merger
         llm = pipeline.llm
 
         all_sentences: list[Sentence] = []
         cjk_buffer: list[Sentence] = []
+        non_cjk_buffer: list[Sentence] = []
         batch_index: int = 0
         chunks_since_cjk_flush: int = 0
         context_result: ContextAnalysisResult | None = None
@@ -389,11 +393,43 @@ async def run_v2_pipeline_async(
             )
             return list(buf)
 
+        def _flush_non_cjk_buffer(final: bool = False) -> list[Sentence]:
+            """Commit the safe semantic prefix for non-CJK streaming windows."""
+            nonlocal non_cjk_buffer
+            if not non_cjk_buffer:
+                return []
+
+            core_size = len(non_cjk_buffer)
+            if not final:
+                core_size = max(0, len(non_cjk_buffer) - NON_CJK_LOOKAHEAD_LINES)
+            if core_size <= 0:
+                return []
+
+            src = _source_lang()
+            buf = list(non_cjk_buffer)
+            emitted, retain_from = merger.process_stream_window(
+                buf,
+                source_lang=src,
+                context_style=context_style,
+                core_size=core_size,
+            )
+
+            if final:
+                non_cjk_buffer = []
+            else:
+                non_cjk_buffer = buf[retain_from:]
+
+            logger.info(
+                f"🔀 Non-CJK semantic window: buffered={len(buf)} core={core_size} "
+                f"emitted={len(emitted)} retained={len(non_cjk_buffer)}"
+            )
+            return emitted
+
         def _translate_batch(
             sentences: list[Sentence],
         ) -> tuple[list[Sentence], int, str, str, float]:
             """Translate via NMT and optional LLM refinement."""
-            nonlocal context_result, context_analyzed
+            nonlocal context_result, context_analyzed, nmt
             if not sentences:
                 return [], 0, "en", target_lang, _time.perf_counter()
 
@@ -411,6 +447,8 @@ async def run_v2_pipeline_async(
                     f"⏭️ NMT skipped (source == target): {len(sentences)} segments"
                 )
             else:
+                if nmt is None:
+                    nmt = NMTTranslator.get_instance()
                 nmt_translations = nmt.translate_batch(texts, src, tgt)
                 logger.info(
                     f"🌐 NMT batch {batch_index}: {len(sentences)} segments "
@@ -528,14 +566,18 @@ async def run_v2_pipeline_async(
                     f"(upload={upload_elapsed:.2f}s, total={_time.perf_counter() - batch_started_at:.2f}s)"
                 )
 
-        async def _schedule_translated_batch(sentences: list[Sentence]) -> list[Sentence]:
+        async def _schedule_translated_batch(
+            sentences: list[Sentence],
+        ) -> list[Sentence]:
             nonlocal batch_index, upload_tasks
             if not sentences:
                 return []
 
-            translated, batch_start_index, src, tgt, batch_started_at = await asyncio.to_thread(
-                _translate_batch,
-                sentences,
+            translated, batch_start_index, src, tgt, batch_started_at = (
+                await asyncio.to_thread(
+                    _translate_batch,
+                    sentences,
+                )
             )
             if not translated:
                 return []
@@ -581,6 +623,19 @@ async def run_v2_pipeline_async(
                         "consumer_merge", _time.perf_counter() - merge_started_at
                     )
                     await _schedule_translated_batch(flushed)
+                if non_cjk_buffer:
+                    _trace(
+                        "batch_processing_started",
+                        batch_index=batch_index,
+                        buffered_sentences=len(non_cjk_buffer),
+                        path="non_cjk_final_flush",
+                    )
+                    merge_started_at = _time.perf_counter()
+                    flushed = await asyncio.to_thread(_flush_non_cjk_buffer, True)
+                    _add_timing(
+                        "consumer_merge", _time.perf_counter() - merge_started_at
+                    )
+                    await _schedule_translated_batch(flushed)
                 if upload_tasks:
                     await asyncio.gather(*upload_tasks)
                 break
@@ -615,14 +670,17 @@ async def run_v2_pipeline_async(
                     await _schedule_translated_batch(flushed)
                     chunks_since_cjk_flush = 0
             else:
-                # Non-CJK: translate directly (no merge needed)
+                non_cjk_buffer.extend(chunk)
                 _trace(
                     "batch_processing_started",
                     batch_index=batch_index,
-                    buffered_sentences=len(chunk),
-                    path="non_cjk",
+                    buffered_sentences=len(non_cjk_buffer),
+                    path="non_cjk_semantic",
                 )
-                await _schedule_translated_batch(list(chunk))
+                merge_started_at = _time.perf_counter()
+                flushed = await asyncio.to_thread(_flush_non_cjk_buffer, False)
+                _add_timing("consumer_merge", _time.perf_counter() - merge_started_at)
+                await _schedule_translated_batch(flushed)
 
         consumer_total = _time.perf_counter() - consumer_started_at
         logger.info(
@@ -648,8 +706,10 @@ async def run_v2_pipeline_async(
     _publish_progress(progress, step, eta)
 
     producer_task = asyncio.create_task(producer())
-    nmt_prefetch_task = asyncio.create_task(
-        asyncio.to_thread(NMTTranslator.get_instance)
+    nmt_prefetch_task = (
+        asyncio.create_task(asyncio.to_thread(NMTTranslator.get_instance))
+        if prefetch_nmt
+        else None
     )
     consumer_task = asyncio.create_task(consumer())
 
@@ -659,7 +719,8 @@ async def run_v2_pipeline_async(
     except Exception:
         producer_task.cancel()
         consumer_task.cancel()
-        nmt_prefetch_task.cancel()
+        if nmt_prefetch_task is not None:
+            nmt_prefetch_task.cancel()
         raise
 
     # ── Step 5: Final metadata + export ──────────────────────────────────

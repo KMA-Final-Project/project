@@ -21,6 +21,7 @@ from faster_whisper import BatchedInferencePipeline, WhisperModel
 from loguru import logger
 
 from src.config import settings
+from src.core.subtitle_text import build_sentence_text_from_words
 from src.schemas import Sentence, VADSegment, Word
 
 
@@ -47,11 +48,6 @@ class SmartAligner:
     _model_full: WhisperModel | None = None
     _batched_turbo: BatchedInferencePipeline | None = None
     _batched_full: BatchedInferencePipeline | None = None
-    _cjk_pattern = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
-    _punctuation_pattern = re.compile(r"\s+([,.;:!?%\)\]\}])")
-    _opening_bracket_pattern = re.compile(r"([\(\[\{])\s+")
-    _apostrophe_pattern = re.compile(r"\s+(['’][A-Za-z]+)")
-    _preferred_split_punctuation = re.compile(r"[.!?;:,—-]$")
 
     def __new__(cls):
         if cls._instance is None:
@@ -99,7 +95,9 @@ class SmartAligner:
         logger.success(f"✅ {label} model loaded: {model_name}")
         return model
 
-    def _select_batched(self, language: str | None) -> tuple[BatchedInferencePipeline, bool]:
+    def _select_batched(
+        self, language: str | None
+    ) -> tuple[BatchedInferencePipeline, bool]:
         """Select the batched pipeline for the given language.
 
         Returns:
@@ -182,7 +180,9 @@ class SmartAligner:
                     pending_chunk = pending_chunk[chunk_size:]
                     on_chunk(batch, len(sentences))
 
-        for group_index, segment_group in enumerate(self._group_segments(segments), start=1):
+        for group_index, segment_group in enumerate(
+            self._group_segments(segments), start=1
+        ):
             prompt = self._construct_prompt(profile, previous_text_context)
             current_lang = anchor_language
             batched, is_turbo = self._select_batched(current_lang)
@@ -191,7 +191,9 @@ class SmartAligner:
             primary_result: dict[str, Any] | None = None
 
             try:
-                grouped_audio, offset_map = self._concatenate_audio(audio_full, segment_group)
+                grouped_audio, offset_map = self._concatenate_audio(
+                    audio_full, segment_group
+                )
                 if len(grouped_audio) < 160:
                     continue
 
@@ -200,10 +202,12 @@ class SmartAligner:
                 # BatchedInferencePipeline expects List[dict] with "start"/"end" keys.
                 clip_ts: list[dict] = []
                 for mapping in offset_map:
-                    clip_ts.append({
-                        "start": float(mapping["concat_start"]),
-                        "end": float(mapping["concat_end"]),
-                    })
+                    clip_ts.append(
+                        {
+                            "start": float(mapping["concat_start"]),
+                            "end": float(mapping["concat_end"]),
+                        }
+                    )
 
                 transcribe_started_at = time.perf_counter()
                 primary_result = self._transcribe_segment(
@@ -236,7 +240,9 @@ class SmartAligner:
                     is_turbo=is_turbo,
                 )
 
-            detected_lang = self._update_anchor_language(anchor_language, primary_result)
+            detected_lang = self._update_anchor_language(
+                anchor_language, primary_result
+            )
             if detected_lang and anchor_language is None:
                 anchor_language = detected_lang
 
@@ -245,10 +251,9 @@ class SmartAligner:
                 for sentence in segment_sentences:
                     post_process_started_at = time.perf_counter()
                     self._split_cjk_words(sentence)
-                    silence_split_sentences = self._apply_silence_splitting(sentence)
-                    split_sentences: list[Sentence] = []
-                    for candidate in silence_split_sentences:
-                        split_sentences.extend(self._split_long_sentences(candidate))
+                    # SmartAligner owns acoustic/word-timestamp alignment only.
+                    # Semantic regrouping happens downstream in the pipeline consumer.
+                    split_sentences = self._apply_silence_splitting(sentence)
                     stage_timing["post_proc"] += (
                         time.perf_counter() - post_process_started_at
                     )
@@ -282,9 +287,7 @@ class SmartAligner:
         self.last_timing = {
             "transcription": round(stage_timing["transcription"], 3),
             "phonemes": round(stage_timing["phonemes"], 3),
-            "post_proc": round(
-                stage_timing["post_proc"] + stage_timing["remap"], 3
-            ),
+            "post_proc": round(stage_timing["post_proc"] + stage_timing["remap"], 3),
             "overhead": round(overhead, 3),
             "total": round(total_elapsed, 3),
         }
@@ -519,7 +522,9 @@ class SmartAligner:
             clip_timestamps=clip_timestamps,
         )
         segments = list(gen)
-        best_segment = max(segments, key=lambda segment: segment.avg_logprob) if segments else None
+        best_segment = (
+            max(segments, key=lambda segment: segment.avg_logprob) if segments else None
+        )
         return {"segments": segments, "info": info, "best_segment": best_segment}
 
     def _construct_prompt(self, profile: str, prev_context: str) -> str:
@@ -571,7 +576,9 @@ class SmartAligner:
 
             if gap > settings.SILENCE_SPLIT_GAP:
                 if current_words:
-                    sub_sentences.append(self._create_sentence_from_words(current_words))
+                    sub_sentences.append(
+                        self._create_sentence_from_words(current_words)
+                    )
                 current_words = [current_word]
             else:
                 current_words.append(current_word)
@@ -581,73 +588,8 @@ class SmartAligner:
 
         return sub_sentences
 
-    def _split_long_sentences(self, sentence: Sentence) -> list[Sentence]:
-        if not sentence.words:
-            return [sentence]
-
-        queue: list[Sentence] = [sentence]
-        result: list[Sentence] = []
-
-        while queue:
-            current = queue.pop(0)
-            if not current.words or self._within_sentence_limits(current):
-                result.append(current)
-                continue
-
-            split_index = self._find_split_index(current)
-            if split_index is None or split_index <= 0 or split_index >= len(current.words):
-                result.append(current)
-                continue
-
-            left = self._create_sentence_from_words(current.words[:split_index])
-            right = self._create_sentence_from_words(current.words[split_index:])
-            queue = [left, right, *queue]
-
-        return result
-
-    def _within_sentence_limits(self, sentence: Sentence) -> bool:
-        if self._is_cjk_sentence(sentence):
-            return len(sentence.text.strip()) <= settings.SUBTITLE_MAX_CJK_CHARS
-        return len(sentence.words) <= settings.SUBTITLE_MAX_WORDS
-
-    def _find_split_index(self, sentence: Sentence) -> int | None:
-        if len(sentence.words) < 2:
-            return None
-
-        if self._is_cjk_sentence(sentence):
-            total_chars = sum(len(word.word.strip()) or 1 for word in sentence.words)
-            target = total_chars / 2
-            running = 0
-            candidates: list[tuple[float, int]] = []
-            for index, word in enumerate(sentence.words[:-1], start=1):
-                running += len(word.word.strip()) or 1
-                candidates.append((abs(running - target), index))
-            return min(candidates, key=lambda item: item[0])[1] if candidates else None
-
-        midpoint = len(sentence.words) // 2
-        lower_bound = max(1, midpoint - 3)
-        upper_bound = min(len(sentence.words) - 1, midpoint + 3)
-        for index in range(upper_bound, lower_bound - 1, -1):
-            token = sentence.words[index - 1].word.strip()
-            if self._preferred_split_punctuation.search(token):
-                return index
-        return midpoint if 0 < midpoint < len(sentence.words) else None
-
-    def _is_cjk_sentence(self, sentence: Sentence) -> bool:
-        return bool(self._cjk_pattern.search(sentence.text))
-
     def _create_sentence_from_words(self, words: list[Word]) -> Sentence:
-        tokens = [word.word.strip() for word in words if word.word.strip()]
-        if not tokens:
-            text = ""
-        elif any(self._cjk_pattern.search(token) for token in tokens):
-            text = "".join(tokens)
-        else:
-            text = " ".join(tokens)
-            text = self._punctuation_pattern.sub(r"\1", text)
-            text = self._opening_bracket_pattern.sub(r"\1", text)
-            text = self._apostrophe_pattern.sub(r"\1", text)
-
+        text = build_sentence_text_from_words(words)
         return Sentence(text=text, start=words[0].start, end=words[-1].end, words=words)
 
     def _add_phonemes(self, sentences: list[Sentence], language: str) -> None:
