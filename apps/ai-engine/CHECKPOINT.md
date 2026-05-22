@@ -1,13 +1,13 @@
 # AI Engine - Checkpoint
 
-> Last updated: 2026-05-20
+> Last updated: 2026-05-22
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
 
-AI Engine is in the active V2.1 hybrid production-path state.
+AI Engine is in the active V2.2 route-aware ASR state, and the Chinese source-transcript path now has an internal trust-gated Chinese-primary flow with deterministic mixed-script window profiling, structured trust-gate observability, and sentence-level window repair boundaries. The latest backend-submit E2E rerun now completes the benchmark Chinese case on `sensevoice_small` with `source_lang=zh` instead of silently publishing an English-owned transcript.
 
-The module is a queue-driven Python GPU worker that consumes `ai-processing` jobs, downloads validated audio from MinIO, runs the V2.1 hybrid async pipeline, uploads streaming and final subtitle artifacts, updates PostgreSQL progress/status, and emits Redis Pub/Sub processing events.
+The module is a queue-driven Python GPU worker that consumes `ai-processing` jobs, downloads validated audio from MinIO, runs the V2.2 route-aware async pipeline, uploads streaming and final subtitle artifacts, updates PostgreSQL progress/status, and emits Redis Pub/Sub processing events.
 
 The active production path is:
 
@@ -20,21 +20,94 @@ main.py
   -> VADManager
   -> source-language hint/probe routing
   -> SmartAligner
+  -> ASR provider routing
   -> SemanticMerger when needed
   -> NMTTranslator
   -> optional LLMProvider refinement
   -> MinIO chunks / translated_batches / final.json
 ```
 
-Default single-worker behavior now keeps Tier 1 chunk streaming live during ASR, then unloads ASR before NMT translation starts. Public artifacts, event names, queue semantics, and progress discipline stay unchanged.
+English now defaults to a Distil-Whisper route that stays eligible for `during_asr`. The active Chinese route is SenseVoice with Whisper full fallback, but suspicious Chinese-prior jobs now force `after_asr`, hold public publication until transcript trust is established, and only release `chunks/`, `translated_batches/`, and `final.json` after the trusted transcript has been normalized, optionally repaired at sentence-window boundaries, and refined. Public artifacts, event names, queue semantics, and progress discipline stay unchanged.
 
 Deprecated V1 paths must not be reintroduced.
 
 ## 2. Active Work
 
-- [ ] Benchmark the V2.1 hybrid runtime on at least `3 English + 3 Chinese` cases and capture VRAM, first-chunk, and first-translated-batch timings.
+- [ ] Improve trusted Chinese lexical quality on the live SenseVoice path without regressing the restored opening mixed-script lines (`第一次相亲。 First blind date.` and the first `你好。`).
+- [ ] Decide whether the next quality pass should prefer selective window repair against Whisper full or a lighter post-ASR lexical correction stage for mistranscribed Chinese dialogue.
 
 ## 3. Recently Completed
+
+- 2026-05-22 — Added early-window Chinese candidate reconciliation and provider-level mixed-script sentence building.
+  - Status: Working
+  - Changed: Updated `src/core/subtitle_text.py` so provider-level mixed CJK+Latin sentences keep readable Latin spacing instead of collapsing everything into `''.join(tokens)` whenever Han characters appear; added `src/core/chinese_candidate_reconciler.py`; and wired `src/async_pipeline.py` to keep prior Chinese candidate outputs during trust-gated recovery so a trusted `whisper_full` transcript can patch its opening window with richer overlapping content from an earlier route such as `sensevoice_small` instead of discarding that earlier candidate completely.
+  - Why: The saved E2E bundle `outputs/e2e-youtube-pipeline/20260522_140934/` showed that the remaining losses were already present in `chunk.first.json`, not introduced by final export or translation: `第一次相亲 first blind date` had collapsed to `第一次相亲。`, and the first `你好` greeting before `请问你是王静吗?` was already missing. The trusted route for that run was `whisper_full`, so the real issue was whole-route winner selection without any segment-level recovery when an earlier Chinese candidate had a better opening span.
+  - Validation: `cd apps/ai-engine && .\venv\Scripts\python.exe -m py_compile src\core\chinese_candidate_reconciler.py src\core\subtitle_text.py src\async_pipeline.py src\config.py tests\test_chinese_candidate_reconciler.py`; `cd apps/ai-engine && .\venv\Scripts\python.exe -m pytest tests\test_chinese_candidate_reconciler.py -q --maxfail=1 --basetemp temp\pytest-zh-reconcile` passed; broader Chinese-focused pytest assertions over `tests/test_chinese_primary_refiner.py tests/test_chinese_trust_gate.py tests/test_chinese_candidate_reconciler.py -q` passed before the known Windows pytest tempdir cleanup permission failure.
+  - Follow-up: The immediate rerun through `.\scripts\run-e2e-youtube-pipeline.ps1` no longer completed with the old wrong `whisper_full` transcript; instead the Chinese case failed closed with `Chinese transcript trust gate rejected all recovery candidates`. The next fix is therefore in trust-gate calibration for Chinese-learning mixed-script content, not in final export or translation.
+
+- 2026-05-22 — Added a Chinese-primary source cleaner, segmentation guard, and duplicate suppression before translation.
+  - Status: Working
+  - Changed: Added `src/core/chinese_primary_refiner.py` and wired it into the trust-gated Chinese path in `src/async_pipeline.py` after transcript ownership is trusted but before any `chunks/` replay or NMT starts; the refiner now preserves spoken English gloss inside Chinese-primary segments, restores mixed-script spacing instead of gluing English tokens to Han text, applies config-driven equal-length Chinese phrase corrections, splits Chinese dialogue on sentence punctuation with segment-length limits, suppresses only true overlap-style repeated phrases, and records per-segment quality metrics plus reason codes for any dropped/deduped spans.
+  - Why: The live E2E Chinese runs showed that route ownership was mostly fixed, but the trusted source transcript still degraded translation quality because mixed English gloss was getting glued into unreadable strings, long dialogue lines stayed over-merged, and overlap artifacts duplicated nearby Chinese phrases. A later rerun also showed that destructive English-gloss dropping was the wrong direction because many English gloss phrases in this video are real spoken content.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/async_pipeline.py src/config.py src/core/chinese_primary_refiner.py tests/test_chinese_primary_refiner.py tests/test_chinese_trust_gate.py`; `venv\Scripts\python.exe -m pytest tests/test_chinese_primary_refiner.py -q --basetemp temp\pytest-zh-source-corrected2` passed; broader focused suite over `tests/test_chinese_primary_refiner.py tests/test_chinese_trust_gate.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py tests/test_asr_routing.py tests/test_hybrid_routing.py tests/test_streaming_contracts.py -q` passed assertions before the known Windows pytest tempdir cleanup failure; the `tmp_path` cases were revalidated by direct invocation with `pytest.MonkeyPatch`, including the trust-gated Chinese pipeline test and the SenseVoice/Paraformer cache-path tests.
+  - Follow-up: Re-run the automated backend-submit E2E bundle on `kUzay3X1maA` and inspect whether spoken English gloss now survives with restored spacing, the two `你好` greetings both remain when spoken, and only true overlap duplicates are removed from `final.json`.
+
+- 2026-05-22 — Chinese trust-gated routing and recovery implemented inside AI Engine.
+  - Status: Working
+  - Changed: Added an internal `ChineseRoutePrior`, `ChineseTranscriptTrustGate`, and post-ASR Chinese pinyin adapter; `main.py` now fetches lightweight media context from PostgreSQL for title/filename soft priors; `async_pipeline.py` now blocks public chunk/batch publication for suspicious Chinese-family cases, forces `after_asr` during trust-gated recovery, retries the transcript ladder as `current route -> sensevoice_small -> whisper_full`, and fails closed only after the full recovery chain remains untrusted.
+  - Why: The backend-submit E2E harness proved the real failure was wrong Chinese source-transcript ownership before translation, not just translation latency or scheduling. The worker needed an internal trust boundary so bad English-first Chinese transcripts could not flow into public artifacts and downstream translation.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/async_pipeline.py src/config.py src/db.py src/main.py src/pipelines.py src/core/smart_aligner.py src/core/chinese_prior.py src/core/transcript_trust_gate.py src/core/chinese_phonetics.py tests/test_chinese_trust_gate.py`; `venv\Scripts\python.exe -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"`; focused pytest run over `tests/test_chinese_trust_gate.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py tests/test_asr_routing.py tests/test_hybrid_routing.py tests/test_streaming_contracts.py -q` passed all assertions before the known Windows pytest tempdir cleanup failure; the `tmp_path` cases were then revalidated by direct invocation with `pytest.MonkeyPatch`, including the new pipeline test that proves the wrong `distil_whisper_en` candidate stays private until a trusted `sensevoice_small` transcript is replayed into normal `chunks/` and `translated_batches/` flow.
+  - Follow-up: Re-run the full automated backend-submit E2E harness against the Chinese benchmark case and compare `final.json`, chunk text, and translated batches against the previous bad baseline.
+
+- 2026-05-21 — Automated app-path E2E run disproved the current live Chinese routing assumption.
+  - Status: Partial
+  - Changed: Added a backend-driven local E2E harness that submits real YouTube cases through `POST /media/youtube`, polls status, collects artifacts from MinIO, and saves logs plus result bundles; then ran English `-moW9jvvMr4` and Chinese `kUzay3X1maA` through the actual backend -> worker -> AI-engine path.
+  - Why: benchmark-only runs had already diverged too far from the live app path, so the current routing and artifact-quality claims needed to be checked against the real submission flow.
+  - Validation: `.\scripts\run-e2e-youtube-pipeline.ps1` completed and produced `outputs/e2e-youtube-pipeline/20260521_113334/`; English completed correctly as `source_lang=en` on `distil-large-v3.5`, while Chinese also completed as `source_lang=en` on `distil-large-v3.5` with hallucinated English transcript text in `final.json`.
+  - Follow-up: inspect why the probe vote `{'zh': 4.6, 'en': 6.0}` is still allowed to lock the route to English for the Chinese case, and verify whether the experimental-flag runtime path is still affecting Chinese provider selection anywhere else.
+
+- 2026-05-21 — Investigated benchmark/live mismatch and hardened Chinese live routing.
+  - Status: Working
+  - Changed: Verified that the earlier Chinese benchmark runs were not representative of the live mobile path because they disabled `AI_SOURCE_LANGUAGE_PROBE_ENABLED`, disabled `AI_AUDIO_INSPECTOR_ENABLED`, and injected `AI_SOURCE_LANGUAGE_HINT=zh`; then hardened the Whisper probe to infer CJK languages from transcript script content instead of trusting `info.language` alone, and sanitized SenseVoice output to strip control tokens and decorative emoji before subtitle normalization.
+  - Why: Real mobile submissions for Chinese YouTube cases were still being locked onto `distil_whisper_en`, while benchmark artifacts already showed emoji-heavy SenseVoice text pollution that had not been treated as a blocker during the earlier latency-first evaluation.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/core/asr/providers/whisper_provider.py src/core/asr/providers/sensevoice_provider.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py`; `venv\Scripts\python.exe -m pytest tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py tests/test_asr_routing.py tests/test_hybrid_routing.py -q --basetemp C:\Users\sondo\AppData\Local\Temp\codex-pytest-v22-investigate` with all assertions passing before the known Windows pytest tempdir cleanup permission error.
+  - Follow-up: Validate the same YouTube case end to end from mobile, and compare regenerated artifacts against the prior emoji-polluted benchmark outputs before treating SenseVoice quality as acceptable.
+
+- 2026-05-21 — Source-language probe no longer overfits short English intros.
+  - Status: Working
+  - Changed: Reworked the Whisper turbo probe path to sample VAD segments across the clip and vote per sampled segment instead of transcribing only the earliest speech region before route selection.
+  - Why: Real mobile submissions with short English intros and mostly Chinese speech were being locked onto `distil_whisper_en`, which bypassed the new Chinese default route entirely.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/core/asr/providers/whisper_provider.py tests/test_asr_provider_contract.py`; `venv\Scripts\python.exe -m pytest tests/test_asr_provider_contract.py tests/test_asr_routing.py tests/test_hybrid_routing.py -v --basetemp C:\Users\sondo\AppData\Local\Temp\codex-pytest-v22-probefix` with all assertions for the new probe behavior passing before the known Windows pytest tempdir cleanup permission error.
+  - Follow-up: Verify the mixed-language mobile flow manually against real Chinese videos that start with an English intro.
+
+- 2026-05-21 — Chinese shipping default was intended to switch to SenseVoice with Whisper fallback, but live-path verification is still incomplete.
+  - Status: Partial
+  - Changed: Config and provider routing were moved toward `AI_ASR_DEFAULT_ROUTE_ZH=sensevoice_small` with Whisper fallback and Paraformer removed from the active Chinese chain.
+  - Why: The earlier three-case Chinese overlap matrix showed SenseVoice sustaining real `during_asr` behavior with peak GPU memory around `11.3GB` and materially better wall clock than the safe-mode or Whisper-full path.
+  - Validation: benchmark evidence in `outputs/benchmarks/suite_20260520_235105/`, `suite_20260520_234854/`, and `suite_20260520_235000/`; however, the later automated app-path E2E run still showed `Experimental zh route enabled: False` and processed the Chinese case on `distil-large-v3.5`.
+  - Follow-up: treat the benchmark result as promising but not yet representative of the live route until the app-path gate is fixed.
+
+- 2026-05-20 — FunASR routes now stream chunks during ASR and SenseVoice has a complete three-case `during_asr` benchmark matrix.
+  - Status: Working
+  - Changed: Added shared phonetic enrichment for experimental Chinese routes, made SenseVoice and Paraformer emit `on_chunk` callbacks incrementally instead of buffering all sentences until the end of ASR, and added `AI_ASR_DURING_ASR_CERTIFIED_ROUTES` so overlap certification can be enabled per route without changing shipping defaults.
+  - Why: The first certified SenseVoice overlap run revealed that the provider was still behaving like `after_asr` internally because chunk callbacks only fired after the full provider pass. Fixing streaming was required before any `during_asr` benchmark result could be trusted.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/config.py src/core/smart_aligner.py src/core/asr/phonetics.py src/core/asr/providers/sensevoice_provider.py src/core/asr/providers/paraformer_provider.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py`; `venv\Scripts\python.exe -m pytest tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py -v --basetemp C:\Users\sondo\AppData\Local\Temp\codex-pytest-20260520\v22-streaming-funasr` with the known Windows pytest tempdir cleanup permission error after all assertions passed; live GPU benchmarks for `sensevoice_small` on `chinese_kUzay3X1maA`, `chinese_60xeAEe7H28`, and `chinese_LcUoiBwG-OA` with `AI_TRANSLATION_START_POLICY=during_asr`, `AI_ASR_DURING_ASR_CERTIFIED_ROUTES=distil_whisper_en,whisper_turbo,sensevoice_small`, `AI_ASR_FORCE_ROUTE=sensevoice_small`, `AI_AUDIO_INSPECTOR_ENABLED=false`, `AI_SOURCE_LANGUAGE_PROBE_ENABLED=false`, `AI_SOURCE_LANGUAGE_HINT=zh`, and offline Hugging Face caches.
+  - Impact: SenseVoice now demonstrates real overlap behavior with `chunk_uploaded` events before `asr_completed` and keeps peak GPU memory near `11.3GB` across the three measured Chinese fixtures while first translated batch arrives at `38.154s`, `39.513s`, and `39.723s` respectively.
+  - Follow-up: Review subtitle/timestamp quality versus Whisper full before flipping the Chinese shipping default; keep Paraformer uncertified because latency remains far behind both Whisper full and SenseVoice.
+
+- 2026-05-20 — Chinese FunASR routes made benchmarkable and measured on a live GPU case.
+  - Status: Working
+  - Changed: Added explicit FunASR cache/hub runtime setup, made `AudioInspector` skip or fail open cleanly for focused route benchmarks, and simplified the SenseVoice generate path so it retries on FunASR runtime errors instead of falling out on the internal `punc_res` bug.
+  - Why: The Chinese routing code existed, but the first live benchmark attempt showed the real blockers were provider bootstrapping and SenseVoice runtime compatibility rather than scheduler logic.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/config.py src/core/audio_inspector.py src/core/asr/providers/sensevoice_provider.py src/core/asr/providers/paraformer_provider.py tests/test_prewarm_startup.py tests/test_asr_provider_contract.py`; live GPU smokes for `sensevoice_small` and `paraformer_zh`; `venv\Scripts\python.exe -m src.scripts.benchmark_suite --case chinese_kUzay3X1maA` with `AI_AUDIO_INSPECTOR_ENABLED=false`, `AI_SOURCE_LANGUAGE_PROBE_ENABLED=false`, `AI_SOURCE_LANGUAGE_HINT=zh`, `AI_TRANSLATION_START_POLICY=during_asr`, and forced routes for `sensevoice_small`, `paraformer_zh`, and `whisper_full`.
+  - Follow-up: Run the same forced-route benchmark recipe on the remaining two Chinese fixtures, then compare timing plus subtitle quality before any default-route promotion.
+
+- 2026-05-20 — V2.2 ASR model routing foundation implemented.
+  - Status: Working
+  - Changed: Added internal `ASRProvider` routing, switched the English default route to Distil-Whisper, added route-aware scheduling metadata and automatic `during_asr` downgrade for uncertified routes, and introduced experimental Chinese SenseVoice/Paraformer provider paths behind config.
+  - Why: The remaining blocker for `during_asr` UX was ASR residency, not queue scheduling alone. English needed a lighter default route, and Chinese needed prototype-specific integration points without changing artifacts or events.
+  - Validation: `venv\Scripts\python.exe -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"`; `venv\Scripts\python.exe -m py_compile src/config.py src/async_pipeline.py src/main.py src/core/smart_aligner.py src/core/asr/base.py src/core/asr/router.py src/core/asr/providers/whisper_provider.py src/core/asr/providers/sensevoice_provider.py src/core/asr/providers/paraformer_provider.py src/scripts/benchmark_suite.py tests/test_prewarm_startup.py tests/test_asr_routing.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py`; `venv\Scripts\python.exe -m pytest tests/test_prewarm_startup.py tests/test_asr_routing.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py tests/test_hybrid_routing.py tests/test_streaming_contracts.py -v --basetemp C:\Users\sondo\AppData\Local\Temp\codex-pytest-20260520\v22-asr`; direct invocation of the `tmp_path` cases in `tests/test_first_batch_streaming.py` and `tests/test_event_discipline.py` via `pytest.MonkeyPatch` because this sandbox blocks pytest tempdir setup/cleanup.
+  - Follow-up: Benchmark the Chinese prototype routes on the target 16GB GPU and promote only certified routes to `during_asr`.
 
 - 2026-05-20 — V2.1 hybrid single-GPU runtime adopted.
   - Status: Working
@@ -76,10 +149,35 @@ Deprecated V1 paths must not be reintroduced.
   - Current workaround: targeted pytest coverage plus manual integration testing.
   - Related areas: `tests/`, Redis, MinIO, backend worker, mobile player.
 
-- Hybrid runtime still needs benchmark evidence across representative EN and CJK media.
-  - Impact: the default `after_asr` schedule is implemented and validated functionally, but VRAM headroom and latency tradeoffs are not yet recorded in the repo for the target `3 English + 3 Chinese` matrix.
-  - Current workaround: keep `AI_TRANSLATION_START_POLICY=after_asr` and `AI_ENABLE_NMT_PREFETCH=false` on constrained single-GPU deployments until benchmark results exist.
-  - Related areas: `src/async_pipeline.py`, `src/core/smart_aligner.py`, `src/core/nmt_translator.py`, `src/scripts/benchmark_suite.py`.
+- A single pre-ASR route decision can still be wrong for genuinely code-switched media.
+  - Impact: probe routing is now more defensive for Chinese-family speech because it uses transcript script evidence, but the worker still does not re-route mid-job if a clip genuinely changes dominant language later.
+  - Current workaround: use `AI_SOURCE_LANGUAGE_HINT` for controlled evaluation cases or rely on Whisper fallback when the selected Chinese provider fails.
+  - Related areas: `src/async_pipeline.py`, `src/core/smart_aligner.py`, `src/core/asr/`, `src/core/nmt_translator.py`, `src/scripts/benchmark_suite.py`.
+
+- Narrow English probe wins no longer silently own the Chinese benchmark case, but the probe still reports `en` on some mixed-script Chinese-learning videos.
+  - Impact: ownership now recovers safely because the Chinese prior and trust gate keep the job on a Chinese path, but route metrics and logs can still look confusing because `probe_source_lang='en'` while the trusted route is `sensevoice_small`.
+  - Current workaround: rely on the Chinese prior plus trust-gated ownership decision rather than the probe result alone; use the structured trust-attempt dump in pipeline metrics or `outputs/trust_gate_failures/` when a case still fails closed.
+  - Related areas: `src/core/chinese_prior.py`, `src/core/transcript_trust_gate.py`, `src/async_pipeline.py`, `src/main.py`, `outputs/e2e-youtube-pipeline/20260522_161155/`.
+
+- Chinese source transcript quality is now better structured but still not production-clean on SenseVoice-first live runs.
+  - Impact: ownership, timing continuity, and mixed-script opening preservation are materially better, but the saved Chinese E2E bundle still contains lexical ASR mistakes like `你好，我是你是李雷吧。`, `对，是我第一次见面。`, and mistranslated downstream lines such as `请问你是王静吗？ -> Xin hãy giữ bình tĩnh.`
+  - Current workaround: keep the Chinese trust gate and sentence-boundary repair in place, then focus the next pass on lexical cleanup or selective window repair instead of more ownership logic.
+  - Related areas: `src/core/chinese_primary_refiner.py`, `src/core/chinese_window_repairer.py`, `src/core/transcript_trust_gate.py`, `outputs/e2e-youtube-pipeline/20260522_161155/`.
+
+- Benchmark quality and benchmark latency must be evaluated separately.
+  - Impact: earlier benchmark wins for SenseVoice were real for latency/VRAM, but the benchmark artifacts themselves already contained emoji/decorative text pollution, so “benchmark passed” did not mean subtitle quality was acceptable.
+  - Current workaround: treat benchmark route metrics and artifact-quality review as separate gates; inspect `final.json` contents directly before promoting a route as a quality default.
+  - Related areas: `outputs/benchmarks/`, `src/core/asr/providers/sensevoice_provider.py`, `src/scripts/benchmark_suite.py`.
+
+- Paraformer remains uncertified and non-competitive on the current Chinese workload.
+  - Impact: Paraformer now has phonetic fill and working timestamp alignment, but its wall-clock and first-chunk timings remain substantially worse than both Whisper full and SenseVoice on the measured Chinese fixtures.
+  - Current workaround: keep Paraformer available only as a forced benchmark/debug route; do not keep it in the normal Chinese fallback chain or add it to `AI_ASR_DURING_ASR_CERTIFIED_ROUTES`.
+  - Related areas: `src/core/asr/providers/paraformer_provider.py`, `src/core/asr/phonetics.py`, `src/scripts/benchmark_suite.py`.
+
+- SenseVoice Hugging Face repo emits noisy requirement-install attempts at runtime.
+  - Impact: the provider still runs successfully, but worker logs include a non-blocking pip failure from the model repo's `requirements.txt`, which can confuse later debugging.
+  - Current workaround: treat the message as non-fatal during prototype benchmarking; the actual inference path still completes and writes valid artifacts.
+  - Related areas: `src/core/asr/providers/sensevoice_provider.py`, `requirements.txt`, Hugging Face `FunAudioLLM/SenseVoiceSmall`.
 
 - NMT quality tuning is ongoing.
   - Impact: translation quality may vary by language pair and media style.
@@ -97,7 +195,9 @@ Deprecated V1 paths must not be reintroduced.
 
 ## 5. Next Candidates
 
-- [ ] Run the benchmark suite for `3 English + 3 Chinese` media and capture VRAM, route, first chunk, and first translated batch timings.
+- [ ] Improve the first Chinese dialogue block (`请问你是王静吗？`, `你好，我是李雷吧？`, `对，是我。第一次见面，幸会。`) without regressing the restored opening `第一次相亲。 First blind date.` and first `你好。`.
+- [ ] Decide whether selective Whisper-full sentence-window repair should be enabled for low-quality trusted SenseVoice windows, or whether a lighter Chinese lexical normalizer should run first.
+- [ ] Keep `paraformer_zh` as a benchmark-only debug route unless a later optimization changes its latency profile materially.
 - [ ] Add an end-to-end AI Engine integration test with real Redis, MinIO, and optional Ollama.
 - [ ] Continue NMT quality tuning for important language pairs.
 - [ ] Improve queue-level language-aware worker routing when horizontal scaling becomes necessary.
@@ -189,6 +289,7 @@ cd apps/ai-engine
 venv\Scripts\python.exe -m pytest tests/test_prewarm_startup.py -v
 venv\Scripts\python.exe -m pytest tests/test_hybrid_routing.py -v
 venv\Scripts\python.exe -m pytest tests/test_streaming_contracts.py -q
+venv\Scripts\python.exe -m pytest tests/test_asr_routing.py tests/test_asr_provider_contract.py tests/test_asr_sentence_normalization.py -v
 ```
 
 Ordering and worker-discipline tests:
@@ -215,8 +316,9 @@ docker compose --profile auto up
 
 Last verified:
 
-- 2026-05-20 — import sanity, py_compile, `test_prewarm_startup.py`, `test_hybrid_routing.py`, and `test_streaming_contracts.py` passed.
-- 2026-05-20 — `tests/test_first_batch_streaming.py` and `tests/test_event_discipline.py` logic passed via direct function invocation because this sandbox denies pytest tmpdir cleanup under `--basetemp`.
+- 2026-05-20 — import sanity, py_compile, `test_prewarm_startup.py`, `test_asr_routing.py`, `test_asr_provider_contract.py`, `test_asr_sentence_normalization.py`, `test_hybrid_routing.py`, and `test_streaming_contracts.py` passed.
+- 2026-05-20 — `tests/test_first_batch_streaming.py` and `tests/test_event_discipline.py` logic passed via direct function invocation because this sandbox denies pytest tmpdir setup/cleanup for those `tmp_path` cases.
+- 2026-05-21 — `.\scripts\run-e2e-youtube-pipeline.ps1` completed and saved a full local backend-submit E2E bundle under `outputs/e2e-youtube-pipeline/20260521_113334/`; English case behaved plausibly, Chinese case still completed as `source_lang=en` on `distil-large-v3.5`.
 
 ## 8. Update Rules
 
@@ -232,3 +334,16 @@ Update this checkpoint when:
 - A validation result changes the known state.
 
 Do not add long migration history here. Move stable architecture to `INSTRUCTION.md`, cross-module contracts to a future `CONTRACTS.md`, and historical migration details to `docs/archive/`.
+- 2026-05-22 — Deterministic Chinese trust-gate refactor, sentence-level window repair, and structured trust-failure dumps landed.
+  - Status: Working
+  - Changed: Added `src/core/chinese_candidate_normalizer.py`, `src/core/chinese_window_profiler.py`, and `src/core/chinese_window_repairer.py`; rewrote `src/core/transcript_trust_gate.py` so Chinese trust is evaluated on deterministic windows bounded by VAD-like silence gaps, window duration, sentence count, and code-switch density shift instead of brittle semantic phase detection; updated `src/async_pipeline.py` so Chinese-prior candidates are normalized before trust, can be repaired only by whole sentence-window swaps, and are refined only after ownership trust is established; and updated `src/main.py` to emit a structured `ChineseTrustGateError` dump under `outputs/trust_gate_failures/` when the Chinese path still fails closed.
+  - Why: The earlier mixed-script trust-gated path was over-penalizing SenseVoice for Chinese-learning content because a noisy but lexically faithful candidate was being rejected before cleanup, while whole-route replacement by `whisper_full` dropped real opening content like `first blind date` and the first `你好`. The trust model needed to separate transcript ownership from cleanliness, avoid semantic “teaching phase” heuristics, and preserve karaoke timing by swapping only full sentence windows.
+  - Validation: `cd apps/ai-engine && .\venv\Scripts\python.exe -m py_compile src\async_pipeline.py src\main.py src\core\chinese_candidate_normalizer.py src\core\chinese_window_profiler.py src\core\chinese_window_repairer.py src\core\transcript_trust_gate.py tests\test_chinese_primary_refiner.py tests\test_chinese_trust_gate.py tests\test_chinese_window_refactor.py`; `cd apps/ai-engine && .\venv\Scripts\python.exe -m pytest tests\test_chinese_primary_refiner.py -q --maxfail=1 --basetemp temp\pytest-zh-refiner-override` passed; broader focused suite over `tests\test_chinese_primary_refiner.py tests\test_chinese_window_refactor.py tests\test_chinese_trust_gate.py -q` passed assertions before the known Windows pytest tempdir cleanup permission failure.
+  - Follow-up: Continue source-side quality work for mistranscribed Chinese dialogue and mixed-script vocabulary sections now that live route ownership, opening gloss preservation, and first-greeting preservation are stable again.
+
+- 2026-05-22 — Automated backend-submit E2E rerun now keeps the Chinese benchmark case on SenseVoice and preserves the opening mixed-script greeting flow.
+  - Status: Partial
+  - Changed: Reran `.\scripts\run-e2e-youtube-pipeline.ps1` after the trust/window refactor and verified the saved local bundle under `outputs/e2e-youtube-pipeline/20260522_161155/`.
+  - Why: The prior reruns either silently completed on the wrong route or failed closed. The real acceptance target for this slice was the live backend-submit path preserving `第一次相亲。 First blind date.` and the first `你好。` while still producing normal artifacts and mobile-compatible timing.
+  - Validation: `.\scripts\run-e2e-youtube-pipeline.ps1` completed; `outputs/e2e-youtube-pipeline/20260522_161155/results/suite.summary.md` shows English completed as `source=en` on `distil-large-v3.5`, and Chinese completed as `source=zh` on `iic/SenseVoiceSmall`; `outputs/e2e-youtube-pipeline/20260522_161155/results/chinese_kUzay3X1maA/evaluation.summary.json` shows first source segments `第一次相亲。 First blind date.` then `你好。`; `outputs/e2e-youtube-pipeline/20260522_161155/logs/ai-engine.err.log` shows `Source routing: strategy=chinese_prior source=zh route=sensevoice_small ... trust_gate_active=True`, `Trusted Chinese-family transcript established on route=sensevoice_small`, and final pipeline metrics with `trust_attempts[0].decision.verdict='trusted'`.
+  - Follow-up: Remaining errors are now source lexical mistakes and downstream translation collapse on some Chinese lines, not source-language ownership failure.

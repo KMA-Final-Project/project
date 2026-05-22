@@ -31,6 +31,7 @@ async def run_v2_pipeline(
     target_lang: str = "vi",
     duration_seconds: float = 0.0,
     source_language_hint: str | None = None,
+    media_context: dict[str, str] | None = None,
 ) -> SubtitleOutput:
     """V2 async pipeline entry point. Delegates to async_pipeline.py."""
     from src.async_pipeline import (
@@ -47,4 +48,5 @@ async def run_v2_pipeline(
         target_lang=target_lang,
         duration_seconds=duration_seconds,
         source_language_hint=source_language_hint,
+        media_context=media_context,
     )

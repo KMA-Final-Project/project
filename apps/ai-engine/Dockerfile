@@ -49,11 +49,13 @@ COPY src/ ./src/
 # Outputs/temp inside container (mounted as volumes in docker-compose)
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/root/.cache/huggingface \
+    MODELSCOPE_CACHE=/root/.cache/modelscope \
     OUTPUT_DIR=/app/outputs \
     TEMP_DIR=/app/temp
 
 # Create output directories
-RUN mkdir -p /app/outputs /app/temp
+RUN mkdir -p /app/outputs /app/temp /root/.cache/modelscope
 
 # ── Entrypoint ───────────────────────────────────────────────
 CMD ["python", "-m", "src.main"]

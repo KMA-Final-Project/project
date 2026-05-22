@@ -214,6 +214,47 @@ apps/mobile-app/INSTRUCTION.md
 apps/mobile-app/CHECKPOINT.md
 ```
 
+### 4.4 Dashboard
+
+Path:
+
+```text
+apps/dashboard
+```
+
+Role:
+
+The admin-only web control plane. It provides operator visibility into subscription plans, user accounts, media processing health, and BullMQ queue state. It is a Vite + React 19 + Tailwind CSS v4 SPA. It has no direct access to the AI Engine, MinIO, Redis, or mobile flows.
+
+Entry points:
+
+```text
+apps/dashboard/src/main.tsx
+apps/dashboard/src/App.tsx
+apps/dashboard/src/app/router.tsx
+```
+
+Important folders:
+
+```text
+apps/dashboard/src/app/guards      # RequireAdmin, RequireAnonymous route guards
+apps/dashboard/src/app/layouts     # AdminLayout (sidebar), AuthLayout (centered card)
+apps/dashboard/src/features/auth   # Auth API, session storage, login page
+apps/dashboard/src/features/overview # Platform overview metrics
+apps/dashboard/src/features/plans  # Subscription plan and variant management
+apps/dashboard/src/features/users  # User administration (in progress)
+apps/dashboard/src/features/monitoring # BullMQ queue and failure monitoring
+apps/dashboard/src/shared/lib      # http-client, query-client
+apps/dashboard/src/components/ui   # shadcn/ui generated components
+```
+
+Agent docs:
+
+```text
+apps/dashboard/INSTRUCTION.md
+apps/dashboard/CHECKPOINT.md
+```
+
 ## 5. Infrastructure
 
 ### PostgreSQL
@@ -369,6 +410,31 @@ Read:
 - INSTRUCTION.md
 - apps/mobile-app/INSTRUCTION.md
 - apps/mobile-app/CHECKPOINT.md
+```
+
+Dashboard-only task:
+
+```text
+Read:
+- AGENTS.md
+- PROJECT_MAP.md
+- INSTRUCTION.md
+- apps/dashboard/INSTRUCTION.md
+- apps/dashboard/CHECKPOINT.md
+```
+
+Dashboard + Backend task (adding admin API endpoints):
+
+```text
+Read:
+- AGENTS.md
+- PROJECT_MAP.md
+- INSTRUCTION.md
+- apps/dashboard/INSTRUCTION.md
+- apps/dashboard/CHECKPOINT.md
+- apps/backend-api/INSTRUCTION.md
+- apps/backend-api/CHECKPOINT.md
+- apps/backend-api/src/modules/admin/admin.controller.ts
 ```
 
 Cross-module contract task:

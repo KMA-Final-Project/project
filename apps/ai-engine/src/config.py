@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     WHISPER_MODEL_TURBO: str = Field(
         default="large-v3-turbo", description="Fast model for common languages"
     )
+    WHISPER_MODEL_DISTIL_EN: str = Field(
+        default="distil-large-v3.5",
+        description="English-first Distil-Whisper route for low-residency overlap.",
+    )
     # Full model: highest accuracy, used for CJK and complex languages
     WHISPER_MODEL_FULL: str = Field(
         default="large-v3", description="Accuracy model for CJK languages"
@@ -59,6 +63,61 @@ class Settings(BaseSettings):
     #   full_only  → may load only full
     WORKER_MODEL_MODE: str = Field(
         default="auto", description="auto | turbo_only | full_only"
+    )
+    AI_ASR_ROUTING_ENABLED: bool = Field(
+        default=True,
+        description="Enable route-aware ASR provider selection instead of hard-coded Whisper-only routing.",
+    )
+    AI_ASR_DEFAULT_ROUTE_EN: str = Field(
+        default="distil_whisper_en",
+        description="Default ASR route id for English source audio.",
+    )
+    AI_ASR_DEFAULT_ROUTE_ZH: str = Field(
+        default="sensevoice_small",
+        description="Default ASR route id for Chinese-family audio.",
+    )
+    AI_ASR_EXPERIMENTAL_ROUTE_ZH: str = Field(
+        default="sensevoice_small",
+        description="Experimental Chinese ASR route id used when prototype routing is enabled.",
+    )
+    AI_ASR_ENABLE_EXPERIMENTAL_ZH_ROUTE: bool = Field(
+        default=False,
+        description="Enable the experimental Chinese route before it becomes the shipping default.",
+    )
+    AI_ASR_FALLBACK_ROUTE_EN: str = Field(
+        default="whisper_turbo",
+        description="Fallback ASR route id for English and unknown-language jobs.",
+    )
+    AI_ASR_FALLBACK_ROUTE_ZH: str = Field(
+        default="whisper_full",
+        description="Fallback ASR route id for Chinese-family jobs.",
+    )
+    AI_ASR_ALLOW_AUTO_POLICY_DOWNGRADE: bool = Field(
+        default=True,
+        description="Automatically downgrade uncertified routes from during_asr to after_asr.",
+    )
+    AI_ASR_DURING_ASR_CERTIFIED_ROUTES: str = Field(
+        default="distil_whisper_en,whisper_turbo,sensevoice_small",
+        description=(
+            "Comma-separated internal ASR route ids that are allowed to keep "
+            "during_asr overlap without auto-downgrading."
+        ),
+    )
+    AI_ASR_FORCE_ROUTE: str = Field(
+        default="",
+        description="Force one internal ASR route id for local benchmarks or debugging.",
+    )
+    AI_ASR_PROVIDER_CACHE_DIR: Path = Field(
+        default=Path("temp/models/asr"),
+        description="Shared cache directory for non-Whisper ASR providers.",
+    )
+    AI_AUDIO_INSPECTOR_ENABLED: bool = Field(
+        default=True,
+        description="Enable the AST-based audio profile classifier before VAD and ASR.",
+    )
+    AI_AUDIO_INSPECTOR_CACHE_DIR: Path = Field(
+        default=Path("temp/models/audio-inspector"),
+        description="Cache directory for the AST audio-classification model.",
     )
     AI_SOURCE_LANGUAGE_HINT: str = Field(
         default="",
@@ -82,6 +141,198 @@ class Settings(BaseSettings):
         default=4,
         description="Maximum VAD segments used for source-language probing.",
     )
+    AI_CHINESE_TRUST_GATE_ENABLED: bool = Field(
+        default=True,
+        description="Enable trust-gated Chinese transcript routing and recovery.",
+    )
+    AI_CHINESE_PRIOR_TITLE_KEYWORDS: str = Field(
+        default="chinese,mandarin,pinyin,hsk,dialogue,beginner,lesson,learn chinese,中文,汉语,漢語,普通话,普通話,粤语,粵語,拼音,相亲,相親",
+        description="Comma-separated title keywords that bias the route prior toward Chinese-family transcript ownership.",
+    )
+    AI_CHINESE_PRIOR_FILENAME_KEYWORDS: str = Field(
+        default="chinese,mandarin,pinyin,hsk,dialogue,lesson,中文,汉语,漢語,普通话,普通話,粤语,粵語,拼音",
+        description="Comma-separated filename/title keywords used when media metadata is limited.",
+    )
+    AI_CHINESE_PRIOR_MIN_SCORE: float = Field(
+        default=2.0,
+        description="Minimum soft-prior score required before Chinese trust gating activates.",
+    )
+    AI_CHINESE_PROBE_NEAR_TIE_MARGIN: float = Field(
+        default=1.75,
+        description="Maximum zh-vs-en probe score gap treated as a near tie for Chinese routing.",
+    )
+    AI_CHINESE_MIN_HAN_RATIO: float = Field(
+        default=0.12,
+        description="Minimum Han-character ratio expected from a trusted Chinese-family transcript.",
+    )
+    AI_CHINESE_MIN_EARLY_HAN_RATIO: float = Field(
+        default=0.08,
+        description="Minimum Han-character ratio expected in the early transcript window for trusted Chinese-family output.",
+    )
+    AI_CHINESE_MAX_PINYIN_RATIO: float = Field(
+        default=0.45,
+        description="Maximum tolerated pinyin-like romanized token ratio before a Chinese-family transcript becomes suspicious.",
+    )
+    AI_CHINESE_MIN_AVG_LOGPROB: float = Field(
+        default=-0.75,
+        description="Minimum average Whisper log probability accepted before a Chinese-family candidate is treated as suspicious.",
+    )
+    AI_CHINESE_MIN_AVG_WORD_CONFIDENCE: float = Field(
+        default=0.45,
+        description="Minimum average word confidence accepted before a Chinese-family candidate is treated as suspicious.",
+    )
+    AI_CHINESE_MAX_REPETITION_SCORE: float = Field(
+        default=0.22,
+        description="Maximum tolerated repetition score before a transcript is considered degenerate.",
+    )
+    AI_CHINESE_MIN_LEXICAL_DIVERSITY: float = Field(
+        default=0.22,
+        description="Minimum lexical diversity expected from a trusted Chinese-family transcript.",
+    )
+    AI_CHINESE_DURATION_TEXT_DENSITY_MIN: float = Field(
+        default=0.8,
+        description="Minimum transcript character density per audio second for trusted Chinese-family output.",
+    )
+    AI_CHINESE_DURATION_TEXT_DENSITY_MAX: float = Field(
+        default=18.0,
+        description="Maximum transcript character density per audio second for trusted Chinese-family output.",
+    )
+    AI_CHINESE_TRUST_SUSPICIOUS_SCORE: float = Field(
+        default=2.0,
+        description="Weighted suspiciousness threshold that triggers Chinese recovery.",
+    )
+    AI_CHINESE_TRUST_FAIL_SCORE: float = Field(
+        default=3.5,
+        description="Weighted suspiciousness threshold that fails closed after the final Chinese fallback.",
+    )
+    AI_CHINESE_HOLD_UNVERIFIED_CHUNKS: bool = Field(
+        default=True,
+        description="Block Tier 1/2 publication until a Chinese-family transcript becomes trusted.",
+    )
+    AI_CHINESE_FORCE_AFTER_ASR_ON_RECOVERY: bool = Field(
+        default=True,
+        description="Force after_asr scheduling when Chinese trust-gated recovery is active.",
+    )
+    AI_CHINESE_FAIL_CLOSED: bool = Field(
+        default=True,
+        description="Use the existing FAILED path when no trusted Chinese-family transcript can be recovered.",
+    )
+    AI_CHINESE_RECOVERY_ENABLE_SENSEVOICE: bool = Field(
+        default=True,
+        description="Allow SenseVoice as the first Chinese-family recovery route.",
+    )
+    AI_CHINESE_RECOVERY_ENABLE_WHISPER_FULL: bool = Field(
+        default=True,
+        description="Allow whisper_full as the final Chinese-family recovery route.",
+    )
+    AI_CHINESE_TRUST_EARLY_WINDOW_SENTENCES: int = Field(
+        default=8,
+        description="Number of leading transcript sentences used for early-window Chinese trust heuristics.",
+    )
+    AI_CHINESE_TRUST_OWNER_SUSPICIOUS_SCORE: float = Field(
+        default=1.6,
+        description="Ownership-risk threshold that triggers Chinese route recovery before publication.",
+    )
+    AI_CHINESE_TRUST_REPAIR_SCORE: float = Field(
+        default=0.9,
+        description="Cleanliness-risk threshold that keeps Chinese ownership but requests whole-window repair before publication.",
+    )
+    AI_CHINESE_TRUST_PROBE_NEAR_TIE_WEIGHT: float = Field(
+        default=0.35,
+        description="Soft ownership-risk weight added when zh-vs-en probing is a near tie.",
+    )
+    AI_CHINESE_WINDOW_GAP_SECONDS: float = Field(
+        default=1.0,
+        description="Sentence-gap threshold used to start a new deterministic Chinese transcript window.",
+    )
+    AI_CHINESE_WINDOW_MAX_SECONDS: float = Field(
+        default=18.0,
+        description="Maximum duration of one deterministic Chinese transcript window before forcing a boundary.",
+    )
+    AI_CHINESE_WINDOW_MIN_SENTENCES: int = Field(
+        default=2,
+        description="Minimum sentence count before code-switch density may force a new deterministic Chinese transcript window.",
+    )
+    AI_CHINESE_WINDOW_MAX_SENTENCES: int = Field(
+        default=6,
+        description="Maximum sentence count in one deterministic Chinese transcript window before forcing a boundary.",
+    )
+    AI_CHINESE_WINDOW_CODE_SWITCH_SHIFT: float = Field(
+        default=0.35,
+        description="Minimum absolute code-switch density change that can force a new deterministic Chinese transcript window.",
+    )
+    AI_CHINESE_MIXED_WINDOW_REPETITION_MULTIPLIER: float = Field(
+        default=2.0,
+        description="Multiplier applied to repetition tolerance inside mixed-script Chinese transcript windows.",
+    )
+    AI_CHINESE_DROP_ENGLISH_GLOSS: bool = Field(
+        default=False,
+        description="Legacy guard for dropping clearly garbage English-only clauses in Chinese-primary mode. Defaults off so spoken English gloss is preserved.",
+    )
+    AI_CHINESE_KEEP_ENGLISH_DIALOGUE_MAX_TOKENS: int = Field(
+        default=4,
+        description="Maximum Latin token count still allowed as short intentional English dialogue inside Chinese-primary mode.",
+    )
+    AI_CHINESE_KEEP_ENGLISH_DIALOGUE_MAX_SECONDS: float = Field(
+        default=1.6,
+        description="Maximum duration still allowed for a short intentional English dialogue span in Chinese-primary mode.",
+    )
+    AI_CHINESE_KEEP_ENGLISH_DIALOGUE_MIN_CONFIDENCE: float = Field(
+        default=0.9,
+        description="Minimum average word confidence required before a short pure-English span is kept in Chinese-primary mode.",
+    )
+    AI_CHINESE_MAX_SEGMENT_SECONDS: float = Field(
+        default=8.0,
+        description="Preferred maximum duration of one Chinese-primary subtitle segment before it is split.",
+    )
+    AI_CHINESE_MAX_SEGMENT_HAN_CHARS: int = Field(
+        default=35,
+        description="Preferred maximum Han-character count of one Chinese-primary subtitle segment before it is split.",
+    )
+    AI_CHINESE_MAX_SEGMENT_SENTENCE_UNITS: int = Field(
+        default=3,
+        description="Preferred maximum number of Chinese clause/sentence units merged into one Chinese-primary subtitle segment.",
+    )
+    AI_CHINESE_LOW_CONFIDENCE_WORD_THRESHOLD: float = Field(
+        default=0.35,
+        description="Word-confidence threshold used for Chinese-primary segment quality metrics and noisy-span checks.",
+    )
+    AI_CHINESE_DUPLICATE_TIME_WINDOW_SECONDS: float = Field(
+        default=12.0,
+        description="Nearby time window used to suppress repeated Chinese-primary phrases from overlapping ASR windows.",
+    )
+    AI_CHINESE_DUPLICATE_SIMILARITY: float = Field(
+        default=0.92,
+        description="Similarity threshold used for nearby repeated-phrase suppression in Chinese-primary mode.",
+    )
+    AI_CHINESE_RECONCILE_EARLY_WINDOW_SECONDS: float = Field(
+        default=24.0,
+        description="Only the opening Chinese-primary window within this many seconds is eligible for candidate reconciliation patches.",
+    )
+    AI_CHINESE_RECONCILE_MIN_OVERLAP_SECONDS: float = Field(
+        default=0.35,
+        description="Minimum timestamp overlap required before an alternate Chinese candidate may replace an overlapping trusted segment.",
+    )
+    AI_CHINESE_RECONCILE_REPLACE_SCORE_MARGIN: float = Field(
+        default=3.0,
+        description="Minimum content-score improvement required before an alternate Chinese candidate replaces a trusted overlapping segment.",
+    )
+    AI_CHINESE_RECONCILE_MIN_AVG_CONFIDENCE: float = Field(
+        default=0.5,
+        description="Minimum average word confidence required before an alternate Chinese candidate can patch the trusted opening window.",
+    )
+    AI_CHINESE_DEDUPE_MIN_NORMALIZED_CHARS: int = Field(
+        default=6,
+        description="Minimum normalized text length before Chinese-primary duplicate suppression can remove a repeated phrase.",
+    )
+    AI_CHINESE_DEDUPE_SHORT_PHRASES: str = Field(
+        default="你好,幸会,谢谢,哈哈",
+        description="Comma-separated short repeated dialogue phrases that must not be deduped in Chinese-primary mode.",
+    )
+    AI_CHINESE_TEXT_NORMALIZATION_RULES: str = Field(
+        default="王靖=>王静;感觉想完成任务=>感觉像完成任务;当回吧=>当回报;选你做的菜=>学你做的菜",
+        description="Semicolon-separated equal-length Chinese text normalization rules applied before translation in Chinese-primary mode.",
+    )
     AI_TRANSLATION_START_POLICY: str = Field(
         default="during_asr",
         description=(
@@ -90,7 +341,7 @@ class Settings(BaseSettings):
         ),
     )
     AI_ENABLE_NMT_PREFETCH: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Load the NMT model before translation starts. Disabled by default "
             "for the single-GPU hybrid path."
@@ -175,6 +426,42 @@ class Settings(BaseSettings):
         "'int8_float16' is faster on Ampere/Turing but unsupported on Blackwell.",
     )
     NMT_BEAM_SIZE: int = Field(default=4, description="Beam search width for NMT")
+    FUNASR_SENSEVOICE_MODEL: str = Field(
+        default="iic/SenseVoiceSmall",
+        description="FunASR SenseVoice model id for the experimental Chinese route.",
+    )
+    FUNASR_PARAFORMER_ZH_MODEL: str = Field(
+        default="paraformer-zh",
+        description="FunASR Paraformer Mandarin model id for the experimental Chinese backup route.",
+    )
+    FUNASR_FA_ZH_MODEL: str = Field(
+        default="fa-zh",
+        description="FunASR alignment model used to recover timestamps for Paraformer output.",
+    )
+    FUNASR_VAD_MODEL: str = Field(
+        default="fsmn-vad",
+        description="FunASR VAD model id used by experimental ASR providers.",
+    )
+    FUNASR_PUNC_MODEL: str = Field(
+        default="ct-punc",
+        description="FunASR punctuation model id for Paraformer-based transcription.",
+    )
+    FUNASR_ENABLE_FA_ZH_ALIGNMENT: bool = Field(
+        default=True,
+        description="Use fa-zh alignment when Paraformer output does not expose stable timestamps directly.",
+    )
+    FUNASR_MODEL_HUB: str = Field(
+        default="ms",
+        description="FunASR model hub to use for prototype Chinese routes: ms | hf.",
+    )
+    FUNASR_DISABLE_UPDATE_CHECK: bool = Field(
+        default=True,
+        description="Disable FunASR startup update checks for deterministic worker startup.",
+    )
+    FUNASR_MAX_SINGLE_SEGMENT_TIME_MS: int = Field(
+        default=30000,
+        description="Maximum single-segment time passed to FunASR VAD, in milliseconds.",
+    )
     AI_ENABLE_LLM_REFINEMENT: bool = Field(
         default=False,
         description=(
@@ -300,6 +587,8 @@ class Settings(BaseSettings):
         """Initialize directories"""
         os.makedirs(self.TEMP_DIR, exist_ok=True)
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        os.makedirs(self.AI_ASR_PROVIDER_CACHE_DIR, exist_ok=True)
+        os.makedirs(self.AI_AUDIO_INSPECTOR_CACHE_DIR, exist_ok=True)
 
     @staticmethod
     def normalize_language_tag(language: str | None) -> str:
@@ -308,17 +597,90 @@ class Settings(BaseSettings):
             return ""
         return language.strip().lower().replace("_", "-")
 
+    @staticmethod
+    def normalize_route_id(route_id: str | None) -> str:
+        """Normalize internal ASR route identifiers."""
+        if not route_id:
+            return ""
+        return route_id.strip().lower().replace("-", "_")
+
+    @staticmethod
+    def parse_csv_tokens(raw: str | None) -> tuple[str, ...]:
+        if not raw:
+            return ()
+        return tuple(
+            token.strip().lower()
+            for token in str(raw).split(",")
+            if token and token.strip()
+        )
+
+    @staticmethod
+    def parse_mapping_rules(raw: str | None) -> tuple[tuple[str, str], ...]:
+        if not raw:
+            return ()
+        rules: list[tuple[str, str]] = []
+        for item in str(raw).split(";"):
+            candidate = item.strip()
+            if not candidate or "=>" not in candidate:
+                continue
+            source, target = candidate.split("=>", 1)
+            source = source.strip()
+            target = target.strip()
+            if source and target:
+                rules.append((source, target))
+        return tuple(rules)
+
     @property
     def source_language_hint(self) -> str:
         """Return the normalized configured source-language hint."""
         return self.normalize_language_tag(self.AI_SOURCE_LANGUAGE_HINT)
 
     @property
+    def asr_default_route_en(self) -> str:
+        return (
+            self.normalize_route_id(self.AI_ASR_DEFAULT_ROUTE_EN) or "distil_whisper_en"
+        )
+
+    @property
+    def asr_default_route_zh(self) -> str:
+        return self.normalize_route_id(self.AI_ASR_DEFAULT_ROUTE_ZH) or "whisper_full"
+
+    @property
+    def asr_experimental_route_zh(self) -> str:
+        return (
+            self.normalize_route_id(self.AI_ASR_EXPERIMENTAL_ROUTE_ZH)
+            or "sensevoice_small"
+        )
+
+    @property
+    def asr_fallback_route_en(self) -> str:
+        return self.normalize_route_id(self.AI_ASR_FALLBACK_ROUTE_EN) or "whisper_turbo"
+
+    @property
+    def asr_fallback_route_zh(self) -> str:
+        return self.normalize_route_id(self.AI_ASR_FALLBACK_ROUTE_ZH) or "whisper_full"
+
+    @property
+    def asr_during_asr_certified_routes(self) -> frozenset[str]:
+        routes = {
+            self.normalize_route_id(route)
+            for route in str(self.AI_ASR_DURING_ASR_CERTIFIED_ROUTES or "").split(",")
+            if self.normalize_route_id(route)
+        }
+        if not routes:
+            routes = {"distil_whisper_en", "whisper_turbo", "sensevoice_small"}
+        return frozenset(routes)
+
+    @property
+    def asr_force_route(self) -> str:
+        return self.normalize_route_id(self.AI_ASR_FORCE_ROUTE)
+
+    @property
     def translation_start_policy(self) -> str:
         """Return the normalized translation start policy."""
-        value = str(self.AI_TRANSLATION_START_POLICY or "after_asr").strip().lower()
+        value = str(self.AI_TRANSLATION_START_POLICY or "during_asr").strip().lower()
         if value not in {"after_asr", "during_asr"}:
-            return "after_asr"
+            return "during_asr"
         return value
 
     @property
@@ -330,6 +692,22 @@ class Settings(BaseSettings):
     def nmt_prefetch_enabled(self) -> bool:
         """Return True when NMT prefetch is allowed for this runtime mode."""
         return self.AI_ENABLE_NMT_PREFETCH and not self.hybrid_after_asr_mode
+
+    @property
+    def chinese_prior_title_keywords(self) -> tuple[str, ...]:
+        return self.parse_csv_tokens(self.AI_CHINESE_PRIOR_TITLE_KEYWORDS)
+
+    @property
+    def chinese_prior_filename_keywords(self) -> tuple[str, ...]:
+        return self.parse_csv_tokens(self.AI_CHINESE_PRIOR_FILENAME_KEYWORDS)
+
+    @property
+    def chinese_text_normalization_rules(self) -> tuple[tuple[str, str], ...]:
+        return self.parse_mapping_rules(self.AI_CHINESE_TEXT_NORMALIZATION_RULES)
+
+    @property
+    def chinese_dedupe_short_phrases(self) -> tuple[str, ...]:
+        return self.parse_csv_tokens(self.AI_CHINESE_DEDUPE_SHORT_PHRASES)
 
     @staticmethod
     def normalize_llm_capability(capability: str) -> str:

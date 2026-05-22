@@ -26,7 +26,8 @@
     "pmigrate:dev": "prisma migrate dev --name",
     "start:local": "cd ../../infra && docker-compose up -d && cd - && npm run start:dev",
     "clean:env": "tsx scripts/clean-test-env.ts",
-    "test:youtube": "tsx scripts/test-youtube-submit.ts"
+    "test:youtube": "tsx scripts/test-youtube-submit.ts",
+    "test:youtube:e2e": "tsx scripts/e2e-youtube-pipeline-eval.ts"
   },
   "dependencies": {
     "@nestjs-modules/mailer": "^2.0.2",

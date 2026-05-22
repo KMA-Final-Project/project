@@ -138,3 +138,48 @@ def mark_quota_counted(media_id: str) -> None:
             pool.putconn(conn)
     except Exception as e:
         logger.error(f"Failed to mark quota for media {media_id}: {e}")
+
+
+def fetch_media_context(media_id: str) -> dict[str, str]:
+    """Fetch lightweight media metadata for AI-only routing heuristics.
+
+    This stays inside AI Engine and avoids changing queue payload contracts.
+    """
+    if not settings.DATABASE_URL:
+        return {}
+
+    sql = """
+        SELECT
+            COALESCE(title, ''),
+            COALESCE(origin_type::text, ''),
+            COALESCE(origin_url, ''),
+            COALESCE(source_language, ''),
+            COALESCE(audio_s3_key, '')
+        FROM media_items
+        WHERE id = %s
+        LIMIT 1
+    """
+    try:
+        pool = _get_db_pool()
+        conn = pool.getconn()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (media_id,))
+                    row = cur.fetchone()
+        finally:
+            pool.putconn(conn)
+    except Exception as e:
+        logger.error(f"Failed to fetch media context for media {media_id}: {e}")
+        return {}
+
+    if not row:
+        return {}
+
+    return {
+        "title": str(row[0] or "").strip(),
+        "originType": str(row[1] or "").strip(),
+        "originUrl": str(row[2] or "").strip(),
+        "sourceLanguage": str(row[3] or "").strip(),
+        "audioS3Key": str(row[4] or "").strip(),
+    }

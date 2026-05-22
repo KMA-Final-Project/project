@@ -320,8 +320,8 @@ def _hardware_metrics(report: ProfileReport | None) -> dict[str, Any] | None:
 
 def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
     rows = [
-        "| Case | Status | Source | Route | Policy | Prefetch | Duration (s) | Wall Clock (s) | RTF | First Chunk (s) | First Batch (s) | Segments | Profile | Model |",
-        "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Case | Status | Source | Provider | Route | Policy | Prefetch | Duration (s) | Wall Clock (s) | RTF | First Chunk (s) | First Batch (s) | Segments | Profile | Model |",
+        "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for result in case_results:
         metrics = result.get("metrics", {})
@@ -329,10 +329,11 @@ def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
         detected = metrics.get("detected", {})
         output_stats = metrics.get("output", {})
         rows.append(
-            "| {case_id} | {status} | {source} | {route} | {policy} | {prefetch} | {duration} | {wall_clock} | {rtf} | {first_chunk} | {first_batch} | {segments} | {profile} | {model} |".format(
+            "| {case_id} | {status} | {source} | {provider} | {route} | {policy} | {prefetch} | {duration} | {wall_clock} | {rtf} | {first_chunk} | {first_batch} | {segments} | {profile} | {model} |".format(
                 case_id=result["case_id"],
                 status=result["status"],
                 source=detected.get("source_lang", result["source_family"]),
+                provider=detected.get("asr_provider", "-"),
                 route=detected.get("route", "-"),
                 policy=detected.get("translation_start_policy", "-"),
                 prefetch="yes" if detected.get("nmt_prefetch_used") else "no",
@@ -437,10 +438,14 @@ def _render_case_markdown(case_result: dict[str, Any]) -> str:
         f"- Source language: {detected['source_lang']}",
         f"- Probe source language: {detected['probe_source_lang']}",
         f"- Target language: {detected['target_lang']}",
+        f"- ASR provider: {detected['asr_provider']}",
         f"- Selected route: {detected['route']}",
-        f"- Translation start policy: {detected['translation_start_policy']}",
+        f"- Requested translation policy: {detected['requested_translation_start_policy']}",
+        f"- Effective translation policy: {detected['translation_start_policy']}",
+        f"- Auto policy downgraded: {detected['auto_policy_downgraded']}",
         f"- NMT prefetch used: {detected['nmt_prefetch_used']}",
-        f"- Whisper model: {detected['model_used']}",
+        f"- ASR fallback used: {detected['asr_fallback_used']}",
+        f"- ASR model: {detected['model_used']}",
         f"- LLM refinement enabled: {detected['llm_refinement_enabled']}",
         "",
         "## Stage Metrics",
@@ -653,13 +658,22 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
             "target_lang": output.metadata.target_lang,
             "model_used": output.metadata.model_used,
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "asr_provider": str(run_metrics.get("asr_provider", "")),
             "route": run_metrics.get("route", ""),
             "probe_source_lang": run_metrics.get("probe_source_lang", ""),
+            "requested_translation_start_policy": run_metrics.get(
+                "requested_translation_start_policy",
+                settings.translation_start_policy,
+            ),
             "translation_start_policy": run_metrics.get(
                 "translation_start_policy",
                 settings.translation_start_policy,
             ),
+            "auto_policy_downgraded": bool(
+                run_metrics.get("auto_policy_downgraded", False)
+            ),
             "nmt_prefetch_used": bool(run_metrics.get("nmt_prefetch_used", False)),
+            "asr_fallback_used": bool(run_metrics.get("asr_fallback_used", False)),
         }
         output_stats = _output_metrics(output)
     else:
@@ -669,15 +683,26 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
             "target_lang": case.target_lang,
             "model_used": str(run_metrics.get("selected_asr_model", "")),
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "asr_provider": str(run_metrics.get("asr_provider", "")),
             "route": str(run_metrics.get("route", "")),
             "probe_source_lang": str(run_metrics.get("probe_source_lang", "")),
+            "requested_translation_start_policy": str(
+                run_metrics.get(
+                    "requested_translation_start_policy",
+                    settings.translation_start_policy,
+                )
+            ),
             "translation_start_policy": str(
                 run_metrics.get(
                     "translation_start_policy",
                     settings.translation_start_policy,
                 )
             ),
+            "auto_policy_downgraded": bool(
+                run_metrics.get("auto_policy_downgraded", False)
+            ),
             "nmt_prefetch_used": bool(run_metrics.get("nmt_prefetch_used", False)),
+            "asr_fallback_used": bool(run_metrics.get("asr_fallback_used", False)),
         }
         output_stats = {
             "segment_count": 0,
@@ -784,6 +809,8 @@ async def run_suite(
             "device": settings.DEVICE,
             "nmt_compute_type": settings.NMT_COMPUTE_TYPE,
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "asr_default_route_en": settings.asr_default_route_en,
+            "asr_default_route_zh": settings.asr_default_route_zh,
             "chunk_size": settings.CHUNK_SIZE,
             "smart_aligner_group_size": settings.SMART_ALIGNER_GROUP_SIZE,
         },

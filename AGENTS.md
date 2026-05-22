@@ -23,9 +23,12 @@ Read this file before inspecting code, editing files, or running commands. Then 
 |  |- ai-engine/
 |  |  |- INSTRUCTION.md        # AI Engine-specific rules.
 |  |  `- CHECKPOINT.md         # AI Engine current progress and known issues.
-|  `- mobile-app/
-|     |- INSTRUCTION.md        # Mobile-specific rules.
-|     `- CHECKPOINT.md         # Mobile current progress and known issues.
+|  |- mobile-app/
+|  |  |- INSTRUCTION.md        # Mobile-specific rules.
+|  |  `- CHECKPOINT.md         # Mobile current progress and known issues.
+|  `- dashboard/
+|     |- INSTRUCTION.md        # Dashboard-specific rules.
+|     `- CHECKPOINT.md         # Dashboard current progress and known issues.
 |- .agent/
 |  `- workflows/
 |     |- contract-change.md
@@ -56,6 +59,7 @@ Read this file before inspecting code, editing files, or running commands. Then 
 | Backend API | `apps/backend-api` | NestJS v11, TypeScript, Prisma, BullMQ, Redis, MinIO, JWT                                     | `src/main.ts`, `src/worker.ts`         |
 | AI Engine   | `apps/ai-engine`   | Python 3.12, faster-whisper, stable-ts, silero-vad, CTranslate2, NLLB-200-3.3B, BullMQ, MinIO | `src/main.py`, `src/async_pipeline.py` |
 | Mobile App  | `apps/mobile-app`  | Expo 54, React Native, Expo Router, Zustand, Axios, Zod, i18next, react-native-unistyles      | `src/entry.ts`, `src/app/_layout.tsx`  |
+| Dashboard   | `apps/dashboard`   | Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind CSS v4               | `src/main.tsx`, `src/App.tsx`          |
 
 Do not assume inactive or future modules exist unless the repository contains them.
 
@@ -161,6 +165,8 @@ Failure to update the correct checkpoint after qualifying work means the task is
 - Do not add polling where socket events already exist.
 - Do not touch multiple modules unless the task explicitly crosses module boundaries or the contract workflow requires it.
 - Do not duplicate full cross-module contracts in checkpoints or module instructions; keep authoritative contract details in `CONTRACTS.md`.
+- Do not add Zustand, Redux, or any global state store to the dashboard; server state lives in TanStack Query and auth state in AuthContext only.
+- Do not add dashboard-specific admin endpoints to the backend without verifying ADMIN role guard is applied.
 
 ## 8. Definition of Done
 

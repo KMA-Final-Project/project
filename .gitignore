@@ -34,3 +34,9 @@ coverage/
 tmp/
 
 docs/
+
+pytest-cache-*
+
+outputs/
+
+references/

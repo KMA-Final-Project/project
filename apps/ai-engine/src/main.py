@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import time as _time
 from pathlib import Path
@@ -24,8 +25,9 @@ from src.core.audio_inspector import AudioInspector
 from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
 from src.core.smart_aligner import SmartAligner
+from src.core.transcript_trust_gate import ChineseTrustGateError
 from src.core.vad_manager import VADManager
-from src.db import mark_quota_counted, update_media_status
+from src.db import fetch_media_context, mark_quota_counted, update_media_status
 from src.events import publish_completed, publish_failed
 from src.minio_client import MinioClient
 from src.pipelines import run_v2_pipeline
@@ -60,20 +62,17 @@ def prewarm_heavy_components() -> None:
     Intentionally excludes Ollama/LLM warmup because the external model runner is
     heavier, less stable under VRAM pressure, and not required for the fast path.
     """
+
     def _prewarm_aligner() -> None:
         aligner = SmartAligner()
-        if settings.hybrid_after_asr_mode:
+        prewarm_routes = aligner.prewarm_route_ids()
+        if not prewarm_routes:
             logger.info(
                 "   SmartAligner prewarm kept lazy because "
-                "AI_TRANSLATION_START_POLICY=after_asr"
+                "ASR routes are selected per job"
             )
             return
-
-        for route in ("turbo", "full"):
-            if route == "turbo" and settings.WORKER_MODEL_MODE.lower() == "full_only":
-                continue
-            if route == "full" and settings.WORKER_MODEL_MODE.lower() == "turbo_only":
-                continue
+        for route in prewarm_routes:
             aligner.ensure_route_loaded(route)
 
     components: list[tuple[str, object]] = [
@@ -81,7 +80,7 @@ def prewarm_heavy_components() -> None:
         ("AudioInspector", AudioInspector.prewarm),
         ("VADManager", VADManager),
     ]
-    if not settings.hybrid_after_asr_mode:
+    if settings.nmt_prefetch_enabled:
         components.insert(2, ("NMTTranslator", NMTTranslator.get_instance))
 
     logger.info("🔥 AI_PREWARM_MODELS enabled — prewarming heavy components...")
@@ -98,9 +97,7 @@ def prewarm_heavy_components() -> None:
 
 
 def release_hybrid_residency() -> None:
-    """Release heavy ASR/NMT residency for the single-GPU hybrid runtime."""
-    if not settings.hybrid_after_asr_mode:
-        return
+    """Release heavy ASR/NMT residency between jobs."""
 
     try:
         SmartAligner().unload_all()
@@ -111,6 +108,17 @@ def release_hybrid_residency() -> None:
         NMTTranslator.unload_instance()
     except Exception as exc:
         logger.warning(f"Hybrid cleanup: failed to unload NMTTranslator: {exc}")
+
+
+def _write_trust_gate_failure_dump(media_id: str, payload: dict) -> Path:
+    failure_dir = settings.OUTPUT_DIR.resolve() / "trust_gate_failures"
+    failure_dir.mkdir(parents=True, exist_ok=True)
+    target = failure_dir / f"{media_id}.json"
+    target.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return target
 
 
 # ============================================================================
@@ -135,6 +143,7 @@ async def process_job(job, token):
     duration_seconds = job_data.get("durationSeconds", 0)
     user_id = job_data["userId"]
     source_language_hint = job_data.get("sourceLanguage") or None
+    media_context = fetch_media_context(media_id)
 
     logger.info(
         f"🚀 Job {job.id} started | media: {media_id} | "
@@ -177,6 +186,7 @@ async def process_job(job, token):
             target_lang=target_lang,
             duration_seconds=duration_seconds,
             source_language_hint=source_language_hint,
+            media_context=media_context,
         )
         pipeline_elapsed = _time.perf_counter() - pipeline_started_at
         logger.info(
@@ -214,6 +224,33 @@ async def process_job(job, token):
             f"{len(subtitle_output.segments)} segments"
         )
 
+    except ChineseTrustGateError as e:
+        dump_path = _write_trust_gate_failure_dump(
+            media_id,
+            {
+                "job_id": str(job.id),
+                "media_id": media_id,
+                "payload": e.payload,
+            },
+        )
+        logger.error(
+            f"❌ Job {job.id} failed | media: {media_id} | {e} | "
+            f"trust_dump={dump_path}"
+        )
+        logger.error(
+            "Chinese trust gate payload: "
+            + json.dumps(e.payload, ensure_ascii=False)
+        )
+        reason = str(e)[:500]
+        update_media_status(
+            media_id,
+            user_id=user_id,
+            status="FAILED",
+            fail_reason=reason,
+            clear_step=True,
+        )
+        publish_failed(media_id=media_id, user_id=user_id, reason=reason)
+        raise
     except Exception as e:
         logger.error(f"❌ Job {job.id} failed | media: {media_id} | {e}")
         reason = str(e)[:500]
@@ -248,6 +285,11 @@ async def main():
     logger.info(f"   Device: {settings.DEVICE} (index {settings.DEVICE_INDEX})")
     logger.info(f"   Mode: {settings.AI_PERF_MODE.value}")
     logger.info(f"   Worker model mode: {settings.WORKER_MODEL_MODE}")
+    logger.info(f"   ASR default route (en): {settings.asr_default_route_en}")
+    logger.info(f"   ASR default route (zh): {settings.asr_default_route_zh}")
+    logger.info(
+        f"   Experimental zh route enabled: {settings.AI_ASR_ENABLE_EXPERIMENTAL_ZH_ROUTE}"
+    )
     logger.info(f"   Translation start policy: {settings.translation_start_policy}")
     logger.info(f"   NMT prefetch enabled: {settings.nmt_prefetch_enabled}")
 

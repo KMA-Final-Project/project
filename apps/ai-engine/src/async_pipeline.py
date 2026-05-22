@@ -16,14 +16,36 @@ import asyncio
 import time as _time
 from pathlib import Path
 from threading import Lock
+from types import SimpleNamespace
 from typing import Any, List
 
 from loguru import logger
 
 from src.config import settings
+from src.core.chinese_candidate_normalizer import (
+    ChineseCandidateNormalizeResult,
+    normalize_chinese_candidate_sentences,
+)
+from src.core.chinese_phonetics import apply_chinese_pinyin
+from src.core.chinese_primary_refiner import (
+    ChinesePrimaryRefineResult,
+    refine_chinese_primary_transcript,
+)
+from src.core.chinese_window_profiler import profile_chinese_transcript_windows
+from src.core.chinese_window_repairer import (
+    CandidateSnapshot,
+    ChineseWindowRepairResult,
+    repair_chinese_candidate_windows,
+)
+from src.core.chinese_prior import ChineseRoutePrior, build_chinese_route_prior
 from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
 from src.core.semantic_merger import OVERLAP_LINES, SemanticMerger
+from src.core.transcript_trust_gate import (
+    ChineseTrustGateError,
+    ChineseTranscriptTrustGate,
+    TranscriptTrustDecision,
+)
 from src.db import update_media_status
 from src.events import publish_batch_ready, publish_chunk_ready, publish_progress
 from src.minio_client import MinioClient
@@ -97,6 +119,14 @@ def _detect_source_language(sentences: list[Sentence]) -> str:
     return "en"
 
 
+def _batch_sentences(sentences: list[Sentence], chunk_size: int) -> list[list[Sentence]]:
+    size = max(1, chunk_size)
+    return [
+        list(sentences[index : index + size])
+        for index in range(0, len(sentences), size)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Main V2 pipeline
 # ---------------------------------------------------------------------------
@@ -115,6 +145,7 @@ async def run_v2_pipeline_async(
     debug_trace: list[dict[str, Any]] | None = None,
     prefetch_nmt: bool | None = None,
     source_language_hint: str | None = None,
+    media_context: dict[str, str] | None = None,
 ) -> SubtitleOutput:
     """
     V2 bilingual subtitle pipeline using asyncio producer-consumer.
@@ -135,8 +166,6 @@ async def run_v2_pipeline_async(
     nmt_prefetch_enabled = (
         settings.nmt_prefetch_enabled if prefetch_nmt is None else bool(prefetch_nmt)
     )
-    if translation_start_policy == "after_asr":
-        nmt_prefetch_enabled = False
 
     def _eta(progress: float) -> int | None:
         if progress <= 0:
@@ -278,9 +307,18 @@ async def run_v2_pipeline_async(
     selected_source_lang = ""
     probe_source_lang = ""
     routing_strategy = "fallback"
-
-    if settings.hybrid_after_asr_mode:
-        await asyncio.to_thread(NMTTranslator.unload_instance)
+    probe_details: dict[str, Any] = {}
+    chinese_prior = ChineseRoutePrior(0.0, "", "none", ())
+    trust_gate = ChineseTranscriptTrustGate()
+    trust_gate_active = False
+    trust_decision: TranscriptTrustDecision | None = None
+    trust_stage = "normal"
+    trust_attempts: list[dict[str, Any]] = []
+    trusted_candidate_batches: list[list[Sentence]] | None = None
+    chinese_normalize_result = ChineseCandidateNormalizeResult([], [])
+    chinese_refine_result = ChinesePrimaryRefineResult([], [], [], [], [])
+    chinese_repair_result = ChineseWindowRepairResult([], [])
+    skip_cjk_semantic_merge = False
 
     if configured_source_hint:
         selected_source_lang = configured_source_hint
@@ -303,15 +341,65 @@ async def run_v2_pipeline_async(
         if probe_source_lang:
             selected_source_lang = probe_source_lang
             routing_strategy = "probe"
+        probe_details = dict(getattr(pipeline.aligner, "last_probe_details", {}))
 
-    selected_route = pipeline.aligner.resolve_route(
-        pipeline.aligner.route_for_language(selected_source_lang or None)
+    chinese_prior = build_chinese_route_prior(
+        media_context=media_context,
+        local_audio_path=clean_audio_path,
+        probe_source_lang=probe_source_lang,
+        probe_details=probe_details,
     )
-    selected_model_name = (
-        settings.WHISPER_MODEL_FULL
-        if selected_route == "full"
-        else settings.WHISPER_MODEL_TURBO
+    if (
+        chinese_prior.should_bias_route
+        and selected_source_lang in {"", "en"}
+        and chinese_prior.suspected_family
+    ):
+        selected_source_lang = chinese_prior.suspected_family
+        routing_strategy = "chinese_prior"
+
+    if hasattr(pipeline.aligner, "route_decision_for_language"):
+        route_decision = pipeline.aligner.route_decision_for_language(
+            selected_source_lang or None,
+            requested_policy=translation_start_policy,
+        )
+    else:
+        legacy_route = pipeline.aligner.resolve_route(
+            pipeline.aligner.route_for_language(selected_source_lang or None)
+        )
+        legacy_model_name = (
+            settings.WHISPER_MODEL_FULL
+            if legacy_route in {"full", "whisper_full"}
+            else settings.WHISPER_MODEL_TURBO
+        )
+        route_decision = SimpleNamespace(
+            route_id=legacy_route,
+            provider_id="whisper",
+            model_id=legacy_model_name,
+            effective_policy=translation_start_policy,
+            auto_downgraded=False,
+            fallback_chain=(legacy_route,),
+        )
+    selected_route = route_decision.route_id
+    selected_model_name = route_decision.model_id
+    selected_provider_id = route_decision.provider_id
+    effective_translation_policy = route_decision.effective_policy
+    auto_policy_downgraded = route_decision.auto_downgraded
+    trust_gate_active = settings.AI_CHINESE_TRUST_GATE_ENABLED and (
+        chinese_prior.should_gate
+        or selected_source_lang in {"zh", "yue"}
+        or probe_source_lang in {"zh", "yue"}
     )
+    if trust_gate_active and settings.AI_CHINESE_FORCE_AFTER_ASR_ON_RECOVERY:
+        effective_translation_policy = "after_asr"
+        auto_policy_downgraded = True
+    probe_cleanup_route = (
+        "whisper_turbo"
+        if hasattr(pipeline.aligner, "route_decision_for_language")
+        else "turbo"
+    )
+    if effective_translation_policy == "after_asr":
+        nmt_prefetch_enabled = False
+        await asyncio.to_thread(NMTTranslator.unload_instance)
 
     if selected_source_lang:
         source_lang_holder[0] = selected_source_lang
@@ -321,21 +409,36 @@ async def run_v2_pipeline_async(
             source_language=selected_source_lang,
         )
 
-    if settings.hybrid_after_asr_mode and probe_source_lang and selected_route != "turbo":
-        await asyncio.to_thread(pipeline.aligner.unload_route, "turbo")
+    if (
+        effective_translation_policy == "after_asr"
+        and probe_source_lang
+        and selected_route not in {"turbo", "whisper_turbo"}
+    ):
+        await asyncio.to_thread(pipeline.aligner.unload_route, probe_cleanup_route)
 
     logger.info(
         f"🧭 Source routing: strategy={routing_strategy} "
         f"source={selected_source_lang or 'unknown'} route={selected_route} "
-        f"policy={translation_start_policy}"
+        f"provider={selected_provider_id} policy={translation_start_policy} "
+        f"effective_policy={effective_translation_policy} "
+        f"chinese_prior_score={chinese_prior.prior_score:.2f} "
+        f"trust_gate_active={trust_gate_active}"
     )
     _trace(
         "source_routing_decided",
         strategy=routing_strategy,
         source_lang=selected_source_lang or "",
         probe_source_lang=probe_source_lang,
+        probe_scores=probe_details.get("scores", {}),
+        chinese_prior_score=chinese_prior.prior_score,
+        chinese_prior_sources=list(chinese_prior.sources),
         route=selected_route,
-        translation_start_policy=translation_start_policy,
+        provider=selected_provider_id,
+        requested_translation_start_policy=translation_start_policy,
+        translation_start_policy=effective_translation_policy,
+        auto_policy_downgraded=auto_policy_downgraded,
+        fallback_chain=list(route_decision.fallback_chain),
+        trust_gate_active=trust_gate_active,
     )
 
     # ── Step 4: Producer-consumer (Alignment + Translation) ──────────────
@@ -344,20 +447,13 @@ async def run_v2_pipeline_async(
     #   Producer puts:  list[Sentence]  (one chunk from SmartAligner)
     #   Producer puts:  None            (sentinel — signals consumer to stop)
     #   Consumer reads until it gets None.
-    queue_maxsize = 0 if translation_start_policy == "after_asr" else 4
+    queue_maxsize = 0 if effective_translation_policy == "after_asr" else 4
     queue: asyncio.Queue[list[Sentence] | None] = asyncio.Queue(maxsize=queue_maxsize)
     loop = asyncio.get_running_loop()
 
     tier1_chunk_index: list[int] = [0]
 
-    def on_chunk(batch: list[Sentence], total_so_far: int) -> None:
-        """SmartAligner callback — runs in aligner's thread.
-
-        Uploads Tier 1 (raw chunk), detects source language on first chunk,
-        publishes progress, and pushes the chunk into the asyncio queue
-        (blocking via run_coroutine_threadsafe to provide backpressure).
-        """
-        # Tier 1: upload raw chunk to MinIO
+    def _publish_chunk_side_effects(batch: list[Sentence], total_so_far: int) -> None:
         idx = tier1_chunk_index[0]
         batch_data = [s.model_dump() for s in batch]
         _chunk_key, chunk_url = minio_client.upload_chunk(media_id, idx, batch_data)
@@ -400,10 +496,18 @@ async def run_v2_pipeline_async(
             f"{'unbounded' if queue.maxsize == 0 else queue.maxsize}"
         )
 
+    def on_chunk(batch: list[Sentence], total_so_far: int) -> None:
+        """SmartAligner callback — runs in aligner's thread."""
+        _publish_chunk_side_effects(batch, total_so_far)
+
         # Push chunk into asyncio queue (blocks if queue is full → backpressure)
         queue_wait_started_at = _time.perf_counter()
         asyncio.run_coroutine_threadsafe(queue.put(list(batch)), loop).result()
         _add_timing("producer_wait", _time.perf_counter() - queue_wait_started_at)
+
+    async def _replay_chunk(batch: list[Sentence], total_so_far: int) -> None:
+        _publish_chunk_side_effects(batch, total_so_far)
+        await queue.put(list(batch))
 
     async def producer() -> None:
         """Run SmartAligner in a thread and send sentinel when done."""
@@ -421,6 +525,31 @@ async def run_v2_pipeline_async(
             )
         finally:
             await queue.put(None)  # sentinel
+
+    async def _run_candidate_asr(
+        candidate_route: str,
+        *,
+        candidate_source_lang: str | None,
+    ) -> tuple[list[Sentence], list[list[Sentence]], dict[str, Any]]:
+        candidate_batches: list[list[Sentence]] = []
+
+        def _collect_only(batch: list[Sentence], total_so_far: int) -> None:
+            del total_so_far
+            candidate_batches.append(list(batch))
+
+        candidate_sentences = await asyncio.to_thread(
+            pipeline.aligner.process,
+            clean_audio_path,
+            segments,
+            profile=profile,
+            on_chunk=_collect_only,
+            chunk_size=settings.CHUNK_SIZE,
+            audio_array=audio_array,
+            source_language=candidate_source_lang,
+            route_override=candidate_route,
+        )
+        usage = dict(getattr(pipeline.aligner, "last_route_usage", {}))
+        return candidate_sentences, candidate_batches, usage
 
     async def consumer() -> list[Sentence]:
         """Consume chunks from queue: CJK branch / non-CJK → NMT → Tier 2 upload."""
@@ -454,6 +583,11 @@ async def run_v2_pipeline_async(
             cjk_buffer = []
 
             t0 = _time.time()
+            if skip_cjk_semantic_merge:
+                logger.info(
+                    f"⏭️ CJK pre-segmented passthrough: {len(buf)} segments in {_time.time() - t0:.2f}s"
+                )
+                return list(buf)
             if len(buf) > 3 and merger.needs_merge(buf, src):
                 merged_groups: List[List[Sentence]] = merger.process(
                     buf,
@@ -784,56 +918,333 @@ async def run_v2_pipeline_async(
     )
     _publish_progress(progress, step, eta)
 
-    producer_task = asyncio.create_task(producer())
     nmt_prefetch_task = (
         asyncio.create_task(asyncio.to_thread(NMTTranslator.get_instance))
-        if nmt_prefetch_enabled
+        if nmt_prefetch_enabled and not trust_gate_active
         else None
     )
     all_sentences: list[Sentence]
+    route_usage: dict[str, Any] = {}
 
-    if translation_start_policy == "after_asr":
-        try:
-            await producer_task
+    if trust_gate_active:
+        trust_candidate_routes: list[str] = [selected_route]
+        if (
+            settings.AI_CHINESE_RECOVERY_ENABLE_SENSEVOICE
+            and "sensevoice_small" not in trust_candidate_routes
+        ):
+            trust_candidate_routes.append("sensevoice_small")
+        if (
+            settings.AI_CHINESE_RECOVERY_ENABLE_WHISPER_FULL
+            and "whisper_full" not in trust_candidate_routes
+        ):
+            trust_candidate_routes.append("whisper_full")
+
+        trusted_candidate_sentences: list[Sentence] | None = None
+        trusted_candidate_batches = None
+        candidate_history: list[CandidateSnapshot] = []
+        ownership_candidate_sentences: list[Sentence] | None = None
+        ownership_candidate_usage: dict[str, Any] = {}
+        ownership_candidate_stage = trust_stage
+
+        for route_index, candidate_route in enumerate(trust_candidate_routes):
+            if route_index == 0:
+                trust_stage = "first_pass"
+            elif candidate_route == "sensevoice_small":
+                trust_stage = "sensevoice_recovery"
+            else:
+                trust_stage = "whisper_full_recovery"
+
+            candidate_sentences, candidate_batches, candidate_usage = await _run_candidate_asr(
+                candidate_route,
+                candidate_source_lang=selected_source_lang or None,
+            )
+            normalize_result = normalize_chinese_candidate_sentences(candidate_sentences)
+            candidate_windows = profile_chinese_transcript_windows(normalize_result.sentences)
+            candidate_history.append(
+                CandidateSnapshot(
+                    route=str(candidate_usage.get("actual_route") or candidate_route),
+                    provider=str(candidate_usage.get("provider_id") or ""),
+                    sentences=[
+                        sentence.model_copy(deep=True)
+                        for sentence in normalize_result.sentences
+                    ],
+                )
+            )
+            candidate_diagnostics = dict(candidate_usage.get("diagnostics", {}))
+            candidate_decision = trust_gate.evaluate(
+                prior=chinese_prior,
+                sentences=normalize_result.sentences,
+                route_id=str(candidate_usage.get("actual_route") or candidate_route),
+                diagnostics=candidate_diagnostics,
+                probe_details=probe_details,
+                stage=trust_stage,
+                duration_seconds=duration_seconds,
+                windows=candidate_windows,
+            )
+            trust_attempts.append(
+                {
+                    "stage": trust_stage,
+                    "route": candidate_usage.get("actual_route") or candidate_route,
+                    "provider": candidate_usage.get("provider_id") or "",
+                    "normalize": normalize_result.as_metrics(),
+                    "decision": candidate_decision.as_metrics(),
+                }
+            )
+            _trace(
+                "trust_gate_evaluated",
+                stage=trust_stage,
+                route=candidate_usage.get("actual_route") or candidate_route,
+                decision=candidate_decision.verdict,
+                owner_score=candidate_decision.owner_score,
+                cleanliness_score=candidate_decision.cleanliness_score,
+                suspicious_score=candidate_decision.suspicious_score,
+                reasons=list(candidate_decision.reasons),
+            )
+            if candidate_decision.ownership_trusted and ownership_candidate_sentences is None:
+                ownership_candidate_sentences = [
+                    sentence.model_copy(deep=True) for sentence in normalize_result.sentences
+                ]
+                ownership_candidate_usage = dict(candidate_usage)
+                trust_decision = candidate_decision
+                trusted_candidate_batches = candidate_batches or _batch_sentences(
+                    normalize_result.sentences, settings.CHUNK_SIZE
+                )
+                ownership_candidate_stage = trust_stage
+                chinese_normalize_result = normalize_result
+                selected_route = str(candidate_usage.get("actual_route") or candidate_route)
+                selected_provider_id = str(candidate_usage.get("provider_id") or selected_provider_id)
+                selected_model_name = str(candidate_usage.get("model_id") or selected_model_name)
+
+            if candidate_decision.publish_ready:
+                trust_decision = candidate_decision
+                trusted_candidate_sentences = [
+                    sentence.model_copy(deep=True) for sentence in normalize_result.sentences
+                ]
+                route_usage = dict(candidate_usage)
+                break
+
+            await asyncio.to_thread(pipeline.aligner.unload_all)
+
+            if candidate_decision.verdict == "untrusted_fail":
+                trust_decision = candidate_decision
+                break
+
+        if trusted_candidate_sentences is None and ownership_candidate_sentences is not None:
+            trusted_candidate_sentences = [
+                sentence.model_copy(deep=True) for sentence in ownership_candidate_sentences
+            ]
+            route_usage = dict(ownership_candidate_usage)
+            trust_stage = ownership_candidate_stage
+            alternate_candidates = [
+                snapshot
+                for snapshot in candidate_history
+                if snapshot.route != selected_route and snapshot.sentences
+            ]
+            if trust_decision and trust_decision.repair_window_indexes and alternate_candidates:
+                chinese_repair_result = repair_chinese_candidate_windows(
+                    trusted_candidate_sentences,
+                    alternate_candidates,
+                    list(trust_decision.repair_window_indexes),
+                )
+                trusted_candidate_sentences = chinese_repair_result.sentences
+
+        if trusted_candidate_sentences is None:
+            trust_decision = trust_decision or TranscriptTrustDecision(
+                verdict="untrusted_fail",
+                owner_score=settings.AI_CHINESE_TRUST_OWNER_SUSPICIOUS_SCORE,
+                cleanliness_score=settings.AI_CHINESE_TRUST_REPAIR_SCORE,
+                suspicious_score=settings.AI_CHINESE_TRUST_FAIL_SCORE,
+                reasons=("recovery_exhausted",),
+                owner_reasons=("recovery_exhausted",),
+                cleanliness_reasons=(),
+                force_after_asr=True,
+                publication_blocked=True,
+                publish_ready=False,
+                ownership_trusted=False,
+                repair_window_indexes=(),
+                signals=trust_gate.evaluate(
+                    prior=chinese_prior,
+                    sentences=[],
+                    route_id=selected_route,
+                    diagnostics={},
+                    probe_details=probe_details,
+                    stage="whisper_full_recovery",
+                    duration_seconds=duration_seconds,
+                    windows=[],
+                ).signals,
+                window_metrics=(),
+            )
+            if settings.AI_CHINESE_FAIL_CLOSED:
+                raise ChineseTrustGateError(
+                    "Chinese transcript trust gate rejected all recovery candidates",
+                    {
+                        "media_id": media_id,
+                        "selected_route": selected_route,
+                        "trust_attempts": list(trust_attempts),
+                        "candidate_summaries": [
+                            {
+                                "route": snapshot.route,
+                                "provider": snapshot.provider,
+                                "sentence_count": len(snapshot.sentences),
+                                "preview": [sentence.text for sentence in snapshot.sentences[:4]],
+                            }
+                            for snapshot in candidate_history
+                        ],
+                        "recovery_actions": chinese_repair_result.as_metrics(),
+                        "trust_decision": trust_decision.as_metrics(),
+                    },
+                )
+            all_sentences = []
+        else:
+            chinese_refine_result = refine_chinese_primary_transcript(
+                trusted_candidate_sentences
+            )
+            trusted_candidate_sentences = chinese_refine_result.sentences
+            if not trusted_candidate_sentences:
+                raise RuntimeError(
+                    "Chinese-primary source cleaning removed all trusted transcript segments"
+                )
+            final_windows = profile_chinese_transcript_windows(trusted_candidate_sentences)
+            trust_decision = trust_gate.evaluate(
+                prior=chinese_prior,
+                sentences=trusted_candidate_sentences,
+                route_id=selected_route,
+                diagnostics=dict(route_usage.get("diagnostics", {})),
+                probe_details=probe_details,
+                stage="post_refine",
+                duration_seconds=duration_seconds,
+                windows=final_windows,
+            )
+            trust_attempts.append(
+                {
+                    "stage": "post_refine",
+                    "route": selected_route,
+                    "provider": route_usage.get("provider_id") or "",
+                    "decision": trust_decision.as_metrics(),
+                }
+            )
+            if not trust_decision.ownership_trusted:
+                raise ChineseTrustGateError(
+                    "Chinese transcript trust gate rejected refined candidate",
+                    {
+                        "media_id": media_id,
+                        "selected_route": selected_route,
+                        "trust_attempts": list(trust_attempts),
+                        "candidate_summaries": [
+                            {
+                                "route": snapshot.route,
+                                "provider": snapshot.provider,
+                                "sentence_count": len(snapshot.sentences),
+                                "preview": [sentence.text for sentence in snapshot.sentences[:4]],
+                            }
+                            for snapshot in candidate_history
+                        ],
+                        "recovery_actions": chinese_repair_result.as_metrics(),
+                        "trust_decision": trust_decision.as_metrics(),
+                    },
+                )
+            trusted_candidate_batches = _batch_sentences(
+                trusted_candidate_sentences, settings.CHUNK_SIZE
+            )
+            skip_cjk_semantic_merge = True
+            apply_chinese_pinyin(trusted_candidate_sentences)
+            trusted_source_lang = settings.normalize_language_tag(
+                chinese_prior.suspected_family
+                or str(
+                    route_usage.get("diagnostics", {}).get("detected_lang")
+                    or _detect_source_language(trusted_candidate_sentences)
+                )
+            ) or "zh"
+            source_lang_holder[0] = trusted_source_lang
+            update_media_status(
+                media_id,
+                user_id=user_id,
+                source_language=trusted_source_lang,
+            )
+            consumer_task = asyncio.create_task(consumer())
+            total_so_far = 0
+            for batch in trusted_candidate_batches:
+                total_so_far += len(batch)
+                await _replay_chunk(batch, total_so_far)
+            await queue.put(None)
             _trace(
                 "asr_completed",
                 route=selected_route,
-                translation_start_policy=translation_start_policy,
+                provider=selected_provider_id,
+                translation_start_policy=effective_translation_policy,
+                trust_stage=trust_stage,
+            )
+            _trace(
+                "chinese_primary_refined",
+                segment_count=len(trusted_candidate_sentences),
+                repair_replacements=len(chinese_repair_result.replacements),
+                dropped_count=len(chinese_refine_result.dropped_spans),
+                deduped_count=len(chinese_refine_result.deduped_spans),
+                normalization_hits=list(chinese_refine_result.normalization_hits),
             )
             logger.info(
-                f"🎙️ ASR complete on route={selected_route}; releasing ASR residency "
-                "before translation starts"
+                f"🎙️ Trusted Chinese-family transcript established on route={selected_route}; "
+                "releasing ASR residency before translation starts"
             )
             await asyncio.to_thread(pipeline.aligner.unload_all)
-            all_sentences = await consumer()
-        except Exception:
-            producer_task.cancel()
-            if nmt_prefetch_task is not None:
-                nmt_prefetch_task.cancel()
-            raise
-    else:
-        consumer_task = asyncio.create_task(consumer())
-        try:
-            await producer_task
-            _trace(
-                "asr_completed",
-                route=selected_route,
-                translation_start_policy=translation_start_policy,
-            )
             all_sentences = await consumer_task
-        except Exception:
-            producer_task.cancel()
-            consumer_task.cancel()
-            if nmt_prefetch_task is not None:
-                nmt_prefetch_task.cancel()
-            raise
+    else:
+        producer_task = asyncio.create_task(producer())
+        if effective_translation_policy == "after_asr":
+            try:
+                await producer_task
+                route_usage = dict(getattr(pipeline.aligner, "last_route_usage", {}))
+                completed_route = str(route_usage.get("actual_route", selected_route))
+                _trace(
+                    "asr_completed",
+                    route=completed_route,
+                    provider=route_usage.get("provider_id", selected_provider_id),
+                    translation_start_policy=effective_translation_policy,
+                )
+                logger.info(
+                    f"🎙️ ASR complete on route={completed_route}; releasing ASR residency "
+                    "before translation starts"
+                )
+                await asyncio.to_thread(pipeline.aligner.unload_all)
+                all_sentences = await consumer()
+            except Exception:
+                producer_task.cancel()
+                if nmt_prefetch_task is not None:
+                    nmt_prefetch_task.cancel()
+                raise
+        else:
+            consumer_task = asyncio.create_task(consumer())
+            try:
+                await producer_task
+                route_usage = dict(getattr(pipeline.aligner, "last_route_usage", {}))
+                completed_route = str(route_usage.get("actual_route", selected_route))
+                _trace(
+                    "asr_completed",
+                    route=completed_route,
+                    provider=route_usage.get("provider_id", selected_provider_id),
+                    translation_start_policy=effective_translation_policy,
+                )
+                all_sentences = await consumer_task
+            except Exception:
+                producer_task.cancel()
+                consumer_task.cancel()
+                if nmt_prefetch_task is not None:
+                    nmt_prefetch_task.cancel()
+                raise
 
     # ── Step 5: Final metadata + export ──────────────────────────────────
     detected_source_lang = (
-        _detect_source_language(all_sentences) if all_sentences else "en"
+        settings.normalize_language_tag(source_lang_holder[0])
+        or (_detect_source_language(all_sentences) if all_sentences else "en")
     )
-    model_used = selected_model_name
+    if not route_usage:
+        route_usage = dict(getattr(pipeline.aligner, "last_route_usage", {}))
+    actual_route = str(route_usage.get("actual_route") or selected_route)
+    actual_provider_id = str(route_usage.get("provider_id") or selected_provider_id)
+    model_used = str(route_usage.get("model_id") or selected_model_name)
     source_lang_holder[0] = detected_source_lang
+    if detected_source_lang in {"zh", "yue"}:
+        apply_chinese_pinyin(all_sentences)
 
     progress, step, eta = _reserve_progress(0.98, "EXPORTING")
     update_media_status(
@@ -860,11 +1271,33 @@ async def run_v2_pipeline_async(
         },
         "producer_wait": round(timing_state["producer_wait"], 3),
         "pipeline_total": round(pipeline_total, 3),
-        "route": selected_route,
-        "selected_asr_model": selected_model_name,
+        "route": actual_route,
+        "requested_route": selected_route,
+        "selected_asr_model": model_used,
+        "asr_provider": actual_provider_id,
         "probe_source_lang": probe_source_lang,
-        "translation_start_policy": translation_start_policy,
+        "requested_translation_start_policy": translation_start_policy,
+        "translation_start_policy": effective_translation_policy,
+        "auto_policy_downgraded": auto_policy_downgraded,
         "nmt_prefetch_used": nmt_prefetch_task is not None,
+        "asr_fallback_used": bool(route_usage.get("fallback_used", False)),
+        "asr_fallback_chain": list(route_decision.fallback_chain),
+        "trust_gate_active": trust_gate_active,
+        "trust_stage": trust_stage,
+        "trust_attempts": list(trust_attempts),
+        "trust_decision": trust_decision.as_metrics() if trust_decision else None,
+        "chinese_normalize": chinese_normalize_result.as_metrics(),
+        "chinese_repair": chinese_repair_result.as_metrics(),
+        "chinese_refine": chinese_refine_result.as_metrics(),
+        "chinese_prior": {
+            "prior_score": chinese_prior.prior_score,
+            "suspected_family": chinese_prior.suspected_family,
+            "confidence_band": chinese_prior.confidence_band,
+            "sources": list(chinese_prior.sources),
+            "probe_source_lang": chinese_prior.probe_source_lang,
+            "probe_near_tie": chinese_prior.probe_near_tie,
+            "probe_scores": list(chinese_prior.probe_scores),
+        },
     }
     logger.info(
         "⏱️ Pipeline: "

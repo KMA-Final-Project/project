@@ -10,6 +10,8 @@ _PUNCTUATION_PATTERN = re.compile(r"\s+([,.;:!?%\)\]\}])")
 _OPENING_BRACKET_PATTERN = re.compile(r"([\(\[\{])\s+")
 _APOSTROPHE_PATTERN = re.compile(r"\s+(['’][A-Za-z]+)")
 _HYPHEN_JOIN_PATTERN = re.compile(r"(?<=[A-Za-z0-9])\s*-\s*(?=[A-Za-z])")
+_LATIN_PATTERN = re.compile(r"[A-Za-z]")
+_ASCII_WORD_PATTERN = re.compile(r"[A-Za-z0-9]")
 
 
 def contains_cjk(text: str) -> bool:
@@ -31,5 +33,21 @@ def build_sentence_text_from_words(words: list[Word]) -> str:
     if not tokens:
         return ""
     if any(contains_cjk(token) for token in tokens):
-        return "".join(tokens)
+        return _build_mixed_script_text(tokens)
     return canonicalize_non_cjk_text(" ".join(tokens))
+
+
+def _build_mixed_script_text(tokens: list[str]) -> str:
+    result = ""
+    for token in tokens:
+        if not token:
+            continue
+        if _LATIN_PATTERN.search(token):
+            if result and not result.endswith(" ") and result[-1] not in ",.;:!?%)]}，。！？；：":
+                result += " "
+            result += token
+            continue
+        if contains_cjk(token) and result and _ASCII_WORD_PATTERN.search(result[-1]):
+            result += " "
+        result += token
+    return canonicalize_non_cjk_text(result)

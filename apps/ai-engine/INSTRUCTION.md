@@ -2,7 +2,7 @@
 
 ## 1. Module Role
 
-`apps/ai-engine` is the queue-driven Python GPU worker that owns the full audio-to-JSON subtitle pipeline. It downloads validated audio from MinIO, runs the active V2.1 hybrid async pipeline, uploads streaming and final artifacts, updates PostgreSQL status, and emits Redis progress events.
+`apps/ai-engine` is the queue-driven Python GPU worker that owns the full audio-to-JSON subtitle pipeline. It downloads validated audio from MinIO, runs the active V2.2 route-aware async pipeline, uploads streaming and final artifacts, updates PostgreSQL status, and emits Redis progress events.
 
 ## 2. Tech Stack
 
@@ -16,25 +16,32 @@
 - Settings: `pydantic-settings`
 - Local virtual environment: `apps/ai-engine/venv`
 
-## 3. Active V2.1 Pipeline
+## 3. Active V2.2 Pipeline
 
-The live orchestration runs through `src/async_pipeline.py`. Public behavior stays the same as V2, but the default single-worker runtime is now resource-aware so one 16GB GPU is not asked to keep multiple heavy Whisper routes and NMT resident at the same time.
+The live orchestration runs through `src/async_pipeline.py`. Public behavior stays the same as V2, but the runtime is now route-aware so `during_asr` overlap can stay active for lighter English-first routes while heavier or uncertified routes auto-fallback to `after_asr`.
 
 1. `AudioProcessor` - normalizes input audio to 16kHz mono WAV.
 2. `AudioInspector` - classifies audio as music-oriented or standard speech.
 3. `VADManager` - detects and merges speech regions and can isolate vocals for music-heavy audio.
-4. Source-language routing - uses `AI_SOURCE_LANGUAGE_HINT`, any local hint, or a short turbo-route probe to choose the main ASR route before transcription.
-5. `SmartAligner` - lazily loads only the chosen Whisper route for the job, produces word timestamps, enriches word phonemes, and emits Tier 1 chunk callbacks during ASR.
+4. Source-language routing - uses `AI_SOURCE_LANGUAGE_HINT`, any local hint, or a short turbo-route probe to choose the main ASR provider route before transcription.
+5. `SmartAligner` - acts as the ASR facade and routes each job to an internal provider:
+   - English default: Distil-Whisper via `faster-whisper`
+   - English/unknown fallback: Whisper turbo
+   - Chinese shipping default: SenseVoice Small
+   - Chinese fallback: Whisper full
+   - Chinese benchmark-only route: Paraformer
+   The facade keeps `Sentence` / `Word` output unchanged, enriches phonemes when possible, and emits Tier 1 chunk callbacks during ASR.
 6. `SemanticMerger` - performs language-aware line grouping and CJK homophone correction when merge logic is needed.
-7. `NMTTranslator` - translates batches with NLLB-200-3.3B via CTranslate2. In the default `AI_TRANSLATION_START_POLICY=after_asr` mode, NMT starts only after ASR unloads its heavy route and releases GPU residency.
+7. `NMTTranslator` - translates batches with NLLB-200-3.3B via CTranslate2. `AI_TRANSLATION_START_POLICY=during_asr` is the target UX mode, but the effective policy can auto-downgrade to `after_asr` when the chosen ASR route is not certified for overlap on 16GB VRAM.
 8. `LLMProvider` refinement (optional) - applies a post-NMT quality pass when `AI_ENABLE_LLM_REFINEMENT` is enabled.
 
-Default hybrid guardrails:
+Default runtime guardrails:
 
 - Tier 1 `chunks/` uploads and `chunk_ready` events stay live during ASR.
 - `translated_batches/`, `final.json`, socket event names, and progress semantics stay unchanged.
-- `WORKER_MODEL_MODE=auto` now means lazy per-job route selection, not eager dual-model startup.
-- `AI_ENABLE_NMT_PREFETCH` should stay `False` in the default single-GPU path unless benchmark evidence justifies overlap.
+- `WORKER_MODEL_MODE=auto` means lazy per-job route selection, not eager multi-model startup.
+- `AI_ENABLE_NMT_PREFETCH` should stay `False` in the default single-GPU path unless benchmark evidence justifies overlap for a certified route.
+- Uncertified routes may still be selected, but they must be allowed to auto-downgrade to `after_asr`.
 
 ## 4. Performance Profiles
 
@@ -50,9 +57,13 @@ Do not hardcode performance settings. The runtime is controlled by `AI_PERF_MODE
 
 Single-GPU runtime defaults:
 
-- `AI_TRANSLATION_START_POLICY=after_asr`
+- `AI_TRANSLATION_START_POLICY=during_asr`
 - `AI_SOURCE_LANGUAGE_PROBE_ENABLED=true`
 - `AI_ENABLE_NMT_PREFETCH=false`
+- `AI_ASR_DEFAULT_ROUTE_EN=distil_whisper_en`
+- `AI_ASR_DEFAULT_ROUTE_ZH=sensevoice_small`
+- `AI_ASR_FALLBACK_ROUTE_ZH=whisper_full`
+- `AI_ASR_DURING_ASR_CERTIFIED_ROUTES=distil_whisper_en,whisper_turbo,sensevoice_small`
 
 ## 5. Coding Standards
 

@@ -45,6 +45,10 @@ Backend API (NestJS)
 
 `apps/mobile-app` owns upload UX, authenticated session handling, socket-first processing feedback, and the incremental subtitle player that starts from translated batches before the final artifact exists. Read [apps/mobile-app/INSTRUCTION.md](apps/mobile-app/INSTRUCTION.md) for UI and workflow rules and [apps/mobile-app/CHECKPOINT.md](apps/mobile-app/CHECKPOINT.md) for shipped phases and known constraints.
 
+### Dashboard
+
+`apps/dashboard` is the **admin-only web control plane** for the platform. It provides real-time operator visibility into subscription plans, user accounts, media processing health, and BullMQ queue state. It is a Vite + React 19 + Tailwind CSS v4 SPA that exclusively consumes the backend `GET|POST|PATCH|DELETE /admin/*` endpoints with ADMIN-role JWT authentication. It has no direct access to the AI Engine, MinIO, Redis, or mobile flows. Read [apps/dashboard/INSTRUCTION.md](apps/dashboard/INSTRUCTION.md) for working rules and [apps/dashboard/CHECKPOINT.md](apps/dashboard/CHECKPOINT.md) for current feature status.
+
 ## 4. Key Use Cases
 
 ### UC_LIBRARY - Upload Flow
@@ -74,3 +78,5 @@ Backend API (NestJS)
 ## 6. For Agents
 
 Read `AGENTS.md` at the repository root first. Then read the active module's `INSTRUCTION.md` and `CHECKPOINT.md` before making changes so your work reflects the live contracts and current feature state.
+
+Active modules: **Backend API**, **AI Engine**, **Mobile App**, **Dashboard**.

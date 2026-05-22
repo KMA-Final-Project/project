@@ -11,6 +11,8 @@
 # --- Core AI & ASR (Speech Recognition) ---
 # Optimized Whisper implementation using CTranslate2 (Faster than OpenAI's original)
 faster-whisper>=1.2.1
+funasr>=1.2.4
+modelscope>=1.18.0
 
 # Timestamp Alignment & Hallucination Fixes
 # Used for refining long segments (Word-level timestamps)

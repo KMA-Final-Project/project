@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from threading import Lock
 from typing import Literal, List
@@ -62,6 +63,7 @@ class AudioInspector:
     """
 
     _shared_classifier = None
+    _classifier_unavailable: bool = False
     _classifier_lock: Lock = Lock()
 
     def __init__(self):
@@ -69,26 +71,44 @@ class AudioInspector:
 
     def _get_classifier(self):
         """Lazy-load the AST classifier once per process."""
+        if not settings.AI_AUDIO_INSPECTOR_ENABLED:
+            raise RuntimeError("AudioInspector disabled by configuration")
+        if type(self)._classifier_unavailable:
+            raise RuntimeError("AudioInspector classifier is unavailable in this process")
         if type(self)._shared_classifier is None:
             with type(self)._classifier_lock:
                 if type(self)._shared_classifier is None:
                     from transformers import pipeline
 
                     device = 0 if settings.DEVICE == "cuda" else -1
+                    cache_root = settings.AI_AUDIO_INSPECTOR_CACHE_DIR.resolve()
+                    hf_home = cache_root / "huggingface"
+                    hf_hub_cache = hf_home / "hub"
+                    hf_home.mkdir(parents=True, exist_ok=True)
+                    hf_hub_cache.mkdir(parents=True, exist_ok=True)
+                    os.environ.setdefault("HF_HOME", str(hf_home))
+                    os.environ.setdefault("HF_HUB_CACHE", str(hf_hub_cache))
                     logger.info(
                         "Loading AST audio classifier: MIT/ast-finetuned-audioset-10-10-0.4593"
                     )
-                    type(self)._shared_classifier = pipeline(
-                        "audio-classification",
-                        model="MIT/ast-finetuned-audioset-10-10-0.4593",
-                        device=device,
-                    )
+                    try:
+                        type(self)._shared_classifier = pipeline(
+                            "audio-classification",
+                            model="MIT/ast-finetuned-audioset-10-10-0.4593",
+                            device=device,
+                        )
+                    except Exception:
+                        type(self)._classifier_unavailable = True
+                        raise
                     logger.success("AST audio classifier loaded successfully.")
         return type(self)._shared_classifier
 
     @classmethod
     def prewarm(cls) -> None:
         """Eagerly load the shared AST classifier for this process."""
+        if not settings.AI_AUDIO_INSPECTOR_ENABLED:
+            logger.info("Skipping AudioInspector prewarm because it is disabled.")
+            return
         cls()._get_classifier()
 
     def inspect(self, file_path: Path | str) -> Literal["music", "standard"]:
@@ -104,6 +124,14 @@ class AudioInspector:
         """
         path = Path(file_path)
         if not path.exists():
+            return "standard"
+        if not settings.AI_AUDIO_INSPECTOR_ENABLED:
+            logger.info("AudioInspector disabled; using 'standard' profile.")
+            return "standard"
+        if type(self)._classifier_unavailable:
+            logger.warning(
+                "AudioInspector classifier previously failed to load; using 'standard' profile."
+            )
             return "standard"
 
         logger.info(f"Inspecting profile with AST (multi-segment): {path.name}")

@@ -45,6 +45,7 @@ services:
       - ai_temp:/app/temp
       # Mount Whisper model cache so models are not re-downloaded on restart
       - whisper_cache:/root/.cache/huggingface
+      - asr_provider_cache:/root/.cache/modelscope
     restart: unless-stopped
     profiles:
       - auto
@@ -79,6 +80,7 @@ services:
       - ai_outputs_2:/app/outputs
       - ai_temp_2:/app/temp
       - whisper_cache:/root/.cache/huggingface
+      - asr_provider_cache:/root/.cache/modelscope
     restart: unless-stopped
     profiles:
       - dual
@@ -110,6 +112,7 @@ services:
       - ai_outputs:/app/outputs
       - ai_temp:/app/temp
       - whisper_cache:/root/.cache/huggingface
+      - asr_provider_cache:/root/.cache/modelscope
     restart: unless-stopped
     profiles:
       - turbo
@@ -141,6 +144,7 @@ services:
       - ai_outputs:/app/outputs
       - ai_temp:/app/temp
       - whisper_cache:/root/.cache/huggingface
+      - asr_provider_cache:/root/.cache/modelscope
     restart: unless-stopped
     profiles:
       - full
@@ -152,3 +156,4 @@ volumes:
   ai_temp_2:
   # Persistent Hugging Face cache — avoids re-downloading Whisper models on container restart
   whisper_cache:
+  asr_provider_cache:

@@ -44,6 +44,7 @@ When changing an accepted decision:
 - [ADR-013 — Sign client-facing MinIO URLs with the public endpoint client directly](#adr-013--sign-client-facing-minio-urls-with-the-public-endpoint-client-directly)
 - [ADR-014 — Keep mobile dependent on Backend API, not directly on AI Engine](#adr-014--keep-mobile-dependent-on-backend-api-not-directly-on-ai-engine)
 - [ADR-015 — Adopt the V2.1 hybrid after-ASR runtime for single-GPU AI Engine workers](#adr-015--adopt-the-v21-hybrid-after-asr-runtime-for-single-gpu-ai-engine-workers)
+- [ADR-016 — Use ASR provider routing so `during_asr` stays the target UX mode on 16GB GPUs](#adr-016--use-asr-provider-routing-so-during_asr-stays-the-target-ux-mode-on-16gb-gpus)
 
 ---
 
@@ -529,7 +530,7 @@ Backend is the authenticated product boundary. Direct mobile-to-AI Engine commun
 
 ## ADR-015 — Adopt the V2.1 hybrid after-ASR runtime for single-GPU AI Engine workers
 
-Status: Accepted
+Status: Superseded by ADR-016
 
 ### Decision
 
@@ -568,6 +569,58 @@ The previous eager-overlap interpretation of V2 could push one 16GB GPU worker t
 - `apps/ai-engine/src/async_pipeline.py`
 - `apps/ai-engine/src/core/smart_aligner.py`
 - `apps/ai-engine/src/core/nmt_translator.py`
+- `apps/ai-engine/src/scripts/benchmark_suite.py`
+
+---
+
+## ADR-016 — Use ASR provider routing so `during_asr` stays the target UX mode on 16GB GPUs
+
+Status: Accepted
+
+### Decision
+
+Keep the public V2 pipeline contract unchanged, but move AI Engine ASR selection behind an internal provider-routing layer.
+
+The accepted default direction is:
+
+- English default route: Distil-Whisper via `faster-whisper`
+- English/unknown fallback: Whisper turbo
+- Chinese shipping default: Whisper full until an alternative route is benchmark-certified
+- Chinese prototype routes: SenseVoice Small and Paraformer behind config
+- Requested `AI_TRANSLATION_START_POLICY=during_asr` remains the target UX mode
+- The effective policy may auto-downgrade to `after_asr` for uncertified or fallback-heavy routes
+
+### Reason
+
+V2.1 proved that pure scheduling changes are not enough. `after_asr` is stable but delays the first translated batch too much, while `during_asr` is only practical if the selected ASR model can coexist with NMT on a 16GB GPU.
+
+The real blocker is ASR residency and route fit by language:
+
+- English does not need the same multilingual heavy route strategy as Chinese
+- Chinese needs dedicated prototype candidates judged by timestamp compatibility, not CER alone
+- The pipeline needs a route-aware place to decide whether overlap is safe without changing backend or mobile contracts
+
+### Tradeoffs
+
+- The AI Engine now owns more internal routing complexity.
+- Some routes are available only as experimental providers until timing quality and VRAM behavior are certified.
+- The worker may request `during_asr` but still run `after_asr` for a given job when the selected route is not certified.
+- Benchmark reporting must become more explicit about provider, route, and effective policy.
+
+### Guardrails
+
+- Do not change `chunks/`, `translated_batches/`, `final.json`, queue payloads, socket event names, or public progress semantics as part of this decision.
+- Do not reintroduce `processingMode` or revive deleted V1 translation paths.
+- Do not treat FunASR prototype routes as shipping defaults until they pass route-level benchmark and timestamp-quality gates.
+- Keep `Sentence` / `Word` as the internal normalization boundary for every ASR provider.
+
+### Related Files
+
+- `apps/ai-engine/INSTRUCTION.md`
+- `apps/ai-engine/CHECKPOINT.md`
+- `apps/ai-engine/src/core/asr/`
+- `apps/ai-engine/src/core/smart_aligner.py`
+- `apps/ai-engine/src/async_pipeline.py`
 - `apps/ai-engine/src/scripts/benchmark_suite.py`
 
 ---
