@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bullmq';
-import { TranscriptionJobPayload, TRANSCRIPTION_QUEUE } from './queue.types';
+import {
+  AI_PROCESSING_QUEUE,
+  TranscriptionJobPayload,
+  TRANSCRIPTION_QUEUE,
+} from './queue.types';
 
 /**
  * Queue Producer service — dispatches transcription jobs to Redis via BullMQ.
@@ -19,6 +23,8 @@ export class QueueService {
   constructor(
     @InjectQueue(TRANSCRIPTION_QUEUE)
     private readonly transcriptionQueue: Queue,
+    @InjectQueue(AI_PROCESSING_QUEUE)
+    private readonly aiProcessingQueue: Queue,
   ) {}
 
   /**
@@ -45,5 +51,35 @@ export class QueueService {
     );
 
     return job.id!;
+  }
+
+  async getQueueOverview() {
+    const [transcription, aiProcessing] = await Promise.all([
+      this.getQueueMetrics(this.transcriptionQueue, TRANSCRIPTION_QUEUE),
+      this.getQueueMetrics(this.aiProcessingQueue, AI_PROCESSING_QUEUE),
+    ]);
+
+    return [transcription, aiProcessing];
+  }
+
+  private async getQueueMetrics(queue: Queue, name: string) {
+    const counts = await queue.getJobCounts(
+      'waiting',
+      'active',
+      'completed',
+      'failed',
+      'delayed',
+      'paused',
+    );
+
+    return {
+      name,
+      waiting: counts.waiting ?? 0,
+      active: counts.active ?? 0,
+      completed: counts.completed ?? 0,
+      failed: counts.failed ?? 0,
+      delayed: counts.delayed ?? 0,
+      paused: counts.paused ?? 0,
+    };
   }
 }

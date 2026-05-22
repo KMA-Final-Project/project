@@ -44,7 +44,7 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
       translateY.value = withTiming(SHEET_HEIGHT, { duration: 220 });
       backdropOpacity.value = withTiming(0, { duration: 200 });
     }
-  }, [visible]); // translateY and backdropOpacity are stable shared values
+  }, [visible, translateY, backdropOpacity]);
 
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],

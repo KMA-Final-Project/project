@@ -27,7 +27,7 @@ export function SubtitlePreview({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>{t(titleKey)}</Text>
+      <Text style={styles.heading}>{t(titleKey as any)}</Text>
 
       {sentences.map((sentence, index) => (
         <View key={`${sentence.start}-${index}`} style={styles.sentenceCard}>

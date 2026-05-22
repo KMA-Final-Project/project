@@ -90,16 +90,17 @@ YOUR TASK:
 - Keep lines that are already complete sentences as-is.
 
 CRITICAL CONSTRAINTS:
-1. **DO NOT CHANGE ANY WORDS**: The output text must be the exact concatenation (with a space separator) of the input lines you merged. Do not rephrase, correct, or alter any words.
+1. **GROUPING ONLY**: Do not return text. The system will reconstruct the final subtitle text locally from the original source lines.
 2. Every input index must appear in exactly one output group.
+3. Keep source_indices strictly increasing inside each group.
 
 INPUT FORMAT:
 Indexed lines (e.g., "[0] Raw Text...").
 
 OUTPUT FORMAT (Strict JSON List):
 [
-    {{"text": "Merged sentence from lines 0 and 1", "source_indices": [0, 1]}},
-    {{"text": "Complete line 2 unchanged", "source_indices": [2]}},
+  {{"source_indices": [0, 1]}},
+  {{"source_indices": [2]}},
     ...
 ]
 """

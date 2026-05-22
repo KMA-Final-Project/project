@@ -1,36 +1,40 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Role } from 'prisma/generated/client';
 
 export class UserProfileDto {
   @ApiProperty({ example: 'uuid-string' })
-  id: string;
+  id!: string;
 
   @ApiProperty({ example: 'user@example.com' })
-  email: string;
+  email!: string;
 
   @ApiProperty({ example: 'John Doe' })
-  fullName: string;
+  fullName!: string;
 
   @ApiProperty({ example: true })
-  emailVerified: boolean;
+  emailVerified!: boolean;
+
+  @ApiProperty({ enum: Role, example: Role.ADMIN })
+  role!: Role;
 }
 
 export class TokensDto {
   @ApiProperty({ description: 'JWT access token (short-lived)' })
-  accessToken: string;
+  accessToken!: string;
 
   @ApiProperty({ description: 'Refresh token (long-lived)' })
-  refreshToken: string;
+  refreshToken!: string;
 }
 
 export class AuthResponseDto {
   @ApiProperty({ type: UserProfileDto })
-  user: UserProfileDto;
+  user!: UserProfileDto;
 
   @ApiProperty({ type: TokensDto })
-  tokens: TokensDto;
+  tokens!: TokensDto;
 }
 
 export class MessageResponseDto {
   @ApiProperty({ example: 'Operation completed successfully' })
-  message: string;
+  message!: string;
 }

@@ -379,16 +379,24 @@ export default function PlayerScreen() {
           </Text>
         </View>
 
-        <IconButton
-          name={mediaItem?.originUrl ? "open-outline" : "ellipsis-horizontal"}
-          size={24}
-          color={headerTextColor}
-          onPress={
-            mediaItem?.originUrl
-              ? handleOpenYoutube
-              : () => setLayersVisible(true)
-          }
-        />
+        <View style={styles.headerActions}>
+          {mediaItem?.originUrl ? (
+            <IconButton
+              name="logo-youtube"
+              size={24}
+              color="#EF4444"
+              onPress={handleOpenYoutube}
+              accessibilityLabel="Open on YouTube"
+            />
+          ) : null}
+          <IconButton
+            name="layers-outline"
+            size={24}
+            color={headerTextColor}
+            onPress={() => setLayersVisible(true)}
+            accessibilityLabel="Layer Settings"
+          />
+        </View>
       </View>
 
       <View style={styles.content}>
@@ -568,6 +576,11 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[4],
     paddingBottom: theme.spacing[4],
     gap: theme.spacing[4],
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
   },
   headerTitles: {
     flex: 1,

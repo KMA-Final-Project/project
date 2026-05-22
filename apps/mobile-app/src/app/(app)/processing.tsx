@@ -71,8 +71,11 @@ export default function ProcessingScreen() {
   const insets = useSafeAreaInsets();
 
   const { data: media, isLoading } = useMediaStatus(id ?? null);
-  const { data: artifacts, isFetching: artifactsRefreshing } =
-    useMediaArtifacts(id ?? null);
+  const {
+    data: artifacts,
+    isFetching: artifactsRefreshing,
+    refetch: refetchArtifacts,
+  } = useMediaArtifacts(id ?? null);
 
   // Throttle raw progress to reduce re-renders on the ring (bypass for terminal states)
   const rawProgress = media?.progress ?? 0;
@@ -102,6 +105,12 @@ export default function ProcessingScreen() {
   React.useEffect(() => {
     sameLanguageNoticeShownRef.current = null;
   }, [id]);
+
+  React.useEffect(() => {
+    if (media?.status === "COMPLETED") {
+      refetchArtifacts();
+    }
+  }, [media?.status, refetchArtifacts]);
 
   React.useEffect(() => {
     const detectedSourceLanguage = media?.sourceLanguage?.toLowerCase() ?? null;

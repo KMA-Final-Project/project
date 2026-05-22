@@ -71,6 +71,11 @@ export const darkTheme: AppTheme = {
       translationText: player.translationText,
       activeSentenceBg: player.activeSentenceBg,
     },
+
+    badge: {
+      background: palette.gray700,
+      text: palette.gray50,
+    },
   },
 
   typography: {

@@ -38,6 +38,8 @@ export const palette = {
   black: "#000000",
 
   whiteBlue: "#F7FBFF",
+  iceBlue: "#F0F4F8",
+  lightBlue: "#e3f2fd",
 
   gray50: "#F9FAFB",
   gray100: "#F3F4F6",

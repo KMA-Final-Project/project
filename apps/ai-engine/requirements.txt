@@ -11,6 +11,8 @@
 # --- Core AI & ASR (Speech Recognition) ---
 # Optimized Whisper implementation using CTranslate2 (Faster than OpenAI's original)
 faster-whisper>=1.2.1
+funasr>=1.2.4
+modelscope>=1.18.0
 
 # Timestamp Alignment & Hallucination Fixes
 # Used for refining long segments (Word-level timestamps)
@@ -36,6 +38,8 @@ ffmpeg-python>=0.2.0
 # Tool for translating text (Placeholder for future Offline Model)
 deep-translator>=1.11.4
 ollama>=0.1.6
+openai>=1.99.0
+google-genai>=1.36.0
 
 # --- Translation (NMT via NLLB-200 + CTranslate2) ---
 # CTranslate2 is already installed via faster-whisper

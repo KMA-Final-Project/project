@@ -31,8 +31,9 @@ export default function AppLayout() {
   const hiddenTabRoutes = new Set(["processing", "player", "media-picker"]);
   const activeLeafSegment = segments[segments.length - 1];
   const shouldHideTabBar =
-    typeof activeLeafSegment === "string" &&
-    hiddenTabRoutes.has(activeLeafSegment);
+    (typeof activeLeafSegment === "string" &&
+      hiddenTabRoutes.has(activeLeafSegment)) ||
+    (segments as string[]).includes("onboarding");
 
   const handleCloseUpload = () => {
     setUploadVisible(false);
@@ -120,6 +121,7 @@ export default function AppLayout() {
         <Tabs.Screen name="processing" options={{ href: null }} />
         <Tabs.Screen name="player" options={{ href: null }} />
         <Tabs.Screen name="media-picker" options={{ href: null }} />
+        <Tabs.Screen name="onboarding" options={{ href: null }} />
       </Tabs>
 
       <UploadModals visible={uploadVisible} onClose={handleCloseUpload} />

@@ -91,6 +91,7 @@
       "failed": "Failed"
     },
     "empty": "No media found",
+    "emptySubtitle": "Import audio, video or paste a YouTube link to generate subtitles",
     "generating": "Generating subtitles...",
     "playerReady": "Ready"
   },
@@ -104,6 +105,7 @@
     "fromYoutube": "From YouTube",
     "fromYoutubeDesc": "Paste a YouTube video link",
     "supportedFormats": "Supported formats: MP3, MP4, WAV, M4A",
+    "quotaRemaining": "Remaining quota: {{remaining}}/{{total}} mins",
     "modalTitle": "YouTube Video",
     "pastePlaceholder": "https://youtube.com/...",
     "pasteClipboard": "Paste from clipboard"
@@ -112,5 +114,43 @@
     "audioMode": "Audio Mode",
     "videoMode": "Video Mode",
     "speed": "Speed"
+  },
+  "settings": {
+    "quotaTitle": "Subscription Quota",
+    "quotaMinutes": "{{remaining}} of {{total}} mins remaining",
+    "quotaReset": "Resets next billing cycle",
+    "targetLanguage": "Subtitle Translation",
+    "appearance": "Appearance",
+    "interfaceLanguage": "Interface Language",
+    "current": "Current: {{value}}"
+  },
+  "welcome": {
+    "title": "Welcome to Kapter",
+    "description": "Turn any media into an interactive learning environment with synchronized translations, phonetics, and interactive play.",
+    "getStarted": "Get Started",
+    "tagline": "Turn media into a bilingual workspace"
+  },
+  "onboarding": {
+    "appLanguage": {
+      "title": "Choose App Language",
+      "subtitle": "Select your preferred language for the application interface."
+    },
+    "targetLanguage": {
+      "title": "Select Subtitle Translation",
+      "subtitle": "Choose the default language you want subtitles to be translated into."
+    },
+    "learningLanguages": {
+      "title": "Languages to Practice",
+      "subtitle": "Select one or more languages you want to study or watch content in.",
+      "done": "Complete Setup"
+    }
+  },
+  "mediaPicker": {
+    "title": "Select Media",
+    "permissionRequired": "Permission required to access media library.",
+    "grantPermission": "Grant Permission",
+    "noMedia": "No audio or video files found.",
+    "video": "Video",
+    "audio": "Audio"
   }
 }

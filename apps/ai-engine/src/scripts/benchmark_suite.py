@@ -1,9 +1,10 @@
 """Benchmark suite for the local AI engine processing pipeline.
 
-Runs the real V2 async processing path directly against the downloaded audio
-fixtures in `apps/ai-engine/benchmark/audios` with infrastructure side effects
-disabled. No Redis notifications, DB status writes, or MinIO uploads are used
-for the benchmark run itself.
+Runs the real V2 async processing path directly against the YouTube cases listed
+in `apps/ai-engine/test_medias.md`. Each case is downloaded as audio-only into
+`apps/ai-engine/benchmark/audios` when needed, then benchmarked with
+infrastructure side effects disabled. No Redis notifications, DB status writes,
+or MinIO uploads are used for the benchmark run itself.
 
 Outputs:
   - Per-case subtitle JSON files (kept separate from reports)
@@ -15,7 +16,7 @@ Outputs:
 Usage:
     python -m src.scripts.benchmark_suite
     python -m src.scripts.benchmark_suite --list-cases
-    python -m src.scripts.benchmark_suite --case english_habit_ted
+    python -m src.scripts.benchmark_suite --case english_01_-moW9jvvMr4
 """
 
 from __future__ import annotations
@@ -25,22 +26,28 @@ import asyncio
 import json
 import time
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
 import ffmpeg
 from loguru import logger
+from yt_dlp import YoutubeDL
 
 from src import async_pipeline as processing_pipeline
 from src.config import settings
 from src.core.pipeline import PipelineOrchestrator
+from src.scripts.benchmark_manifest import (
+    BenchmarkCase,
+    TEST_MEDIA_URLS_BY_FAMILY,
+    load_benchmark_cases,
+)
 from src.utils.hardware_profiler import HardwareProfiler, ProfileReport
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 BENCHMARK_AUDIO_DIR = PROJECT_ROOT / "benchmark" / "audios"
 OUTPUT_ROOT = PROJECT_ROOT / settings.OUTPUT_DIR / "benchmarks"
+AUDIO_DOWNLOAD_EXTENSION = "mp3"
 
 
 class ProcessingOnlyMinioClient:
@@ -91,63 +98,24 @@ def _prepare_processing_only_runtime() -> None:
     processing_pipeline.publish_batch_ready = _noop
 
 
-@dataclass(frozen=True)
-class BenchmarkCase:
-    case_id: str
-    filename: str
-    source_family: str
-    target_lang: str
-    label: str
-    notes: str
-
-
-BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
-    BenchmarkCase(
-        case_id="english_habit_ted",
-        filename="A Simple Way to Break a Bad Habit ｜ Judson Brewer ｜ TED.mp3",
-        source_family="english",
-        target_lang="vi",
-        label="English to Vietnamese - TED talk (habit)",
-        notes="English speech baseline with longer-form talk pacing.",
-    ),
-    BenchmarkCase(
-        case_id="english_good_life_ted",
-        filename="What Makes a Good Life？ Lessons from the Longest Study on Happiness ｜ Robert Waldinger ｜ TED.mp3",
-        source_family="english",
-        target_lang="vi",
-        label="English to Vietnamese - TED talk (good life)",
-        notes="English speech baseline with dense narrative sentences.",
-    ),
-    BenchmarkCase(
-        case_id="chinese_cooking_dialogue",
-        filename="Cooking Together - Chinese Mandarin Dialogue.mp3",
-        source_family="chinese",
-        target_lang="vi",
-        label="Chinese to Vietnamese - cooking dialogue",
-        notes="Mandarin dialogue sample expected to exercise the CJK merge path.",
-    ),
-    BenchmarkCase(
-        case_id="chinese_blind_date_dialogue",
-        filename="First Blind Date in Chinese｜Beginner Mandarin Dialogue with Pinyin + English Subtitles.mp3",
-        source_family="chinese",
-        target_lang="vi",
-        label="Chinese to Vietnamese - blind date dialogue",
-        notes="Mandarin dialogue sample with likely shorter conversational turns.",
-    ),
-)
-
-
-def _find_case(case_id: str) -> BenchmarkCase:
-    for case in BENCHMARK_CASES:
+def _find_case(case_id: str, benchmark_cases: Iterable[BenchmarkCase]) -> BenchmarkCase:
+    available_cases = list(benchmark_cases)
+    for case in available_cases:
         if case.case_id == case_id:
             return case
-    raise KeyError(f"Unknown benchmark case: {case_id}")
+    available_case_ids = ", ".join(case.case_id for case in available_cases)
+    raise KeyError(
+        f"Unknown benchmark case: {case_id}. Available cases: {available_case_ids}"
+    )
 
 
-def _selected_cases(case_ids: list[str] | None) -> list[BenchmarkCase]:
+def _selected_cases(
+    case_ids: list[str] | None,
+    benchmark_cases: tuple[BenchmarkCase, ...],
+) -> list[BenchmarkCase]:
     if not case_ids:
-        return list(BENCHMARK_CASES)
-    return [_find_case(case_id) for case_id in case_ids]
+        return list(benchmark_cases)
+    return [_find_case(case_id, benchmark_cases) for case_id in case_ids]
 
 
 def _probe_duration_seconds(audio_path: Path) -> float:
@@ -168,7 +136,75 @@ def _file_size_mb(audio_path: Path) -> float:
     return round(audio_path.stat().st_size / (1024 * 1024), 2)
 
 
-def _trace_time(trace: list[dict[str, Any]], event: str, *, last: bool = False) -> float | None:
+def _case_audio_path(case: BenchmarkCase) -> Path:
+    return BENCHMARK_AUDIO_DIR / f"{case.case_id}.{AUDIO_DOWNLOAD_EXTENSION}"
+
+
+def _legacy_case_audio_path(case: BenchmarkCase) -> Path | None:
+    video_id = case.case_id.split("_", 1)[1]
+    matches = sorted(
+        BENCHMARK_AUDIO_DIR.glob(
+            f"{case.source_family}_*_{video_id}.{AUDIO_DOWNLOAD_EXTENSION}"
+        )
+    )
+    return matches[0] if matches else None
+
+
+def _download_audio_fixture(
+    case: BenchmarkCase,
+) -> tuple[Path, str | None, bool, float]:
+    BENCHMARK_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    audio_path = _case_audio_path(case)
+    if audio_path.exists():
+        logger.info(
+            f"Using cached benchmark audio for {case.case_id}: {audio_path.name}"
+        )
+        return audio_path, None, True, 0.0
+
+    legacy_audio_path = _legacy_case_audio_path(case)
+    if legacy_audio_path is not None and legacy_audio_path.exists():
+        legacy_audio_path.replace(audio_path)
+        logger.info(
+            f"Migrated cached benchmark audio for {case.case_id}: {legacy_audio_path.name} -> {audio_path.name}"
+        )
+        return audio_path, None, True, 0.0
+
+    download_started_at = time.perf_counter()
+    logger.info(
+        f"Downloading benchmark audio for {case.case_id} from {case.source_url}"
+    )
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": str(BENCHMARK_AUDIO_DIR / f"{case.case_id}.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        # The default web client is currently tripping YouTube bot checks in this environment.
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": AUDIO_DOWNLOAD_EXTENSION,
+                "preferredquality": "192",
+            }
+        ],
+    }
+
+    with YoutubeDL(ydl_opts) as downloader:
+        info = downloader.extract_info(case.source_url, download=True)
+
+    if not audio_path.exists():
+        raise FileNotFoundError(
+            f"Downloaded benchmark audio is missing for {case.case_id}: {audio_path}"
+        )
+
+    download_s = round(time.perf_counter() - download_started_at, 3)
+    return audio_path, info.get("title"), False, download_s
+
+
+def _trace_time(
+    trace: list[dict[str, Any]], event: str, *, last: bool = False
+) -> float | None:
     matches = [entry["t"] for entry in trace if entry.get("event") == event]
     if not matches:
         return None
@@ -208,9 +244,15 @@ def _compute_stage_metrics(
         "vad_s": _round_or_none(delta(vad_done, inspect_done)),
         "time_to_first_chunk_s": _round_or_none(first_chunk),
         "time_to_first_translated_batch_s": _round_or_none(first_batch),
-        "first_batch_after_first_chunk_s": _round_or_none(delta(first_batch, first_chunk)),
-        "translated_batches_visible_window_s": _round_or_none(delta(completed_at, first_batch)),
-        "finalization_after_last_batch_s": _round_or_none(delta(completed_at, last_batch)),
+        "first_batch_after_first_chunk_s": _round_or_none(
+            delta(first_batch, first_chunk)
+        ),
+        "translated_batches_visible_window_s": _round_or_none(
+            delta(completed_at, first_batch)
+        ),
+        "finalization_after_last_batch_s": _round_or_none(
+            delta(completed_at, last_batch)
+        ),
         "pipeline_completed_at_s": _round_or_none(completed_at),
         "wall_clock_total_s": round(wall_clock_s, 3),
     }
@@ -234,15 +276,21 @@ def _output_metrics(output: Any) -> dict[str, Any]:
     segments = list(output.segments)
     segment_count = len(segments)
     total_word_count = sum(len(segment.words) for segment in segments)
-    total_segment_duration = sum(max(0.0, segment.end - segment.start) for segment in segments)
+    total_segment_duration = sum(
+        max(0.0, segment.end - segment.start) for segment in segments
+    )
     translation_filled = sum(1 for segment in segments if segment.translation.strip())
     phonetic_filled = sum(1 for segment in segments if segment.phonetic.strip())
 
     return {
         "segment_count": segment_count,
         "word_count_total": total_word_count,
-        "avg_words_per_segment": round(total_word_count / segment_count, 2) if segment_count else 0.0,
-        "avg_segment_duration_s": round(total_segment_duration / segment_count, 3) if segment_count else 0.0,
+        "avg_words_per_segment": (
+            round(total_word_count / segment_count, 2) if segment_count else 0.0
+        ),
+        "avg_segment_duration_s": (
+            round(total_segment_duration / segment_count, 3) if segment_count else 0.0
+        ),
         "translation_filled_segments": translation_filled,
         "phonetic_filled_segments": phonetic_filled,
     }
@@ -272,8 +320,8 @@ def _hardware_metrics(report: ProfileReport | None) -> dict[str, Any] | None:
 
 def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
     rows = [
-        "| Case | Status | Source | Duration (s) | Wall Clock (s) | RTF | First Batch (s) | Segments | Profile | Model |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Case | Status | Source | Provider | Route | Policy | Prefetch | Duration (s) | Wall Clock (s) | RTF | First Chunk (s) | First Batch (s) | Segments | Profile | Model |",
+        "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for result in case_results:
         metrics = result.get("metrics", {})
@@ -281,14 +329,21 @@ def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
         detected = metrics.get("detected", {})
         output_stats = metrics.get("output", {})
         rows.append(
-            "| {case_id} | {status} | {source} | {duration} | {wall_clock} | {rtf} | {first_batch} | {segments} | {profile} | {model} |".format(
+            "| {case_id} | {status} | {source} | {provider} | {route} | {policy} | {prefetch} | {duration} | {wall_clock} | {rtf} | {first_chunk} | {first_batch} | {segments} | {profile} | {model} |".format(
                 case_id=result["case_id"],
                 status=result["status"],
                 source=detected.get("source_lang", result["source_family"]),
+                provider=detected.get("asr_provider", "-"),
+                route=detected.get("route", "-"),
+                policy=detected.get("translation_start_policy", "-"),
+                prefetch="yes" if detected.get("nmt_prefetch_used") else "no",
                 duration=runtime.get("audio_duration_s", "-"),
                 wall_clock=runtime.get("wall_clock_s", "-"),
                 rtf=runtime.get("real_time_factor", "-"),
-                first_batch=metrics.get("stages", {}).get("time_to_first_translated_batch_s", "-"),
+                first_chunk=metrics.get("stages", {}).get("time_to_first_chunk_s", "-"),
+                first_batch=metrics.get("stages", {}).get(
+                    "time_to_first_translated_batch_s", "-"
+                ),
                 segments=output_stats.get("segment_count", "-"),
                 profile=detected.get("profile", "-"),
                 model=detected.get("model_used", "-"),
@@ -297,7 +352,9 @@ def _suite_case_table_rows(case_results: Iterable[dict[str, Any]]) -> list[str]:
     return rows
 
 
-def _family_averages(case_results: Iterable[dict[str, Any]]) -> dict[str, dict[str, float]]:
+def _family_averages(
+    case_results: Iterable[dict[str, Any]],
+) -> dict[str, dict[str, float]]:
     grouped: dict[str, dict[str, list[float]]] = {}
     for result in case_results:
         if result["status"] != "completed":
@@ -309,14 +366,22 @@ def _family_averages(case_results: Iterable[dict[str, Any]]) -> dict[str, dict[s
             {
                 "wall_clock_s": [],
                 "real_time_factor": [],
+                "first_chunk_s": [],
                 "first_batch_s": [],
                 "segments": [],
                 "consumer_merge_s": [],
                 "consumer_nmt_s": [],
             },
         )
-        grouped[family]["wall_clock_s"].append(float(metrics["runtime"]["wall_clock_s"]))
-        grouped[family]["real_time_factor"].append(float(metrics["runtime"]["real_time_factor"]))
+        grouped[family]["wall_clock_s"].append(
+            float(metrics["runtime"]["wall_clock_s"])
+        )
+        grouped[family]["real_time_factor"].append(
+            float(metrics["runtime"]["real_time_factor"])
+        )
+        first_chunk = metrics["stages"].get("time_to_first_chunk_s")
+        if first_chunk is not None:
+            grouped[family]["first_chunk_s"].append(float(first_chunk))
         first_batch = metrics["stages"].get("time_to_first_translated_batch_s")
         if first_batch is not None:
             grouped[family]["first_batch_s"].append(float(first_batch))
@@ -331,7 +396,9 @@ def _family_averages(case_results: Iterable[dict[str, Any]]) -> dict[str, dict[s
         for metric_name, metric_values in values.items():
             if not metric_values:
                 continue
-            averages[family][metric_name] = round(sum(metric_values) / len(metric_values), 3)
+            averages[family][metric_name] = round(
+                sum(metric_values) / len(metric_values), 3
+            )
     return averages
 
 
@@ -352,11 +419,14 @@ def _render_case_markdown(case_result: dict[str, Any]) -> str:
         f"- Case ID: {case_result['case_id']}",
         f"- Status: {case_result['status']}",
         f"- Audio file: {case_result['audio_file']}",
+        f"- Source URL: {case_result['source_url']}",
         f"- Source family: {case_result['source_family']}",
         f"- Target language: {case_result['target_lang']}",
         f"- Notes: {case_result['notes']}",
         "",
         "## Runtime",
+        f"- Audio download: {runtime['download_audio_s']} s",
+        f"- Cached download reused: {runtime['used_cached_audio']}",
         f"- Audio duration: {runtime['audio_duration_s']} s",
         f"- File size: {runtime['file_size_mb']} MB",
         f"- Wall clock: {runtime['wall_clock_s']} s",
@@ -366,8 +436,16 @@ def _render_case_markdown(case_result: dict[str, Any]) -> str:
         "## Detection",
         f"- Audio profile: {detected['profile']}",
         f"- Source language: {detected['source_lang']}",
+        f"- Probe source language: {detected['probe_source_lang']}",
         f"- Target language: {detected['target_lang']}",
-        f"- Whisper model: {detected['model_used']}",
+        f"- ASR provider: {detected['asr_provider']}",
+        f"- Selected route: {detected['route']}",
+        f"- Requested translation policy: {detected['requested_translation_start_policy']}",
+        f"- Effective translation policy: {detected['translation_start_policy']}",
+        f"- Auto policy downgraded: {detected['auto_policy_downgraded']}",
+        f"- NMT prefetch used: {detected['nmt_prefetch_used']}",
+        f"- ASR fallback used: {detected['asr_fallback_used']}",
+        f"- ASR model: {detected['model_used']}",
         f"- LLM refinement enabled: {detected['llm_refinement_enabled']}",
         "",
         "## Stage Metrics",
@@ -430,9 +508,13 @@ def _render_case_markdown(case_result: dict[str, Any]) -> str:
             ]
         )
 
-    lines.extend(["", "## Timeline", "", "| t (s) | Event | Payload |", "| ---: | --- | --- |"])
+    lines.extend(
+        ["", "## Timeline", "", "| t (s) | Event | Payload |", "| ---: | --- | --- |"]
+    )
     for entry in trace:
-        payload = {key: value for key, value in entry.items() if key not in {"event", "t"}}
+        payload = {
+            key: value for key, value in entry.items() if key not in {"event", "t"}
+        }
         lines.append(f"| {entry['t']} | {entry['event']} | {payload} |")
 
     return "\n".join(lines) + "\n"
@@ -462,10 +544,12 @@ def _render_suite_markdown(summary: dict[str, Any]) -> str:
     ]
 
     if family_averages:
-        lines.extend([
-            "| Family | Avg Wall Clock (s) | Avg RTF | Avg First Batch (s) | Avg Segments | Avg Merge (s) | Avg NMT (s) |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ])
+        lines.extend(
+            [
+                "| Family | Avg Wall Clock (s) | Avg RTF | Avg First Batch (s) | Avg Segments | Avg Merge (s) | Avg NMT (s) |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
         for family, metrics in family_averages.items():
             lines.append(
                 "| {family} | {wall_clock} | {rtf} | {first_batch} | {segments} | {merge} | {nmt} |".format(
@@ -486,27 +570,37 @@ def _render_suite_markdown(summary: dict[str, Any]) -> str:
         english = family_averages["english"]
         chinese = family_averages["chinese"]
         if chinese.get("consumer_merge_s", 0.0) > english.get("consumer_merge_s", 0.0):
-            lines.append("- Chinese runs spent more time in merge than English runs, which matches the expected CJK branch behavior.")
+            lines.append(
+                "- Chinese runs spent more time in merge than English runs, which matches the expected CJK branch behavior."
+            )
         if chinese.get("first_batch_s", 0.0) > english.get("first_batch_s", 0.0):
-            lines.append("- Chinese runs reached the first translated batch later than English runs on average.")
+            lines.append(
+                "- Chinese runs reached the first translated batch later than English runs on average."
+            )
         if chinese.get("real_time_factor", 0.0) > english.get("real_time_factor", 0.0):
-            lines.append("- Chinese runs were slower relative to source duration than English runs on average.")
-    lines.append("- Subtitle text is intentionally excluded from these reports; see the separate final JSON outputs for transcript content.")
-    lines.append("- This suite benchmarks processing only. Database updates, Redis notifications, and MinIO uploads are disabled during the run.")
+            lines.append(
+                "- Chinese runs were slower relative to source duration than English runs on average."
+            )
+    lines.append(
+        "- Subtitle text is intentionally excluded from these reports; see the separate final JSON outputs for transcript content."
+    )
+    lines.append(
+        "- This suite benchmarks processing only. Database updates, Redis notifications, and MinIO uploads are disabled during the run."
+    )
 
     return "\n".join(lines) + "\n"
 
 
 async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
-    audio_path = BENCHMARK_AUDIO_DIR / case.filename
-    if not audio_path.exists():
-        raise FileNotFoundError(f"Benchmark audio not found: {audio_path}")
-
+    audio_path, downloaded_title, used_cached_audio, download_audio_s = (
+        _download_audio_fixture(case)
+    )
     case_started_at = time.perf_counter()
     wall_clock_started_at = time.time()
     audio_duration_s = round(_probe_duration_seconds(audio_path), 3)
     run_media_id = f"benchmark-{case.case_id}-{uuid.uuid4().hex[:8]}"
     user_id = f"benchmark-user-{uuid.uuid4().hex[:8]}"
+    case_label = downloaded_title or case.label
 
     logger.info(
         f"Running benchmark case {case.case_id} | audio={audio_path.name} | target={case.target_lang}"
@@ -564,6 +658,22 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
             "target_lang": output.metadata.target_lang,
             "model_used": output.metadata.model_used,
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "asr_provider": str(run_metrics.get("asr_provider", "")),
+            "route": run_metrics.get("route", ""),
+            "probe_source_lang": run_metrics.get("probe_source_lang", ""),
+            "requested_translation_start_policy": run_metrics.get(
+                "requested_translation_start_policy",
+                settings.translation_start_policy,
+            ),
+            "translation_start_policy": run_metrics.get(
+                "translation_start_policy",
+                settings.translation_start_policy,
+            ),
+            "auto_policy_downgraded": bool(
+                run_metrics.get("auto_policy_downgraded", False)
+            ),
+            "nmt_prefetch_used": bool(run_metrics.get("nmt_prefetch_used", False)),
+            "asr_fallback_used": bool(run_metrics.get("asr_fallback_used", False)),
         }
         output_stats = _output_metrics(output)
     else:
@@ -571,8 +681,28 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
             "profile": settings.AI_PERF_MODE.value,
             "source_lang": "",
             "target_lang": case.target_lang,
-            "model_used": "",
+            "model_used": str(run_metrics.get("selected_asr_model", "")),
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "asr_provider": str(run_metrics.get("asr_provider", "")),
+            "route": str(run_metrics.get("route", "")),
+            "probe_source_lang": str(run_metrics.get("probe_source_lang", "")),
+            "requested_translation_start_policy": str(
+                run_metrics.get(
+                    "requested_translation_start_policy",
+                    settings.translation_start_policy,
+                )
+            ),
+            "translation_start_policy": str(
+                run_metrics.get(
+                    "translation_start_policy",
+                    settings.translation_start_policy,
+                )
+            ),
+            "auto_policy_downgraded": bool(
+                run_metrics.get("auto_policy_downgraded", False)
+            ),
+            "nmt_prefetch_used": bool(run_metrics.get("nmt_prefetch_used", False)),
+            "asr_fallback_used": bool(run_metrics.get("asr_fallback_used", False)),
         }
         output_stats = {
             "segment_count": 0,
@@ -584,11 +714,17 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
         }
 
     runtime = {
+        "download_audio_s": download_audio_s,
+        "used_cached_audio": used_cached_audio,
         "audio_duration_s": audio_duration_s,
         "file_size_mb": _file_size_mb(audio_path),
         "wall_clock_s": wall_clock_s,
-        "real_time_factor": round(wall_clock_s / audio_duration_s, 3) if audio_duration_s else None,
-        "throughput_multiplier": round(audio_duration_s / wall_clock_s, 3) if wall_clock_s else None,
+        "real_time_factor": (
+            round(wall_clock_s / audio_duration_s, 3) if audio_duration_s else None
+        ),
+        "throughput_multiplier": (
+            round(audio_duration_s / wall_clock_s, 3) if wall_clock_s else None
+        ),
     }
 
     metrics = {
@@ -608,9 +744,10 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
     case_result = {
         "case_id": case.case_id,
         "audio_file": audio_path.name,
+        "source_url": case.source_url,
         "source_family": case.source_family,
         "target_lang": case.target_lang,
-        "label": case.label,
+        "label": case_label,
         "notes": case.notes,
         "status": status,
         "error": error_message,
@@ -618,8 +755,12 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
         "final_json_path": str(final_json_path) if output is not None else None,
         "metrics_json_path": str(metrics_json_path),
         "report_md_path": str(report_md_path),
-        "hardware_profile_txt_path": str(profiler.last_txt_path) if profiler.last_txt_path else None,
-        "hardware_profile_csv_path": str(profiler.last_csv_path) if profiler.last_csv_path else None,
+        "hardware_profile_txt_path": (
+            str(profiler.last_txt_path) if profiler.last_txt_path else None
+        ),
+        "hardware_profile_csv_path": (
+            str(profiler.last_csv_path) if profiler.last_csv_path else None
+        ),
     }
 
     metrics_json_path.write_text(
@@ -634,7 +775,11 @@ async def _run_case(case: BenchmarkCase, suite_dir: Path) -> dict[str, Any]:
     return case_result
 
 
-async def run_suite(case_ids: list[str] | None, output_dir: Path | None = None) -> Path:
+async def run_suite(
+    case_ids: list[str] | None,
+    output_dir: Path | None = None,
+) -> Path:
+    benchmark_cases = load_benchmark_cases()
     suite_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     suite_dir = (output_dir or OUTPUT_ROOT) / f"suite_{suite_timestamp}"
     (suite_dir / "cases").mkdir(parents=True, exist_ok=True)
@@ -642,11 +787,13 @@ async def run_suite(case_ids: list[str] | None, output_dir: Path | None = None) 
     (suite_dir / "profiles").mkdir(parents=True, exist_ok=True)
 
     case_results: list[dict[str, Any]] = []
-    selected_cases = _selected_cases(case_ids)
+    selected_cases = _selected_cases(case_ids, benchmark_cases)
     for case in selected_cases:
         case_results.append(await _run_case(case, suite_dir))
 
-    completed_count = sum(1 for result in case_results if result["status"] == "completed")
+    completed_count = sum(
+        1 for result in case_results if result["status"] == "completed"
+    )
     failed_count = len(case_results) - completed_count
 
     summary = {
@@ -662,8 +809,16 @@ async def run_suite(case_ids: list[str] | None, output_dir: Path | None = None) 
             "device": settings.DEVICE,
             "nmt_compute_type": settings.NMT_COMPUTE_TYPE,
             "llm_refinement_enabled": settings.AI_ENABLE_LLM_REFINEMENT,
+            "asr_default_route_en": settings.asr_default_route_en,
+            "asr_default_route_zh": settings.asr_default_route_zh,
             "chunk_size": settings.CHUNK_SIZE,
             "smart_aligner_group_size": settings.SMART_ALIGNER_GROUP_SIZE,
+        },
+        "catalog": {
+            "benchmark_case_count": len(benchmark_cases),
+            "test_media_url_counts_by_family": {
+                family: len(urls) for family, urls in TEST_MEDIA_URLS_BY_FAMILY.items()
+            },
         },
         "family_averages": _family_averages(case_results),
         "case_results": case_results,
@@ -688,11 +843,12 @@ async def run_suite(case_ids: list[str] | None, output_dir: Path | None = None) 
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the local AI engine benchmark suite")
+    parser = argparse.ArgumentParser(
+        description="Run the local AI engine benchmark suite"
+    )
     parser.add_argument(
         "--case",
         action="append",
-        choices=[case.case_id for case in BENCHMARK_CASES],
         help="Run only the selected benchmark case. Can be passed multiple times.",
     )
     parser.add_argument(
@@ -711,12 +867,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.list_cases:
-        for case in BENCHMARK_CASES:
-            print(f"{case.case_id}: {case.label} | {case.filename}")
-        return
+    try:
+        benchmark_cases = load_benchmark_cases()
+        if args.list_cases:
+            for case in benchmark_cases:
+                print(f"{case.case_id}: {case.label} | {case.source_url}")
+            return
 
-    asyncio.run(run_suite(args.case, args.output_dir))
+        asyncio.run(run_suite(args.case, args.output_dir))
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

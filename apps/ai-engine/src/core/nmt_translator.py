@@ -54,7 +54,15 @@ class NMTTranslator:
     def get_instance(cls) -> "NMTTranslator":
         if cls._instance is None:
             cls._instance = cls()
+        else:
+            cls._instance.ensure_loaded()
         return cls._instance
+
+    @classmethod
+    def unload_instance(cls, *, to_cpu: bool = False) -> None:
+        if cls._instance is None:
+            return
+        cls._instance.unload(to_cpu=to_cpu)
 
     def __init__(self) -> None:
         preferred: str = settings.NMT_COMPUTE_TYPE
@@ -119,6 +127,24 @@ class NMTTranslator:
                 f"NMTTranslator ready — compute_type={actual_compute_type}, device={settings.DEVICE}"
             )
 
+    @property
+    def is_loaded(self) -> bool:
+        return bool(self.translator and self.translator.model_is_loaded)
+
+    def ensure_loaded(self) -> None:
+        if self.translator is None:
+            raise RuntimeError("NMTTranslator is not initialized")
+        if self.translator.model_is_loaded:
+            return
+        logger.info("NMTTranslator: reloading model on initial device")
+        self.translator.load_model(keep_cache=True)
+
+    def unload(self, *, to_cpu: bool = False) -> None:
+        if self.translator is None or not self.translator.model_is_loaded:
+            return
+        logger.info("NMTTranslator: unloading model from initial device")
+        self.translator.unload_model(to_cpu=to_cpu)
+
     # ------------------------------------------------------------------
     # Core translation methods
     # ------------------------------------------------------------------
@@ -142,6 +168,8 @@ class NMTTranslator:
         """
         if not texts:
             return []
+
+        self.ensure_loaded()
 
         if source_lang not in NLLB_LANG_MAP:
             logger.warning(

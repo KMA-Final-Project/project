@@ -4,6 +4,8 @@ import {
   Text,
   ActivityIndicator,
   type PressableProps,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import Animated, {
@@ -18,6 +20,7 @@ interface ButtonProps extends Omit<PressableProps, "style"> {
   title: string;
   loading?: boolean;
   variant?: "primary" | "secondary";
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Button({
@@ -25,6 +28,7 @@ export function Button({
   loading = false,
   variant = "primary",
   disabled,
+  style,
   ...props
 }: ButtonProps) {
   const scale = useSharedValue(1);
@@ -41,6 +45,7 @@ export function Button({
         styles.button,
         variant === "secondary" && styles.buttonSecondary,
         isDisabled && styles.buttonDisabled,
+        style,
         animatedStyle,
       ]}
       disabled={isDisabled}
@@ -78,7 +83,7 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
   },
   buttonSecondary: {
-    backgroundColor: "transparent",
+    backgroundColor: theme.colors.secondaryLight,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -91,7 +96,7 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.textOnPrimary,
   },
   textSecondary: {
-    color: theme.colors.text,
+    color: theme.colors.textInverse,
   },
   textDisabled: {
     color: theme.colors.disabledText,

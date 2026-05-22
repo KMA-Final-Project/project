@@ -4,8 +4,8 @@
  * TanStack Query hooks for all media-related operations.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import { mediaService } from "@/services/media.services";
+import { useOnboarding } from "./useOnboarding";
 import type {
   ConfirmUploadResponse,
   MediaItem,
@@ -109,14 +109,14 @@ export function useMediaArtifacts(id: string | null) {
  */
 export function useSubmitYouTube() {
   const queryClient = useQueryClient();
-  const { i18n } = useTranslation();
+  const { defaultTargetLanguage } = useOnboarding();
 
   return useMutation({
     mutationFn: (payload: { url: string; title?: string }) =>
       mediaService.submitYouTube({
         url: payload.url,
         title: payload.title,
-        targetLanguage: i18n.language,
+        targetLanguage: defaultTargetLanguage,
       }),
     onSuccess: (response) => {
       const queuedItem = buildQueuedMediaItem(
@@ -139,7 +139,7 @@ export function useSubmitYouTube() {
  */
 export function useUploadMedia() {
   const queryClient = useQueryClient();
-  const { i18n } = useTranslation();
+  const { defaultTargetLanguage } = useOnboarding();
 
   return useMutation({
     mutationFn: async (file: {
@@ -169,7 +169,7 @@ export function useUploadMedia() {
       return mediaService.confirmUpload({
         title,
         objectKey: objectKey,
-        targetLanguage: i18n.language,
+        targetLanguage: defaultTargetLanguage,
       });
     },
     onSuccess: (response) => {

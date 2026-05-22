@@ -91,20 +91,22 @@ REPRESENTATIVE_MEDIA_MATRIX: dict[str, RepresentativeMediaExpectation] = {
         filename="demo_audio_3.mp3",
         label="technical talkshow baseline",
         category="standard_baseline",
-        enforce_chunk_count_equality=True,
+        enforce_chunk_count_equality=False,
         notes=(
-            "Treat this as the standard-path baseline. Tier 1 chunk totals, Tier 2 "
-            "translated totals, and final.json segment totals should stay aligned."
+            "Treat this as the standard semantic-first baseline. Tier 1 chunk totals "
+            "may exceed Tier 2/final totals because downstream semantic batching can "
+            "merge acoustic fragments before translation."
         ),
     ),
     "demo_audio_4.mp3": RepresentativeMediaExpectation(
         filename="demo_audio_4.mp3",
         label="English speech baseline",
         category="standard_baseline",
-        enforce_chunk_count_equality=True,
+        enforce_chunk_count_equality=False,
         notes=(
-            "Treat this as the English speech baseline. It should follow the direct "
-            "non-CJK path with stable 1:1 counts across chunk, batch, and final layers."
+            "Treat this as the English speech baseline. It now follows the semantic-first "
+            "non-CJK path, so Tier 1 fragments may collapse into fewer translated/final "
+            "segments when the merger repairs sentence boundaries."
         ),
     ),
 }
@@ -117,10 +119,11 @@ def get_media_expectation(audio_filename: str) -> RepresentativeMediaExpectation
             filename=audio_filename,
             label="generic sample",
             category="generic",
-            enforce_chunk_count_equality=True,
+            enforce_chunk_count_equality=False,
             notes=(
-                "Unknown sample file. Default to standard-path validation and tighten "
-                "or relax expectations only after inspecting the actual source-language path."
+                "Unknown sample file. Default to semantic-first validation: Tier 1 chunk "
+                "counts may exceed translated/final counts when downstream semantic "
+                "batching repairs fragmented sentences."
             ),
         ),
     )
@@ -349,13 +352,13 @@ def validate_uploaded_artifacts(
         )
     else:
         assert chunk_sentence_total >= batch_segment_total, (
-            f"{expectation.filename} is the CJK edge path: expected Tier 1 sentence total "
-            "to be greater than or equal to translated/final totals"
+            f"{expectation.filename} follows the semantic-first path: expected Tier 1 "
+            "sentence total to be greater than or equal to translated/final totals"
         )
         if chunk_sentence_total == batch_segment_total:
             logger.warning(
-                "CJK edge sample did not compress Tier 1→Tier 2 counts on this run. "
-                "That is allowed, but do not treat it as the generic baseline."
+                "Semantic batching did not compress Tier 1→Tier 2 counts on this run. "
+                "That is allowed, but do not assume chunk totals must always equal final totals."
             )
 
     first_batch = next(

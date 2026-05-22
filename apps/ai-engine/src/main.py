@@ -11,8 +11,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
-import tempfile
 import time as _time
 from pathlib import Path
 
@@ -25,8 +25,9 @@ from src.core.audio_inspector import AudioInspector
 from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
 from src.core.smart_aligner import SmartAligner
+from src.core.transcript_trust_gate import ChineseTrustGateError
 from src.core.vad_manager import VADManager
-from src.db import mark_quota_counted, update_media_status
+from src.db import fetch_media_context, mark_quota_counted, update_media_status
 from src.events import publish_completed, publish_failed
 from src.minio_client import MinioClient
 from src.pipelines import run_v2_pipeline
@@ -61,12 +62,26 @@ def prewarm_heavy_components() -> None:
     Intentionally excludes Ollama/LLM warmup because the external model runner is
     heavier, less stable under VRAM pressure, and not required for the fast path.
     """
-    components: list[tuple[str, callable]] = [
-        ("SmartAligner", SmartAligner),
+
+    def _prewarm_aligner() -> None:
+        aligner = SmartAligner()
+        prewarm_routes = aligner.prewarm_route_ids()
+        if not prewarm_routes:
+            logger.info(
+                "   SmartAligner prewarm kept lazy because "
+                "ASR routes are selected per job"
+            )
+            return
+        for route in prewarm_routes:
+            aligner.ensure_route_loaded(route)
+
+    components: list[tuple[str, object]] = [
+        ("SmartAligner", _prewarm_aligner),
         ("AudioInspector", AudioInspector.prewarm),
-        ("NMTTranslator", NMTTranslator.get_instance),
         ("VADManager", VADManager),
     ]
+    if settings.nmt_prefetch_enabled:
+        components.insert(2, ("NMTTranslator", NMTTranslator.get_instance))
 
     logger.info("🔥 AI_PREWARM_MODELS enabled — prewarming heavy components...")
     started_at = _time.perf_counter()
@@ -79,6 +94,31 @@ def prewarm_heavy_components() -> None:
 
     total_elapsed = _time.perf_counter() - started_at
     logger.success(f"✅ Heavy component prewarm complete in {total_elapsed:.2f}s")
+
+
+def release_hybrid_residency() -> None:
+    """Release heavy ASR/NMT residency between jobs."""
+
+    try:
+        SmartAligner().unload_all()
+    except Exception as exc:
+        logger.warning(f"Hybrid cleanup: failed to unload SmartAligner routes: {exc}")
+
+    try:
+        NMTTranslator.unload_instance()
+    except Exception as exc:
+        logger.warning(f"Hybrid cleanup: failed to unload NMTTranslator: {exc}")
+
+
+def _write_trust_gate_failure_dump(media_id: str, payload: dict) -> Path:
+    failure_dir = settings.OUTPUT_DIR.resolve() / "trust_gate_failures"
+    failure_dir.mkdir(parents=True, exist_ok=True)
+    target = failure_dir / f"{media_id}.json"
+    target.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return target
 
 
 # ============================================================================
@@ -102,6 +142,8 @@ async def process_job(job, token):
     audio_s3_key = job_data["audioS3Key"]
     duration_seconds = job_data.get("durationSeconds", 0)
     user_id = job_data["userId"]
+    source_language_hint = job_data.get("sourceLanguage") or None
+    media_context = fetch_media_context(media_id)
 
     logger.info(
         f"🚀 Job {job.id} started | media: {media_id} | "
@@ -112,9 +154,13 @@ async def process_job(job, token):
     minio_client = MinioClient()
     pipeline = PipelineOrchestrator()
     profiler = HardwareProfiler(interval=2.0)
+    release_hybrid_residency()
 
     # Create temp working directory
-    work_dir = Path(tempfile.mkdtemp(prefix=f"bilingual-ai-{media_id[:8]}-"))
+    work_dir = settings.TEMP_DIR.resolve() / (
+        f"bilingual-ai-{media_id[:8]}-{int(_time.time() * 1000)}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         # Start hardware profiling
@@ -139,6 +185,8 @@ async def process_job(job, token):
             started_at=started_at,
             target_lang=target_lang,
             duration_seconds=duration_seconds,
+            source_language_hint=source_language_hint,
+            media_context=media_context,
         )
         pipeline_elapsed = _time.perf_counter() - pipeline_started_at
         logger.info(
@@ -176,6 +224,33 @@ async def process_job(job, token):
             f"{len(subtitle_output.segments)} segments"
         )
 
+    except ChineseTrustGateError as e:
+        dump_path = _write_trust_gate_failure_dump(
+            media_id,
+            {
+                "job_id": str(job.id),
+                "media_id": media_id,
+                "payload": e.payload,
+            },
+        )
+        logger.error(
+            f"❌ Job {job.id} failed | media: {media_id} | {e} | "
+            f"trust_dump={dump_path}"
+        )
+        logger.error(
+            "Chinese trust gate payload: "
+            + json.dumps(e.payload, ensure_ascii=False)
+        )
+        reason = str(e)[:500]
+        update_media_status(
+            media_id,
+            user_id=user_id,
+            status="FAILED",
+            fail_reason=reason,
+            clear_step=True,
+        )
+        publish_failed(media_id=media_id, user_id=user_id, reason=reason)
+        raise
     except Exception as e:
         logger.error(f"❌ Job {job.id} failed | media: {media_id} | {e}")
         reason = str(e)[:500]
@@ -192,6 +267,7 @@ async def process_job(job, token):
     finally:
         # Stop profiler (writes report even on failure)
         profiler.stop()
+        release_hybrid_residency()
         # Clean up temp directory
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -208,6 +284,14 @@ async def main():
     logger.info(f"   MinIO: {settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}")
     logger.info(f"   Device: {settings.DEVICE} (index {settings.DEVICE_INDEX})")
     logger.info(f"   Mode: {settings.AI_PERF_MODE.value}")
+    logger.info(f"   Worker model mode: {settings.WORKER_MODEL_MODE}")
+    logger.info(f"   ASR default route (en): {settings.asr_default_route_en}")
+    logger.info(f"   ASR default route (zh): {settings.asr_default_route_zh}")
+    logger.info(
+        f"   Experimental zh route enabled: {settings.AI_ASR_ENABLE_EXPERIMENTAL_ZH_ROUTE}"
+    )
+    logger.info(f"   Translation start policy: {settings.translation_start_policy}")
+    logger.info(f"   NMT prefetch enabled: {settings.nmt_prefetch_enabled}")
 
     configure_vram_limit()
 

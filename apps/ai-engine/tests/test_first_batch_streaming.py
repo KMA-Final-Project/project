@@ -65,6 +65,32 @@ class FakeVADManager:
 
 
 class FakeAligner:
+    def route_for_language(self, language: str | None) -> str:
+        normalized = (language or "").lower()
+        if normalized == "yue" or normalized.split("-")[0] in {"zh", "ja", "ko"}:
+            return "full"
+        return "turbo"
+
+    def resolve_route(self, route: str) -> str:
+        return route
+
+    def probe_source_language(
+        self,
+        file_path: Path,
+        segments: list[VADSegment],
+        *,
+        audio_array=None,
+        max_segments: int | None = None,
+        max_seconds: float | None = None,
+    ) -> str | None:
+        return None
+
+    def unload_route(self, route: str, *, to_cpu: bool = False) -> str:
+        return route
+
+    def unload_all(self, *, to_cpu: bool = False) -> None:
+        return None
+
     def process(
         self,
         file_path: Path,
@@ -73,6 +99,8 @@ class FakeAligner:
         on_chunk=None,
         chunk_size: int = 8,
         audio_array=None,
+        source_language: str | None = None,
+        route_override: str | None = None,
     ) -> list[Sentence]:
         batch_1 = [_make_sentence(0, "Hello")]
         batch_2 = [_make_sentence(1, "world")]
@@ -85,6 +113,18 @@ class FakeAligner:
 class FakeMerger:
     def needs_merge(self, sentences: list[Sentence], source_lang: str = "en") -> bool:
         return False
+
+    def process_stream_window(
+        self,
+        sentences: list[Sentence],
+        *,
+        source_lang: str = "en",
+        context_style: str = "Speech/Dialogue",
+        core_size: int | None = None,
+    ) -> tuple[list[Sentence], int]:
+        if core_size is None:
+            core_size = len(sentences)
+        return list(sentences[:core_size]), core_size
 
     def process(
         self,
@@ -161,6 +201,10 @@ class FakeNMTTranslatorHolder:
     def get_instance() -> FakeNMT:
         return FakeNMT()
 
+    @staticmethod
+    def unload_instance(*, to_cpu: bool = False) -> None:
+        return None
+
 
 class FakePipeline:
     def __init__(self):
@@ -201,6 +245,29 @@ class FakePipelineWithRecordingLLM(FakePipeline):
 
 
 class CjkFakeAligner:
+    def route_for_language(self, language: str | None) -> str:
+        return "full"
+
+    def resolve_route(self, route: str) -> str:
+        return route
+
+    def probe_source_language(
+        self,
+        file_path: Path,
+        segments: list[VADSegment],
+        *,
+        audio_array=None,
+        max_segments: int | None = None,
+        max_seconds: float | None = None,
+    ) -> str | None:
+        return "zh"
+
+    def unload_route(self, route: str, *, to_cpu: bool = False) -> str:
+        return route
+
+    def unload_all(self, *, to_cpu: bool = False) -> None:
+        return None
+
     def process(
         self,
         file_path: Path,
@@ -209,6 +276,8 @@ class CjkFakeAligner:
         on_chunk=None,
         chunk_size: int = 8,
         audio_array=None,
+        source_language: str | None = None,
+        route_override: str | None = None,
     ) -> list[Sentence]:
         batch_1 = [
             Sentence(
@@ -384,7 +453,7 @@ def test_pipeline_runs_llm_context_and_refinement_when_enabled(
     )
 
     assert pipeline.llm.analyze_calls == 1
-    assert pipeline.llm.refine_calls == 2
+    assert pipeline.llm.refine_calls == 1
 
 
 def test_cjk_buffer_skips_standalone_homophone_correction_when_merge_not_needed(
@@ -498,8 +567,8 @@ def test_representative_media_matrix_keeps_demo_audio_2_out_of_standard_baseline
         get_media_expectation("demo_audio_2.mp3").enforce_chunk_count_equality is False
     )
     assert (
-        get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is True
+        get_media_expectation("demo_audio_3.mp3").enforce_chunk_count_equality is False
     )
     assert (
-        get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is True
+        get_media_expectation("demo_audio_4.mp3").enforce_chunk_count_equality is False
     )

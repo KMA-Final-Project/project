@@ -1,82 +1,104 @@
-# Mobile App (Kapter) - Development Rules & Guidelines
+# Mobile App - Agent Instruction
 
-## 1. Architecture Overview
+## 1. Module Role
 
--   **Framework:** React Native / Expo (v54+)
--   **Routing:** Expo Router (File-based routing)
--   **Language:** TypeScript
--   **Structure:**
-    ```text
-    src/
-    ├── app/             # Expo Router pages (/(auth), /(app), _layout.tsx)
-    ├── components/      # Reusable UI components (grouped by domain e.g., auth, media, player)
-    ├── services/        # API integration (Axios clients, token storage wrappers)
-    ├── stores/          # Global state management (Zustand)
-    ├── theme/           # Design tokens, layout configurations (react-native-unistyles)
-    ├── i18n/            # Localization setup and translation JSON files
-    ├── constants/       # App-wide constants (routes, API endpoints)
-    ├── validations/     # Zod schemas for input validation
-    ├── types/           # Shared TypeScript interfaces & DTOs
-    └── hooks/           # Custom React hooks (theme preference, language, etc.)
-    ```
--   **Package Management:** Use `pnpm` workspace tools at the monorepo root or package level.
+`apps/mobile-app` is the client application that captures user intent, handles authenticated uploads, reflects processing state, and renders the interactive subtitle player. It is responsible for client-side audio extraction, direct-to-MinIO upload flow, socket-first progress UX, and incremental playback from translated subtitle batches.
 
-## 2. Core Philosophy & Responsibilities
+## 2. Tech Stack
 
--   **Client-Side Processing (Crucial):** To save server bandwidth and cut infrastructure costs, the mobile app MUST extract audio from video files locally *before* uploading to the server.
--   **Direct-to-Cloud Uploads:** Upload media files directly to the cloud storage (MinIO/S3) using presigned URLs provided by the Backend API. Avoid passing large binary files through the NestJS backend.
--   **Async UX:** Generating subtitles using the AI Engine takes time. The app must provide a robust, offline-friendly UI, status polling (or SSE) for tracked media items, and clear "processing", "validating", or "failed" states.
+- Framework: Expo / React Native
+- Routing: Expo Router
+- State: Zustand
+- Networking: Axios
+- Validation: Zod
+- Localization: i18next
+- Styling: react-native-unistyles
+- Package manager: `pnpm`
 
-## 3. Tech Stack & Standards
+## 3. Directory Structure
 
-### 3.1. UI & Styling (`react-native-unistyles`)
--   Use `react-native-unistyles` for all styling to seamlessly handle responsive design and Light/Dark mode switching.
--   **Design Tokens:** Always use predefined design tokens for colors, spacing, typography, and radii from `src/theme/tokens.ts`. **Do not hardcode hex colors or arbitrary pixel values** in components. Update `src/theme/tokens.ts` if need to change or add new tokens.
--   **Icons:** Rely on `@expo/vector-icons` for scalable vector iconography.
+```text
+src/
+|- entry.ts                    # Custom entry that initializes Unistyles and i18n
+|- app/
+|  |- _layout.tsx              # Root auth guard and session hydration
+|  |- (auth)/                  # Login, register, verify-otp routes
+|  `- (app)/                   # Library, upload, processing, player, settings routes
+|- components/                 # Reusable UI primitives and auth components
+|- services/
+|  |- api.ts                   # Central Axios instance and interceptors
+|  |- token-storage.ts         # expo-secure-store token persistence
+|  `- auth/                    # Auth-specific API wrappers
+|- stores/
+|  `- auth.store.ts            # Zustand auth/session state
+|- constants/                  # Endpoint and route constants
+|- validations/                # Zod request/response validation schemas
+|- types/                      # Shared DTO and app-facing types
+|- theme/                      # Tokens, themes, and Unistyles config
+|- i18n/                       # i18next setup and locale files
+`- hooks/                      # Theme and language preference hooks
+```
 
-### 3.2. State Management (Zustand)
--   Use **Zustand** for global state requirements (e.g., authentication session, user preferences).
--   Avoid redundant Redux-style boilerplate. Keep stores small, concise, and domain-specific.
--   Persist long-lived state (like theme preference, language preference) using `@react-native-async-storage/async-storage`.
+## 4. Core Philosophy
 
-### 3.3. API & Data Fetching (Axios)
--   All network requests should pass through centralized Axios instances in `src/services/api.ts`.
--   **Token Handling:** The Axios instance must include:
-    -   Request interceptors to attach `Bearer` access tokens.
-    -   Response interceptors to automatically handle `401 Unauthorized` errors smoothly by rotating the refresh token. Re-queue failed requests while the refresh is ongoing.
--   Persist tokens securely using `expo-secure-store` (do NOT use AsyncStorage for tokens).
+- Extract audio from video on the client before upload so the backend only receives audio payloads.
+- Upload directly to MinIO through backend-issued presigned URLs instead of proxying large binaries through NestJS.
+- Treat processing UX as socket-first; do not reintroduce aggressive polling for status or artifact queries.
 
-### 3.4. Input Validation (Zod)
--   Use `zod` for validating inputs, parsing data, and ensuring type safety.
--   Ensure frontend validation schemas meticulously match backend validation rules (e.g., matching the `PASSWORD_REGEX` ensuring passwords are strong).
+## 5. Styling Rules
 
-### 3.5. Localization (`i18next`)
--   The app must be fully bilingual up-front (Vietnamese as the default, English as the fallback).
--   No hardcoded UI strings. Use the `useTranslation` hook and map keys to the translation files in `src/i18n/locales/`.
+- Use `react-native-unistyles` for all styling.
+- Pull colors, spacing, typography, and radii from `src/theme/tokens.ts`.
+- Do not hardcode hex values or arbitrary pixel sizes in components.
+- If a new design token is required, add it to `src/theme/tokens.ts` instead of bypassing the token system.
+- Use `@expo/vector-icons` for iconography.
 
-## 4. Key Workflows / Feature Guidelines
+## 6. State & Auth
 
-### 4.1. Authentication Flow
--   **Verify-First System:** Users register -> receive an OTP email -> verify the OTP -> system finalizes creating the account and issues tokens.
--   **Layout Guards:** Utilize Auth Groups in Expo Router. Unauthenticated sessions are restricted to `/(auth)`. Verified/logged-in users enter `/(app)`.
+- Use Zustand for global state; the documented auth/session store is `src/stores/auth.store.ts`.
+- Store access and refresh tokens with `expo-secure-store` through `src/services/token-storage.ts`; never use AsyncStorage for tokens.
+- Route all API calls through `src/services/api.ts`.
+- Preserve the Axios request interceptor that injects `Bearer` tokens and the response interceptor that rotates refresh tokens and re-queues failed requests during refresh.
+- Use AsyncStorage only for long-lived UI preferences such as theme and language choice.
 
-### 4.2. Media Upload Flow
-1.  **Selecting Media:** User picks a video or audio file from device storage or provides a YouTube link.
-2.  **Local Extraction (Video Only):** If the asset is a video, parse out the audio using local tools (like `ffmpeg-kit-react-native`) to trim down the payload to standard audio formats (e.g., mp3/wav).
-3.  **Presigned URL:** Request a PUT presigned URL using `POST /media/presigned-url`.
-4.  **Upload:** Directly upload the audio to MinIO using the presigned URL, while observing upload progress.
-5.  **Confirm:** Once uploaded, invoke `POST /media/confirm-upload` so the backend officially creates the `MediaItem` in DB and triggers the BullMQ processing pipeline.
+## 7. Key Workflows
 
-### 4.3. Interactive Subtitle Player
--   **Multi-layer Rendering:** The player must support rendering source subtitles, translation subtitles, and phonetic (Pinyin/IPA) subtitles simultaneously.
--   **Karaoke Sync:** Active words must be highlighted dynamically synced to audio playback leveraging the timestamp arrays generated by the `ai-engine` JSON output.
--   **Dictionary Integration:** Hook up Gestures/Taps on individual words to pause the player and pull up dictionary definitions (`Vocabulary` and `UserVocabulary` endpoints).
+### Upload Flow
 
-## 5. Known Issues & Workarounds
+1. `src/app/(app)/upload.tsx` and `src/app/(app)/media-picker.tsx` gather a local file or YouTube URL.
+2. If the selection is video, extract audio locally before any upload request is made.
+3. `src/services/api.ts` requests `POST /media/presigned-url`.
+4. The client uploads directly to MinIO using the returned presigned URL.
+5. `src/services/api.ts` then calls `POST /media/confirm-upload` or `POST /media/youtube`.
+6. `src/stores/auth.store.ts` supplies the authenticated session context, and TanStack Query is used for media-library caching and refresh.
 
--   **Windows Build Constraints:** Due to CMake path-length limits affecting the `react-native-unistyles` C++ compilation routines, keep the absolute path of the Kapter mobile project short (e.g., `C:\kapter\`) when running native Android builds (`expo run:android`) on Windows. This library restricts the use of standard Expo Go and necessitates a full development build or prebuild scenario.
-    - **Possible Fix:**
-    Download latest Ninja version on Github then add it to the path: `C:\Users\<YourUser>\AppData\Local\Android\Sdk\cmake\<VERSION>\bin\`
+### Processing UX
 
-## 6. Stitch Design:
--   **ProjectId:** 17793727251035058796
+1. The processing screen hydrates current state once from REST.
+2. The app shell mounts a global `useSocketSync()` listener that patches TanStack Query caches from live processing events.
+3. `/media/:id/artifacts` summaries and socket events drive readiness state; do not fall back to aggressive polling.
+
+### Player Flow
+
+1. `src/app/(app)/player.tsx` hydrates from available `translated_batches` before `final.json` exists.
+2. Incoming translated-batch refreshes preserve the active subtitle session and avoid a full-screen reload.
+3. Seek logic uses optimistic player time so scrubbing back into already-covered ranges clears pending state immediately.
+4. `src/stores/auth.store.ts` still provides authenticated session state and `src/services/api.ts` remains the network entry point for follow-up dictionary or media calls.
+
+## 8. Translation Layer Rule
+
+Keep translation enabled by default. Auto-disable it only when subtitle metadata shows that source language and target language are the same.
+
+## 9. Localization Rules
+
+- Do not hardcode UI strings.
+- Use `useTranslation` and the locale files under `src/i18n/locales/`.
+- Vietnamese is the default language and English is the fallback.
+
+## 10. Validation Checklist
+
+```bash
+pnpm lint
+```
+
+For native Android development on Windows, keep the repository path short before running `expo run:android`, and remember that `react-native-unistyles` requires a development build rather than Expo Go.

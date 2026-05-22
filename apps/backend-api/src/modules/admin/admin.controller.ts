@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -19,9 +20,15 @@ import {
 import { Role } from 'prisma/generated/client';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RolesGuard } from 'src/common/guards/roles.guard';
-import { PlanService, VariantService } from './services';
+import { OverviewService, PlanService, VariantService, UserAdminService } from './services';
 import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
+import { AdminOverviewDto } from './dto/overview.dto';
+import {
+  AdminUsersQueryDto,
+  AdminUserListResponseDto,
+  AdminUserDetailDto,
+} from './dto/user.dto';
 import { ErrorResponseDto } from 'src/common/dto';
 
 @ApiTags('Admin - Subscription Plans')
@@ -31,9 +38,37 @@ import { ErrorResponseDto } from 'src/common/dto';
 @Controller('admin')
 export class AdminController {
   constructor(
+    private readonly overviewService: OverviewService,
     private readonly planService: PlanService,
     private readonly variantService: VariantService,
+    private readonly userAdminService: UserAdminService,
   ) {}
+
+  @Get('overview')
+  @ApiOperation({ summary: 'Get admin dashboard overview metrics' })
+  @ApiResponse({ status: 200, type: AdminOverviewDto })
+  async getOverview(): Promise<AdminOverviewDto> {
+    return this.overviewService.getOverview();
+  }
+
+  // ==================== USERS ====================
+
+  @Get('users')
+  @ApiOperation({ summary: 'Paginated admin user list' })
+  @ApiResponse({ status: 200, type: AdminUserListResponseDto })
+  async findAllUsers(
+    @Query() query: AdminUsersQueryDto,
+  ): Promise<AdminUserListResponseDto> {
+    return this.userAdminService.findAll(query);
+  }
+
+  @Get('users/:id')
+  @ApiOperation({ summary: 'User detail: profile + subscription + usage history' })
+  @ApiResponse({ status: 200, type: AdminUserDetailDto })
+  @ApiResponse({ status: 404, type: ErrorResponseDto })
+  async findUserById(@Param('id') id: string): Promise<AdminUserDetailDto> {
+    return this.userAdminService.findById(id);
+  }
 
   // ==================== PLANS ====================
 
