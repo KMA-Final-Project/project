@@ -6,6 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { mediaService } from "@/services/media.services";
 import { useOnboarding } from "./useOnboarding";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import type {
   ConfirmUploadResponse,
   MediaItem,
@@ -148,12 +149,36 @@ export function useUploadMedia() {
       mimeType: string;
       size: number;
     }) => {
+      const isVideo =
+        file.mimeType.startsWith("video/") ||
+        file.name.endsWith(".mp4") ||
+        file.name.endsWith(".mov") ||
+        file.name.endsWith(".mkv");
+
+      let thumbnailUri: string | null = null;
+      let hasThumbnail = false;
+
+      if (isVideo) {
+        try {
+          const thumb = await VideoThumbnails.getThumbnailAsync(file.uri, {
+            time: 0,
+            quality: 0.6,
+          });
+          thumbnailUri = thumb.uri;
+        } catch (err) {
+          console.warn("Failed to capture video thumbnail:", err);
+        }
+      }
+
       // Step 1 — Get presigned URL
-      const { uploadUrl, objectKey } = await mediaService.getPresignedUrl({
-        fileName: file.name,
-        mimeType: file.mimeType,
-        fileSize: file.size,
-      });
+      const { uploadUrl, objectKey, mediaId, thumbnailUploadUrl } =
+        await mediaService.getPresignedUrl({
+          fileName: file.name,
+          mimeType: file.mimeType.startsWith("video/")
+            ? file.mimeType.replace("video/", "audio/")
+            : file.mimeType,
+          fileSize: file.size,
+        });
 
       // Step 2 — Upload file blob directly to MinIO (bypasses our API server)
       const fileResponse = await fetch(file.uri);
@@ -164,12 +189,30 @@ export function useUploadMedia() {
         headers: { "Content-Type": file.mimeType },
       });
 
+      // Upload thumbnail if available
+      if (thumbnailUri && thumbnailUploadUrl) {
+        try {
+          const thumbResponse = await fetch(thumbnailUri);
+          const thumbBlob = await thumbResponse.blob();
+          await fetch(thumbnailUploadUrl, {
+            method: "PUT",
+            body: thumbBlob,
+            headers: { "Content-Type": "image/jpeg" },
+          });
+          hasThumbnail = true;
+        } catch (err) {
+          console.warn("Failed to upload video thumbnail to MinIO:", err);
+        }
+      }
+
       // Step 3 — Confirm upload → creates MediaItem + dispatches queue job
       const title = file.name.replace(/\.[^.]+$/, ""); // strip file extension for title
       return mediaService.confirmUpload({
         title,
         objectKey: objectKey,
         targetLanguage: defaultTargetLanguage,
+        mediaId,
+        hasThumbnail,
       });
     },
     onSuccess: (response) => {

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
 import { StyleSheet } from "react-native-unistyles";
 import { Button } from "@/components";
-import LogoImage from "../../../assets/logo/vertical_colored.png";
+import LogoImage from "../../../assets/logo/vertical_colored_blue.png";
 import { ROUTES } from "@/constants/routes";
 
 export default function WelcomeScreen() {

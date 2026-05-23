@@ -71,6 +71,8 @@ export interface MediaItem {
   artifacts?: MediaArtifactsSummary;
   languageCount?: number;
   thumbnailUrl?: string | null;
+  youtubeVideoId?: string | null;
+  hasThumbnail?: boolean;
   updatedAt?: string;
 }
 
@@ -84,12 +86,16 @@ export interface PresignedUrlResponse {
   uploadUrl: string;
   objectKey: string;
   expiresIn: number;
+  mediaId: string;
+  thumbnailUploadUrl?: string;
 }
 
 export interface ConfirmUploadRequest {
   title: string;
   objectKey: string;
   targetLanguage?: string;
+  mediaId?: string;
+  hasThumbnail?: boolean;
 }
 
 export interface SubmitYouTubeRequest {

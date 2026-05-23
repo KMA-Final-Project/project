@@ -36,6 +36,15 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
 
 ## 3. Recently Completed
 
+- 2026-05-23 — Visual refactoring, thumbnail ingestion, and bottom tab bar refactoring. Status: Working.
+  - Installed `expo-video-thumbnails` library via `npx expo install`.
+  - Refactored `useUploadMedia` hook in `useMedia.ts` to capture the first frame of local video files, upload it to the pre-generated `thumbnailUploadUrl` in MinIO, and confirm the upload with `hasThumbnail: true`.
+  - Redesigned `MediaCard.tsx` with a modern 16:9 cinematic aspect ratio cover, source type indicators, duration overlays, and a dynamic gradient + vertical-animated waveform fallback for pure audio files.
+  - Implemented collapsible header animation in `(app)/index.tsx` (brand name fades/scales and search/filters translate out on scroll).
+  - Refactored bottom navigation tab bar in `(app)/_layout.tsx` using a custom `CustomTabBar` rendering component to completely bypass React Navigation layout clipping constraints. The bar is a compressed (62% screen-width) Floating Pill Tab Bar, centered horizontally, featuring a geometric Squircle `+` action button that fits entirely inside the bar's vertical boundary (68px).
+  - Custom rendered Library and Settings tabs with custom dynamic active state capsule pods cocooning the vector icon and micro-font size labels (`fontSize: 10`), leaving inactive tabs muted.
+  - Adjusted bottom paddings in `index.tsx` and `settings.tsx` to clear the floating bottom navigation bar.
+
 - 2026-05-20 — Kapter V1 Production Userflow marked complete. Status: Working.
   - Implemented App welcome screen and detailed onboarding pipeline (Language preference, subtitle defaults, learning targets).
   - Formulated AsyncStorage-backed global onboarding state hooks.
