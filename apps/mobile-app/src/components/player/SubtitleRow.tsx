@@ -1,4 +1,4 @@
-import React, { Fragment, useMemo } from "react";
+import React, { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 
@@ -25,11 +25,6 @@ export function SubtitleRow({
   showKaraoke,
   onPress,
 }: SubtitleRowProps) {
-  const separator = useMemo(
-    () => (cjkPattern.test(sentence.text) ? "" : " "),
-    [sentence.text],
-  );
-
   const activeWordIndex = useMemo(() => {
     if (!showKaraoke || sentence.words.length === 0) {
       return -1;
@@ -40,6 +35,8 @@ export function SubtitleRow({
     );
   }, [currentTimeSec, sentence.words, showKaraoke]);
 
+  const isCjk = useMemo(() => cjkPattern.test(sentence.text), [sentence.text]);
+
   return (
     <Pressable
       onPress={onPress}
@@ -47,28 +44,67 @@ export function SubtitleRow({
       hitSlop={8}
     >
       <View style={[styles.container, isActive && styles.containerActive]}>
-        <Text style={[styles.source, isActive && styles.sourceActive]}>
-          {showKaraoke && sentence.words.length > 0
-            ? sentence.words.map((word, index) => (
-                <Fragment key={`${word.start}-${word.end}-${index}`}>
+        {sentence.words && sentence.words.length > 0 ? (
+          <View style={styles.wordsContainer}>
+            {sentence.words.map((word, index) => {
+              const isWordActive = showKaraoke && index === activeWordIndex;
+              return (
+                <View
+                  key={`${word.start}-${word.end}-${index}`}
+                  style={styles.wordStack}
+                >
+                  {isCjk && showPhonetic && word.phoneme ? (
+                    <Text
+                      style={[
+                        styles.wordPhonetic,
+                        isWordActive
+                          ? styles.wordPhoneticActive
+                          : styles.wordPhoneticIdle,
+                        { marginBottom: 2 },
+                      ]}
+                    >
+                      {word.phoneme}
+                    </Text>
+                  ) : null}
+
                   <Text
-                    style={
-                      index === activeWordIndex
-                        ? styles.wordActive
-                        : styles.wordIdle
-                    }
+                    style={[
+                      styles.wordText,
+                      isWordActive ? styles.wordActive : styles.wordIdle,
+                      isActive && styles.wordTextActiveSize,
+                    ]}
                   >
                     {word.word}
                   </Text>
-                  {index < sentence.words.length - 1 ? separator : ""}
-                </Fragment>
-              ))
-            : sentence.text}
-        </Text>
 
-        {showPhonetic && Boolean(sentence.phonetic?.trim()) ? (
-          <Text style={styles.phonetic}>{sentence.phonetic}</Text>
-        ) : null}
+                  {!isCjk && showPhonetic && word.phoneme ? (
+                    <Text
+                      style={[
+                        styles.wordPhonetic,
+                        isWordActive
+                          ? styles.wordPhoneticActive
+                          : styles.wordPhoneticIdle,
+                        { marginTop: 2 },
+                      ]}
+                    >
+                      {word.phoneme}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <View>
+            <Text style={[styles.source, isActive && styles.sourceActive]}>
+              {sentence.text}
+            </Text>
+            {showPhonetic && Boolean(sentence.phonetic?.trim()) ? (
+              <Text style={styles.phonetic}>{sentence.phonetic}</Text>
+            ) : null}
+          </View>
+        )}
+
         {showTranslation && Boolean(sentence.translation?.trim()) ? (
           <Text style={styles.translation}>{sentence.translation}</Text>
         ) : null}
@@ -82,23 +118,14 @@ const styles = StyleSheet.create((theme) => ({
     opacity: 0.9,
   },
   container: {
-    gap: theme.spacing[1],
+    gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[3],
     borderRadius: theme.radii.xl,
-    // backgroundColor: theme.colors.card,
-    // borderWidth: 1,
-    // borderColor: theme.colors.border,
   },
   containerActive: {
     backgroundColor: theme.colors.player.activeSentenceBg,
     borderRadius: theme.radii.xl,
-    // borderColor: theme.colors.primary,
-    // shadowColor: theme.colors.primary,
-    // shadowOffset: { width: 0, height: 8 },
-    // shadowOpacity: 0.16,
-    // shadowRadius: 16,
-    // elevation: 4,
   },
   source: {
     color: theme.colors.text,
@@ -109,22 +136,55 @@ const styles = StyleSheet.create((theme) => ({
   sourceActive: {
     fontSize: theme.typography.sizes.xl,
   },
+  wordsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: theme.spacing[2],
+    rowGap: theme.spacing[2],
+    alignItems: "flex-end",
+  },
+  wordStack: {
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  wordText: {
+    color: theme.colors.text,
+    fontSize: theme.typography.sizes.lg,
+    fontWeight: theme.typography.weights.semibold,
+    lineHeight: 24,
+  },
+  wordTextActiveSize: {
+    fontSize: theme.typography.sizes.xl,
+  },
   wordIdle: {
     color: theme.colors.text,
   },
   wordActive: {
     color: theme.colors.player.karaokeHighlight,
   },
+  wordPhonetic: {
+    fontSize: theme.typography.sizes.sm,
+    fontWeight: theme.typography.weights.medium,
+    lineHeight: 14,
+  },
+  wordPhoneticIdle: {
+    color: theme.colors.textSecondary,
+  },
+  wordPhoneticActive: {
+    color: theme.colors.player.phoneticText,
+  },
   phonetic: {
     color: theme.colors.player.phoneticText,
     fontSize: theme.typography.sizes.sm,
     fontWeight: theme.typography.weights.medium,
     lineHeight: 20,
+    marginTop: theme.spacing[1],
   },
   translation: {
     color: theme.colors.player.translationText,
-    fontSize: theme.typography.sizes.base,
+    fontSize: theme.typography.sizes.sm,
     fontWeight: theme.typography.weights.medium,
     lineHeight: 22,
+    marginTop: theme.spacing[1],
   },
 }));

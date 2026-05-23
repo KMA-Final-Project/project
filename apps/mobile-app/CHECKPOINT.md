@@ -36,6 +36,32 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
 
 ## 3. Recently Completed
 
+- 2026-05-23 — Subtitle Player Screen Refactoring. Status: Working.
+  - Implemented vertical inline word-level phonetic stack layout in `SubtitleRow.tsx` (pinyin/phoneme on top for CJK, below for non-CJK).
+  - Synced active karaoke word and phonetic highlights synchronously in real-time.
+  - Refactored `PlayerControls.tsx` container into a modern floating pill with diffuse drop shadow and margin offsets.
+  - Designed the 5-button control bar layout: `Pin`, `Explain` (placeholder), `Play/Pause` (Squircle), `Repeat`, and `Speed`.
+  - Converted speed cycling pressable into a modal-based dropdown selector, enabling user-friendly speed choices.
+  - Implemented `isPinned` store state/action and modified `player.tsx` auto-scroll FlatList logic to bypass scroll when active.
+  - Fixed a race condition where translation layer auto-disable is triggered on initial empty loading states, resetting `showTranslation` prematurely. Added loading guards to prevent this behavior.
+  - Cleared unused imports/variables to resolve all linting and compiler warnings.
+
+- 2026-05-23 — YouTube Pre-Flight Configuration Panel & i18n support. Status: Working.
+  - Implemented reusable Dropdown component with squircle borders matching Kapter's brand identity.
+  - Injected side-by-side dropdown pickers for Source Language (`Auto detect`, `Chinese (zh)`, `English (en)`) and Target Language (`Tiếng Việt (vi)`, `English (en)`) inside the YouTube Video Modal.
+  - Programmed automatic state reset hook based on `useOnboarding()` default target language defaults.
+  - Added micro-text warning presenting quota utilization constraints.
+  - Updated axios mutations and schemas to support `sourceLanguage` and `targetLanguage` fields.
+
+- 2026-05-23 — Visual refactoring, thumbnail ingestion, and bottom tab bar refactoring. Status: Working.
+  - Installed `expo-video-thumbnails` library via `npx expo install`.
+  - Refactored `useUploadMedia` hook in `useMedia.ts` to capture the first frame of local video files, upload it to the pre-generated `thumbnailUploadUrl` in MinIO, and confirm the upload with `hasThumbnail: true`.
+  - Redesigned `MediaCard.tsx` with a modern 16:9 cinematic aspect ratio cover, source type indicators, duration overlays, and a dynamic gradient + vertical-animated waveform fallback for pure audio files.
+  - Implemented collapsible header animation in `(app)/index.tsx` (brand name fades/scales and search/filters translate out on scroll).
+  - Refactored bottom navigation tab bar in `(app)/_layout.tsx` using a custom `CustomTabBar` rendering component to completely bypass React Navigation layout clipping constraints. The bar is a compressed (62% screen-width) Floating Pill Tab Bar, centered horizontally, featuring a geometric Squircle `+` action button that fits entirely inside the bar's vertical boundary (68px).
+  - Custom rendered Library and Settings tabs with custom dynamic active state capsule pods cocooning the vector icon and micro-font size labels (`fontSize: 10`), leaving inactive tabs muted.
+  - Adjusted bottom paddings in `index.tsx` and `settings.tsx` to clear the floating bottom navigation bar.
+
 - 2026-05-20 — Kapter V1 Production Userflow marked complete. Status: Working.
   - Implemented App welcome screen and detailed onboarding pipeline (Language preference, subtitle defaults, learning targets).
   - Formulated AsyncStorage-backed global onboarding state hooks.
@@ -92,13 +118,8 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
   - Impact: native behavior that depends on `react-native-unistyles` requires a development build.
   - Current workaround: use `expo run:android`, `expo run:ios`, or dev-client flow when native validation is required.
 
-- Player rendering polish is still pending.
-  - Impact: core incremental player is shipped, but karaoke rendering, layer toggles, and long-session UX can be improved.
-  - Current workaround: current player flow is usable for the existing demo path.
-
 ## 5. Next Candidates
 
-- [ ] Improve karaoke playback rendering and active-word visual behavior.
 - [ ] Add richer subtitle layer toggles for source, translation, phonetic, or karaoke views.
 - [ ] Improve long-session player UX and memory behavior.
 - [ ] Remove or repurpose unused preview-only helpers from the older processing preview flow.

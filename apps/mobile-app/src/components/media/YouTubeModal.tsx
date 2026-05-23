@@ -9,7 +9,7 @@
  *   - URL text input with clipboard paste button
  *   - Cancel and Submit action buttons
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,8 @@ import {
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { Dropdown } from "../Dropdown";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -36,7 +38,12 @@ import {
 interface YouTubeModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (payload: { url: string; title?: string }) => Promise<void>;
+  onSubmit: (payload: {
+    url: string;
+    title?: string;
+    sourceLanguage?: string;
+    targetLanguage?: string;
+  }) => Promise<void>;
   loading?: boolean;
 }
 
@@ -48,10 +55,22 @@ export function YouTubeModal({
 }: YouTubeModalProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
+  const { defaultTargetLanguage } = useOnboarding();
   const [url, setUrl] = useState("");
   const debouncedUrl = useDebounce(url, 500); // 500ms debounce
   // loading state now derived from props
   const [error, setError] = useState<string | null>(null);
+  const [sourceLanguage, setSourceLanguage] = useState("auto");
+  const [targetLanguage, setTargetLanguage] = useState(
+    defaultTargetLanguage || "vi",
+  );
+
+  useEffect(() => {
+    if (visible) {
+      setSourceLanguage("auto");
+      setTargetLanguage(defaultTargetLanguage || "vi");
+    }
+  }, [visible, defaultTargetLanguage]);
 
   const videoId = extractYouTubeId(debouncedUrl);
 
@@ -108,6 +127,8 @@ export function YouTubeModal({
       await onSubmit({
         url: url.trim(),
         title: metadata?.title?.trim() || undefined,
+        sourceLanguage: sourceLanguage === "auto" ? undefined : sourceLanguage,
+        targetLanguage,
       });
       setUrl("");
       onClose();
@@ -119,6 +140,8 @@ export function YouTubeModal({
   const handleClose = () => {
     setUrl("");
     setError(null);
+    setSourceLanguage("auto");
+    setTargetLanguage(defaultTargetLanguage || "vi");
     onClose();
   };
 
@@ -257,6 +280,51 @@ export function YouTubeModal({
               {error}
             </Text>
           )}
+
+          {/* Language Selection */}
+          {metadata && (
+            <View style={styles.dropdownRow}>
+              <Dropdown
+                label={t(
+                  "upload.youtube.sourceLanguageLabel",
+                  "Source Language",
+                )}
+                value={sourceLanguage}
+                options={[
+                  {
+                    label: t("upload.youtube.autoDetect", "Auto detect"),
+                    value: "auto",
+                  },
+                  { label: "Chinese (zh)", value: "zh" },
+                  { label: "English (en)", value: "en" },
+                ]}
+                onChange={setSourceLanguage}
+                style={styles.dropdownPicker}
+              />
+              <Dropdown
+                label={t(
+                  "upload.youtube.targetLanguageLabel",
+                  "Target Language",
+                )}
+                value={targetLanguage}
+                options={[
+                  { label: "Tiếng Việt (vi)", value: "vi" },
+                  { label: "English (en)", value: "en" },
+                ]}
+                onChange={setTargetLanguage}
+                style={styles.dropdownPicker}
+              />
+            </View>
+          )}
+          {/* Quota Warning */}
+          <Text
+            style={[styles.quotaText, { color: theme.colors.textTertiary }]}
+          >
+            {t(
+              "upload.youtube.quotaUsage",
+              "Submitting this video will consume from your quota. If processing fails, your quota will be automatically refunded.",
+            )}
+          </Text>
 
           {/* Actions */}
           <View style={styles.actions}>
@@ -417,5 +485,20 @@ const styles = StyleSheet.create((theme) => ({
     color: "#fff",
     fontSize: 15,
     fontWeight: "700",
+  },
+  dropdownRow: {
+    flexDirection: "row",
+    gap: theme.spacing[3],
+    marginTop: theme.spacing[4],
+    marginBottom: theme.spacing[2],
+  },
+  dropdownPicker: {
+    flex: 1,
+  },
+  quotaText: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: theme.spacing[1],
+    marginBottom: theme.spacing[2],
   },
 }));

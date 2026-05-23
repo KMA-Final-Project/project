@@ -20,5 +20,8 @@
   "originalVideoUnavailable": "Original local video is not available on this device.",
   "backupUnavailable": "Playback source is unavailable right now.",
   "audioFallbackMode": "This source is currently available as audio-only.",
-  "openOnYoutube": "Open on YouTube"
+  "openOnYoutube": "Open on YouTube",
+  "pin": "Pin",
+  "explain": "Explain",
+  "speedTitle": "Playback Speed"
 }

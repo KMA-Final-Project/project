@@ -46,6 +46,7 @@ google-genai>=1.36.0
 sentencepiece>=0.2.0
 # transformers is needed at runtime ONLY for the tokenizer (no model weights loaded)
 transformers>=4.40.0
+qwen-asr>=0.0.6
 
 # --- Phonetics (G2P) ---
 # Chinese Pinyin

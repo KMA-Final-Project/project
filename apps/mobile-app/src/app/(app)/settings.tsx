@@ -204,7 +204,7 @@ const styles = StyleSheet.create((theme) => ({
     flexGrow: 1,
     paddingHorizontal: theme.spacing[4],
     paddingTop: theme.spacing[4],
-    paddingBottom: theme.spacing[10],
+    paddingBottom: 120, // Increased bottom padding to clear floating tab bar
   },
   section: {
     backgroundColor: theme.colors.card,

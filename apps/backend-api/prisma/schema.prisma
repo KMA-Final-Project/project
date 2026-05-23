@@ -198,6 +198,10 @@ model MediaItem {
   // Logic flag
   countedInQuota Boolean @default(false) @map("counted_in_quota")
 
+  // Thumbnail / ingestion dataflow
+  youtubeVideoId String? @map("youtube_video_id")
+  hasThumbnail   Boolean @default(false) @map("has_thumbnail")
+
   // Relationships
   user             User             @relation(fields: [userId], references: [id])
   userVocabularies UserVocabulary[]

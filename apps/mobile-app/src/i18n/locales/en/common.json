@@ -108,7 +108,13 @@
     "quotaRemaining": "Remaining quota: {{remaining}}/{{total}} mins",
     "modalTitle": "YouTube Video",
     "pastePlaceholder": "https://youtube.com/...",
-    "pasteClipboard": "Paste from clipboard"
+    "pasteClipboard": "Paste from clipboard",
+    "youtube": {
+      "sourceLanguageLabel": "Source Language",
+      "targetLanguageLabel": "Target Language",
+      "autoDetect": "Auto detect",
+      "quotaUsage": "Submitting this video will consume from your quota. If processing fails, your quota will be automatically refunded."
+    }
   },
   "player": {
     "audioMode": "Audio Mode",

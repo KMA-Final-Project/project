@@ -20,5 +20,8 @@
   "originalVideoUnavailable": "Video gốc trên thiết bị này hiện không khả dụng.",
   "backupUnavailable": "Nguồn phát hiện chưa khả dụng.",
   "audioFallbackMode": "Nguồn này hiện chỉ phát được ở chế độ âm thanh.",
-  "openOnYoutube": "Mở trên YouTube"
+  "openOnYoutube": "Mở trên YouTube",
+  "pin": "Ghim",
+  "explain": "Giải thích",
+  "speedTitle": "Tốc độ phát"
 }

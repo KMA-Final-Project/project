@@ -29,7 +29,7 @@ The live orchestration runs through `src/async_pipeline.py`. Public behavior sta
    - English/unknown fallback: Whisper turbo
    - Chinese shipping default: SenseVoice Small
    - Chinese fallback: Whisper full
-   - Chinese benchmark-only route: Paraformer
+   - Chinese evaluation route: Paraformer (`paraformer_zh`) can be promoted to the default route through config, but it remains uncertified for `during_asr` and should run through the Chinese trust-gated `after_asr` path plus configured recovery routes.
    The facade keeps `Sentence` / `Word` output unchanged, enriches phonemes when possible, and emits Tier 1 chunk callbacks during ASR.
 6. `SemanticMerger` - performs language-aware line grouping and CJK homophone correction when merge logic is needed.
 7. `NMTTranslator` - translates batches with NLLB-200-3.3B via CTranslate2. `AI_TRANSLATION_START_POLICY=during_asr` is the target UX mode, but the effective policy can auto-downgrade to `after_asr` when the chosen ASR route is not certified for overlap on 16GB VRAM.
@@ -64,6 +64,7 @@ Single-GPU runtime defaults:
 - `AI_ASR_DEFAULT_ROUTE_ZH=sensevoice_small`
 - `AI_ASR_FALLBACK_ROUTE_ZH=whisper_full`
 - `AI_ASR_DURING_ASR_CERTIFIED_ROUTES=distil_whisper_en,whisper_turbo,sensevoice_small`
+- `AI_CHINESE_RECOVERY_ROUTE_IDS=` to derive recovery from the current Chinese default route plus enabled safe fallbacks; override only when evaluating a custom Chinese recovery order
 
 ## 5. Coding Standards
 

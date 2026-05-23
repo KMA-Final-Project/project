@@ -185,7 +185,7 @@ class ChineseTranscriptTrustGate:
         suspicious_score = round(owner_score + cleanliness_score, 3)
         repair_window_indexes = sorted(set(repair_window_indexes))
 
-        if stage == "whisper_full_recovery" and owner_score >= settings.AI_CHINESE_TRUST_OWNER_SUSPICIOUS_SCORE:
+        if stage == "final_recovery" and owner_score >= settings.AI_CHINESE_TRUST_OWNER_SUSPICIOUS_SCORE:
             verdict = "untrusted_fail"
         elif owner_score >= settings.AI_CHINESE_TRUST_OWNER_SUSPICIOUS_SCORE:
             verdict = "suspicious_recover"

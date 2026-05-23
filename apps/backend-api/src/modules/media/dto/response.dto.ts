@@ -23,6 +23,21 @@ export class PresignedUrlResponseDto {
     example: 3600,
   })
   expiresIn: number;
+
+  @ApiProperty({
+    description: 'Pre-allocated MediaItem database ID',
+    example: '15209337-61c8-4a67-9f71-990475f394a4',
+  })
+  mediaId: string;
+
+  @ApiProperty({
+    description:
+      'Public-facing presigned PUT URL for uploading the captured local video thumbnail (null if not video)',
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
+    nullable: true,
+  })
+  thumbnailUploadUrl?: string;
 }
 
 // ==================== Confirm Upload Response ====================
@@ -273,6 +288,15 @@ export class MediaStatusResponseDto {
   })
   artifacts: MediaArtifactsSummaryDto;
 
+  @ApiProperty({
+    description:
+      'Presigned GET URL or CDN URL of the media thumbnail (null if unavailable or pure audio)',
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
+    nullable: true,
+  })
+  thumbnailUrl: string | null;
+
   @ApiProperty()
   createdAt: Date;
 }
@@ -325,6 +349,15 @@ export class MediaListItemDto {
     enum: PipelineStage,
   })
   currentStep: string | null;
+
+  @ApiProperty({
+    description:
+      'Presigned GET URL or CDN URL of the media thumbnail (null if unavailable or pure audio)',
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
+    nullable: true,
+  })
+  thumbnailUrl: string | null;
 
   @ApiProperty()
   createdAt: Date;

@@ -116,7 +116,13 @@
     "quotaRemaining": "Hạn mức còn lại: {{remaining}}/{{total}} phút",
     "modalTitle": "Đường dẫn YouTube",
     "pastePlaceholder": "https://youtube.com/...",
-    "pasteClipboard": "Dán từ bộ nhớ tạm"
+    "pasteClipboard": "Dán từ bộ nhớ tạm",
+    "youtube": {
+      "sourceLanguageLabel": "Ngôn ngữ nguồn",
+      "targetLanguageLabel": "Ngôn ngữ dịch",
+      "autoDetect": "Tự động nhận diện",
+      "quotaUsage": "Tác vụ này sẽ trừ đi thời lượng video từ số dư quota của bạn. Nếu xử lý thất bại, hạn mức sẽ tự động được hoàn lại."
+    }
   },
   "player": {
     "audioMode": "Chế độ Âm thanh",

@@ -202,6 +202,102 @@ def test_refiner_applies_known_phrase_corrections() -> None:
     assert result.normalization_hits
 
 
+def test_refiner_repairs_opening_meeting_dialogue_jams() -> None:
+    sentences = [
+        _make_sentence(
+            "你好，我是你是李雷吧。",
+            [
+                ("你", 0.0, 0.1, 0.98),
+                ("好", 0.1, 0.2, 0.98),
+                ("，", 0.2, 0.3, 0.98),
+                ("我", 0.3, 0.4, 0.98),
+                ("是", 0.4, 0.5, 0.98),
+                ("你", 0.5, 0.6, 0.98),
+                ("是", 0.6, 0.7, 0.98),
+                ("李", 0.7, 0.8, 0.98),
+                ("雷", 0.8, 0.9, 0.98),
+                ("吧", 0.9, 1.0, 0.98),
+                ("。", 1.0, 1.1, 0.98),
+            ],
+        ),
+        _make_sentence(
+            "对，是我第一次见面。",
+            [
+                ("对", 1.3, 1.4, 0.98),
+                ("，", 1.4, 1.5, 0.98),
+                ("是", 1.5, 1.6, 0.98),
+                ("我", 1.6, 1.7, 0.98),
+                ("第", 1.7, 1.8, 0.98),
+                ("一", 1.8, 1.9, 0.98),
+                ("次", 1.9, 2.0, 0.98),
+                ("见", 2.0, 2.1, 0.98),
+                ("面", 2.1, 2.2, 0.98),
+                ("。", 2.2, 2.3, 0.98),
+            ],
+        ),
+        _make_sentence(
+            "幸会。",
+            [
+                ("幸", 2.5, 2.6, 0.98),
+                ("会", 2.6, 2.7, 0.98),
+                ("。", 2.7, 2.8, 0.98),
+            ],
+        ),
+        _make_sentence(
+            "信会等很久了吗？",
+            [
+                ("信", 3.0, 3.1, 0.98),
+                ("会", 3.1, 3.2, 0.98),
+                ("等", 3.2, 3.3, 0.98),
+                ("很", 3.3, 3.4, 0.98),
+                ("久", 3.4, 3.5, 0.98),
+                ("了", 3.5, 3.6, 0.98),
+                ("吗", 3.6, 3.7, 0.98),
+                ("？", 3.7, 3.8, 0.98),
+            ],
+        ),
+    ]
+
+    result = refine_chinese_primary_transcript(sentences)
+
+    assert [segment.text for segment in result.sentences] == [
+        "你好，我是你是李雷吧？",
+        "对，是我。第一次见面。",
+        "幸会。",
+        "幸会，等很久了吗？",
+    ]
+    assert any(
+        "confirmation_turn_boundary_inserted" in hit
+        for hit in result.normalization_hits
+    )
+    assert any("polite_wait_question_normalized" in hit for hit in result.normalization_hits)
+
+
+def test_refiner_repairs_combined_first_meeting_politeness_chain() -> None:
+    sentence = _make_sentence(
+        "对是我第一次见面幸会。",
+        [
+            ("对", 0.0, 0.1, 0.98),
+            ("是", 0.1, 0.2, 0.98),
+            ("我", 0.2, 0.3, 0.98),
+            ("第", 0.3, 0.4, 0.98),
+            ("一", 0.4, 0.5, 0.98),
+            ("次", 0.5, 0.6, 0.98),
+            ("见", 0.6, 0.7, 0.98),
+            ("面", 0.7, 0.8, 0.98),
+            ("幸", 0.8, 0.9, 0.98),
+            ("会", 0.9, 1.0, 0.98),
+            ("。", 1.0, 1.1, 0.98),
+        ],
+    )
+
+    result = refine_chinese_primary_transcript([sentence])
+
+    assert [segment.text for segment in result.sentences] == [
+        "对，是我。第一次见面，幸会。",
+    ]
+
+
 def test_refiner_preserves_mixed_script_vocabulary_with_restored_spaces() -> None:
     sentences = [
         _make_sentence(
