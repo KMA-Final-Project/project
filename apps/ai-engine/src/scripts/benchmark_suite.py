@@ -462,6 +462,7 @@ def _render_case_markdown(case_result: dict[str, Any]) -> str:
         "## Pipeline Internals",
         f"- SmartAligner timings: {metrics['pipeline_last_run_metrics'].get('smart_aligner', {})}",
         f"- Consumer timings (processing-only mode): {metrics['pipeline_last_run_metrics'].get('consumer', {})}",
+        f"- Chinese forced alignment: {metrics['pipeline_last_run_metrics'].get('chinese_forced_alignment', {})}",
         f"- Producer wait: {metrics['pipeline_last_run_metrics'].get('producer_wait')} s",
         f"- Pipeline total (internal): {metrics['pipeline_last_run_metrics'].get('pipeline_total')} s",
         "",

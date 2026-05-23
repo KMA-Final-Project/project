@@ -24,6 +24,7 @@ from src.config import settings
 from src.core.audio_inspector import AudioInspector
 from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
+from src.core.qwen3_forced_aligner import Qwen3ForcedAlignerProvider
 from src.core.smart_aligner import SmartAligner
 from src.core.transcript_trust_gate import ChineseTrustGateError
 from src.core.vad_manager import VADManager
@@ -108,6 +109,13 @@ def release_hybrid_residency() -> None:
         NMTTranslator.unload_instance()
     except Exception as exc:
         logger.warning(f"Hybrid cleanup: failed to unload NMTTranslator: {exc}")
+
+    try:
+        Qwen3ForcedAlignerProvider.unload_instance()
+    except Exception as exc:
+        logger.warning(
+            f"Hybrid cleanup: failed to unload Qwen3ForcedAlignerProvider: {exc}"
+        )
 
 
 def _write_trust_gate_failure_dump(media_id: str, payload: dict) -> Path:
@@ -292,6 +300,7 @@ async def main():
     )
     logger.info(f"   Translation start policy: {settings.translation_start_policy}")
     logger.info(f"   NMT prefetch enabled: {settings.nmt_prefetch_enabled}")
+    logger.info(f"   Chinese alignment strategy: {settings.chinese_alignment_strategy}")
 
     configure_vram_limit()
 

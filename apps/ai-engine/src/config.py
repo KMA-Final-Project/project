@@ -439,6 +439,37 @@ class Settings(BaseSettings):
         default=8192,
         description="Ollama context window used for Chinese batch LLM rescue prompts.",
     )
+    AI_CHINESE_ALIGNMENT_STRATEGY: str = Field(
+        default="linear_smeared",
+        description=(
+            "Chinese timing post-processing strategy. "
+            "Use qwen3_forced_after_llm only for the narrow CPU forced-align experiment."
+        ),
+    )
+    AI_QWEN3_FORCE_ALIGNER_MODEL: str = Field(
+        default="Qwen/Qwen3-ForcedAligner-0.6B",
+        description="Model id used by the internal CPU-only Qwen3 forced aligner.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_DEVICE: str = Field(
+        default="cpu",
+        description="Execution device for the internal Qwen3 forced aligner. V1 normalizes to cpu.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_ROUTE_IDS: str = Field(
+        default="sensevoice_small",
+        description="Comma-separated ASR route ids eligible for post-LLM Qwen3 forced alignment.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_MAX_SEGMENT_SECONDS: float = Field(
+        default=20.0,
+        description="Maximum sentence duration eligible for CPU Qwen3 forced alignment.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_NUM_THREADS: int = Field(
+        default=0,
+        description="Torch CPU thread count for Qwen3 forced alignment. 0 auto-resolves to min(8, cpu_count).",
+    )
+    AI_QWEN3_FORCE_ALIGNER_CACHE_DIR: Path = Field(
+        default=Path("temp/models/qwen3-forced-aligner"),
+        description="Cache directory for the internal Qwen3 forced-aligner assets.",
+    )
     AI_TRANSLATION_START_POLICY: str = Field(
         default="during_asr",
         description=(
@@ -695,6 +726,7 @@ class Settings(BaseSettings):
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
         os.makedirs(self.AI_ASR_PROVIDER_CACHE_DIR, exist_ok=True)
         os.makedirs(self.AI_AUDIO_INSPECTOR_CACHE_DIR, exist_ok=True)
+        os.makedirs(self.AI_QWEN3_FORCE_ALIGNER_CACHE_DIR, exist_ok=True)
 
     @staticmethod
     def normalize_language_tag(language: str | None) -> str:
@@ -825,6 +857,40 @@ class Settings(BaseSettings):
         if not routes:
             routes = {"sensevoice_small"}
         return frozenset(routes)
+
+    @property
+    def chinese_alignment_strategy(self) -> str:
+        value = (
+            str(self.AI_CHINESE_ALIGNMENT_STRATEGY or "linear_smeared").strip().lower()
+        )
+        if value not in {"linear_smeared", "qwen3_forced_after_llm"}:
+            return "linear_smeared"
+        return value
+
+    @property
+    def qwen3_force_aligner_device(self) -> str:
+        value = str(self.AI_QWEN3_FORCE_ALIGNER_DEVICE or "cpu").strip().lower()
+        if value != "cpu":
+            return "cpu"
+        return value
+
+    @property
+    def qwen3_force_aligner_route_ids(self) -> frozenset[str]:
+        routes = {
+            self.normalize_route_id(route)
+            for route in self.parse_csv_tokens(self.AI_QWEN3_FORCE_ALIGNER_ROUTE_IDS)
+            if self.normalize_route_id(route)
+        }
+        if not routes:
+            routes = {"sensevoice_small"}
+        return frozenset(routes)
+
+    @property
+    def qwen3_force_aligner_num_threads(self) -> int:
+        configured = int(self.AI_QWEN3_FORCE_ALIGNER_NUM_THREADS or 0)
+        if configured > 0:
+            return configured
+        return min(8, os.cpu_count() or 1)
 
     @property
     def translation_start_policy(self) -> str:
