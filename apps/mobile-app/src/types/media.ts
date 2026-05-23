@@ -101,6 +101,7 @@ export interface ConfirmUploadRequest {
 export interface SubmitYouTubeRequest {
   url: string;
   title?: string;
+  sourceLanguage?: string;
   targetLanguage?: string;
 }
 

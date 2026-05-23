@@ -36,6 +36,13 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
 
 ## 3. Recently Completed
 
+- 2026-05-23 — YouTube Pre-Flight Configuration Panel & i18n support. Status: Working.
+  - Implemented reusable Dropdown component with squircle borders matching Kapter's brand identity.
+  - Injected side-by-side dropdown pickers for Source Language (`Auto detect`, `Chinese (zh)`, `English (en)`) and Target Language (`Tiếng Việt (vi)`, `English (en)`) inside the YouTube Video Modal.
+  - Programmed automatic state reset hook based on `useOnboarding()` default target language defaults.
+  - Added micro-text warning presenting quota utilization constraints.
+  - Updated axios mutations and schemas to support `sourceLanguage` and `targetLanguage` fields.
+
 - 2026-05-23 — Visual refactoring, thumbnail ingestion, and bottom tab bar refactoring. Status: Working.
   - Installed `expo-video-thumbnails` library via `npx expo install`.
   - Refactored `useUploadMedia` hook in `useMedia.ts` to capture the first frame of local video files, upload it to the pre-generated `thumbnailUploadUrl` in MinIO, and confirm the upload with `hasThumbnail: true`.

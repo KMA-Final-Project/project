@@ -363,14 +363,19 @@ async def run_v2_pipeline_async(
         selected_source_lang = chinese_prior.suspected_family
         routing_strategy = "chinese_prior"
 
+    route_override_zh = None
+    if local_source_hint and local_source_hint.startswith("zh"):
+        route_override_zh = "sensevoice_small"
+
     if hasattr(pipeline.aligner, "route_decision_for_language"):
         route_decision = pipeline.aligner.route_decision_for_language(
             selected_source_lang or None,
             requested_policy=translation_start_policy,
+            route_override=route_override_zh,
         )
     else:
         legacy_route = pipeline.aligner.resolve_route(
-            pipeline.aligner.route_for_language(selected_source_lang or None)
+            route_override_zh or pipeline.aligner.route_for_language(selected_source_lang or None)
         )
         legacy_model_name = (
             settings.WHISPER_MODEL_FULL

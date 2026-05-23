@@ -149,6 +149,7 @@ export class MediaService {
         audioS3Key: placeholderKey,
         artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
+        sourceLanguage: dto.sourceLanguage || null,
       },
     });
 
@@ -158,6 +159,7 @@ export class MediaService {
       url: dto.url,
       userId,
       targetLanguage: dto.targetLanguage,
+      sourceLanguage: dto.sourceLanguage,
     });
 
     this.logger.log(`YouTube submitted: media ${mediaItem.id}, job ${jobId}`);
@@ -326,7 +328,9 @@ export class MediaService {
     if (item.originType === 'YOUTUBE' && item.youtubeVideoId) {
       thumbnailUrl = `https://img.youtube.com/vi/${item.youtubeVideoId}/hqdefault.jpg`;
     } else if (item.originType === 'LOCAL' && item.hasThumbnail) {
-      thumbnailUrl = await this.minioService.generatePresignedGetUrl(`${item.id}/thumbnail.jpg`);
+      thumbnailUrl = await this.minioService.generatePresignedGetUrl(
+        `${item.id}/thumbnail.jpg`,
+      );
     }
 
     return {
@@ -365,7 +369,9 @@ export class MediaService {
         if (item.originType === 'YOUTUBE' && item.youtubeVideoId) {
           thumbnailUrl = `https://img.youtube.com/vi/${item.youtubeVideoId}/hqdefault.jpg`;
         } else if (item.originType === 'LOCAL' && item.hasThumbnail) {
-          thumbnailUrl = await this.minioService.generatePresignedGetUrl(`${item.id}/thumbnail.jpg`);
+          thumbnailUrl = await this.minioService.generatePresignedGetUrl(
+            `${item.id}/thumbnail.jpg`,
+          );
         }
 
         return {
@@ -516,7 +522,7 @@ export class MediaService {
 function extractYoutubeVideoId(url: string): string | null {
   if (!url) return null;
   const regExp =
-    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+    /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i;
   const match = url.match(regExp);
   return match && match[1].length === 11 ? match[1] : null;
 }

@@ -38,6 +38,11 @@ Deprecated V1 paths must not be reintroduced.
 
 ## 3. Recently Completed
 
+- 2026-05-23 — Explicit Chinese Routing Override. Status: Working.
+  - Changed: Modified `run_v2_pipeline_async` in `src/async_pipeline.py` to check if `local_source_hint` starts with `"zh"`. If so, it sets `route_override = "sensevoice_small"`. This is passed to route decision and ASR processing, forcing the certified Chinese-primary route and skipping language probing entirely.
+  - Why: Users manually declaring Chinese must bypass the language probe and route onto the certified `sensevoice_small` route to avoid misrouting and translation pitfalls.
+  - Validation: `venv\Scripts\python.exe -m pytest tests/test_hybrid_routing.py` (3 passed), `venv\Scripts\python.exe -m pytest tests/test_event_discipline.py` (5 passed).
+
 - 2026-05-23 — Reverted semantic placeholder insertion for colloquial Chinese meeting turns and moved the interpretation back to prompt-driven rescue.
   - Status: Working
   - Changed: Updated `src/core/chinese_primary_refiner.py` so the opening-dialogue cleanup no longer mutates `我是你是` into an ellipsis placeholder form; the refiner now stays source-preserving for that colloquial turn family while still applying deterministic punctuation-only or high-confidence lexical repairs such as `对，是我。第一次见面。` and `幸会，等很久了吗？`. Tightened `src/core/prompts.py` with explicit colloquial-dialogue rules and examples teaching that `我是` / `是我` can be complete standalone clauses, and updated the Chinese rescue and pipeline tests in `tests/test_chinese_primary_refiner.py` and `tests/test_chinese_batch_llm_translator.py`.

@@ -138,7 +138,9 @@ export class MinioService {
       expirySeconds,
     );
 
-    this.logger.debug(`Presigned URL generated for: ${objectKey} in bucket: ${targetBucket}`);
+    this.logger.debug(
+      `Presigned URL generated for: ${objectKey} in bucket: ${targetBucket}`,
+    );
     return publicUrl;
   }
 

@@ -134,4 +134,13 @@ export class SubmitYoutubeDto {
   @IsString()
   @Matches(/^[a-z]{2}(-[A-Z]{2})?$/)
   targetLanguage?: string;
+
+  @ApiPropertyOptional({
+    example: 'en',
+    description:
+      'Explicitly declared source language to skip auto-probe (e.g. en, zh)',
+  })
+  @IsOptional()
+  @IsString()
+  sourceLanguage?: string;
 }

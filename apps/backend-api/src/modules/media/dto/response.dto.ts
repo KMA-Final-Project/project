@@ -31,7 +31,8 @@ export class PresignedUrlResponseDto {
   mediaId: string;
 
   @ApiProperty({
-    description: 'Public-facing presigned PUT URL for uploading the captured local video thumbnail (null if not video)',
+    description:
+      'Public-facing presigned PUT URL for uploading the captured local video thumbnail (null if not video)',
     example:
       'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
     nullable: true,
@@ -288,8 +289,10 @@ export class MediaStatusResponseDto {
   artifacts: MediaArtifactsSummaryDto;
 
   @ApiProperty({
-    description: 'Presigned GET URL or CDN URL of the media thumbnail (null if unavailable or pure audio)',
-    example: 'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
+    description:
+      'Presigned GET URL or CDN URL of the media thumbnail (null if unavailable or pure audio)',
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
     nullable: true,
   })
   thumbnailUrl: string | null;
@@ -348,8 +351,10 @@ export class MediaListItemDto {
   currentStep: string | null;
 
   @ApiProperty({
-    description: 'Presigned GET URL or CDN URL of the media thumbnail (null if unavailable or pure audio)',
-    example: 'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
+    description:
+      'Presigned GET URL or CDN URL of the media thumbnail (null if unavailable or pure audio)',
+    example:
+      'https://bilingual-minio.sondndev.id.vn/processed/media-id/thumbnail.jpg?X-Amz-...',
     nullable: true,
   })
   thumbnailUrl: string | null;

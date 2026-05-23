@@ -113,11 +113,17 @@ export function useSubmitYouTube() {
   const { defaultTargetLanguage } = useOnboarding();
 
   return useMutation({
-    mutationFn: (payload: { url: string; title?: string }) =>
+    mutationFn: (payload: {
+      url: string;
+      title?: string;
+      sourceLanguage?: string;
+      targetLanguage?: string;
+    }) =>
       mediaService.submitYouTube({
         url: payload.url,
         title: payload.title,
-        targetLanguage: defaultTargetLanguage,
+        sourceLanguage: payload.sourceLanguage,
+        targetLanguage: payload.targetLanguage || defaultTargetLanguage,
       }),
     onSuccess: (response) => {
       const queuedItem = buildQueuedMediaItem(
