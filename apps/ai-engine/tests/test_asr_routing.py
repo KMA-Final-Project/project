@@ -72,6 +72,15 @@ def test_router_selects_sensevoice_for_chinese_default_route(
     assert router.route_for_language("yue") == "sensevoice_small"
 
 
+def test_router_respects_paraformer_when_set_as_chinese_default(monkeypatch) -> None:
+    monkeypatch.setattr("src.config.settings.AI_ASR_ENABLE_EXPERIMENTAL_ZH_ROUTE", False)
+    monkeypatch.setattr("src.config.settings.AI_ASR_DEFAULT_ROUTE_ZH", "paraformer_zh")
+    router = ASRRouter(_routes())
+
+    assert router.route_for_language("zh") == "paraformer_zh"
+    assert router.route_for_language("yue") == "paraformer_zh"
+
+
 def test_router_selects_experimental_chinese_route_when_enabled(monkeypatch) -> None:
     monkeypatch.setattr("src.config.settings.AI_ASR_ENABLE_EXPERIMENTAL_ZH_ROUTE", True)
     router = ASRRouter(_routes())

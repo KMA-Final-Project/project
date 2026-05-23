@@ -22,6 +22,10 @@ from typing import Any, List
 from loguru import logger
 
 from src.config import settings
+from src.core.chinese_batch_llm_translator import (
+    ChineseBatchLLMResult,
+    ChineseBatchLLMTranslator,
+)
 from src.core.chinese_candidate_normalizer import (
     ChineseCandidateNormalizeResult,
     normalize_chinese_candidate_sentences,
@@ -194,6 +198,7 @@ async def run_v2_pipeline_async(
         "producer_wait": 0.0,
         "consumer_merge": 0.0,
         "consumer_nmt": 0.0,
+        "consumer_llm": 0.0,
         "consumer_upload": 0.0,
         "consumer_idle": 0.0,
     }
@@ -319,6 +324,7 @@ async def run_v2_pipeline_async(
     chinese_refine_result = ChinesePrimaryRefineResult([], [], [], [], [])
     chinese_repair_result = ChineseWindowRepairResult([], [])
     skip_cjk_semantic_merge = False
+    chinese_llm_metrics: list[dict[str, Any]] = []
 
     if configured_source_hint:
         selected_source_lang = configured_source_hint
@@ -559,6 +565,7 @@ async def run_v2_pipeline_async(
         )
         merger = pipeline.merger
         llm = pipeline.llm
+        chinese_llm_translator = ChineseBatchLLMTranslator(llm)
 
         all_sentences: list[Sentence] = []
         cjk_buffer: list[Sentence] = []
@@ -569,6 +576,7 @@ async def run_v2_pipeline_async(
         context_analyzed: bool = False
         upload_semaphore = asyncio.Semaphore(2)
         upload_tasks: list[asyncio.Task[None]] = []
+        pending_cjk_translation_batch: list[Sentence] | None = None
 
         def _source_lang() -> str:
             return source_lang_holder[0] or "en"
@@ -640,6 +648,9 @@ async def run_v2_pipeline_async(
 
         def _translate_batch(
             sentences: list[Sentence],
+            *,
+            context_before: list[Sentence] | None = None,
+            context_after: list[Sentence] | None = None,
         ) -> tuple[list[Sentence], int, str, str, float]:
             """Translate via NMT and optional LLM refinement."""
             nonlocal context_result, context_analyzed, nmt
@@ -652,22 +663,52 @@ async def run_v2_pipeline_async(
             src = _source_lang()
             tgt = target_lang
             texts = [s.text for s in sentences]
+            llm_rescue_result = ChineseBatchLLMResult((), ())
+            nmt_time_spent = 0.0
 
-            nmt_started_at = _time.perf_counter()
+            def _translate_with_nmt(batch_texts: list[str]) -> list[str]:
+                nonlocal nmt, nmt_time_spent
+                nmt_call_started_at = _time.perf_counter()
+                if nmt is None:
+                    nmt = NMTTranslator.get_instance()
+                result = nmt.translate_batch(batch_texts, src, tgt)
+                nmt_time_spent += _time.perf_counter() - nmt_call_started_at
+                return result
+
             if src == tgt:
                 nmt_translations = list(texts)
                 logger.debug(
                     f"⏭️ NMT skipped (source == target): {len(sentences)} segments"
                 )
+            elif src in {"zh", "yue"} and settings.AI_CHINESE_LLM_RESCUE_ENABLED:
+                llm_started_at = _time.perf_counter()
+                llm_rescue_result = chinese_llm_translator.translate_batch(
+                    sentences,
+                    target_lang=tgt,
+                    fallback_translate=_translate_with_nmt,
+                    context_before=context_before,
+                    context_after=context_after,
+                    source_lang=src,
+                    actual_route=str(route_usage.get("actual_route") or selected_route),
+                )
+                _add_timing("consumer_llm", _time.perf_counter() - llm_started_at)
+                chinese_llm_metrics.append(llm_rescue_result.as_metrics())
+                llm_batches_used = llm_rescue_result.as_metrics()["llm_batches_used"]
+                fallback_batches = llm_rescue_result.as_metrics()["fallback_batches"]
+                nmt_translations = [sentence.translation for sentence in llm_rescue_result.sentences]
+                sentences = [sentence.model_copy(deep=True) for sentence in llm_rescue_result.sentences]
+                logger.info(
+                    f"🈶 Chinese batch translation {batch_index}: {len(sentences)} segments "
+                    f"(llm_batches={llm_batches_used}, llm_fallbacks={fallback_batches})"
+                )
             else:
-                if nmt is None:
-                    nmt = NMTTranslator.get_instance()
-                nmt_translations = nmt.translate_batch(texts, src, tgt)
+                nmt_started_at = _time.perf_counter()
+                nmt_translations = _translate_with_nmt(texts)
                 logger.info(
                     f"🌐 NMT batch {batch_index}: {len(sentences)} segments "
                     f"{src}→{tgt} in {_time.perf_counter() - nmt_started_at:.2f}s"
                 )
-            _add_timing("consumer_nmt", _time.perf_counter() - nmt_started_at)
+            _add_timing("consumer_nmt", nmt_time_spent)
 
             if (
                 settings.AI_ENABLE_LLM_REFINEMENT
@@ -692,6 +733,7 @@ async def run_v2_pipeline_async(
                 settings.AI_ENABLE_LLM_REFINEMENT
                 and context_result is not None
                 and src != tgt
+                and src not in {"zh", "yue"}
             ):
                 try:
                     t1 = _time.time()
@@ -781,6 +823,9 @@ async def run_v2_pipeline_async(
 
         async def _schedule_translated_batch(
             sentences: list[Sentence],
+            *,
+            context_before: list[Sentence] | None = None,
+            context_after: list[Sentence] | None = None,
         ) -> list[Sentence]:
             nonlocal batch_index, upload_tasks
             if not sentences:
@@ -790,6 +835,8 @@ async def run_v2_pipeline_async(
                 await asyncio.to_thread(
                     _translate_batch,
                     sentences,
+                    context_before=context_before,
+                    context_after=context_after,
                 )
             )
             if not translated:
@@ -817,6 +864,62 @@ async def run_v2_pipeline_async(
             upload_tasks = [task for task in upload_tasks if not task.done()]
             return translated
 
+        def _zh_llm_rescue_active() -> bool:
+            return (
+                settings.AI_CHINESE_LLM_RESCUE_ENABLED
+                and _source_lang() in {"zh", "yue"}
+            )
+
+        async def _schedule_with_context(
+            sentences: list[Sentence],
+            *,
+            final: bool = False,
+        ) -> None:
+            nonlocal pending_cjk_translation_batch
+            if not sentences and not final:
+                return
+            if not _zh_llm_rescue_active():
+                if sentences:
+                    await _schedule_translated_batch(sentences)
+                return
+
+            shadow = max(0, settings.AI_CHINESE_LLM_RESCUE_SHADOW_SEGMENTS)
+            if pending_cjk_translation_batch is None:
+                if final:
+                    if sentences:
+                        await _schedule_translated_batch(
+                            sentences,
+                            context_before=all_sentences[-shadow:] if shadow else None,
+                            context_after=[],
+                        )
+                    return
+                pending_cjk_translation_batch = list(sentences)
+                return
+
+            if sentences:
+                await _schedule_translated_batch(
+                    pending_cjk_translation_batch,
+                    context_before=all_sentences[-shadow:] if shadow else None,
+                    context_after=list(sentences[:shadow]) if shadow else None,
+                )
+                if final:
+                    await _schedule_translated_batch(
+                        sentences,
+                        context_before=all_sentences[-shadow:] if shadow else None,
+                        context_after=[],
+                    )
+                    pending_cjk_translation_batch = None
+                else:
+                    pending_cjk_translation_batch = list(sentences)
+                return
+
+            await _schedule_translated_batch(
+                pending_cjk_translation_batch,
+                context_before=all_sentences[-shadow:] if shadow else None,
+                context_after=[],
+            )
+            pending_cjk_translation_batch = None
+
         while True:
             queue_wait_started_at = _time.perf_counter()
             chunk = await queue.get()
@@ -835,7 +938,9 @@ async def run_v2_pipeline_async(
                     _add_timing(
                         "consumer_merge", _time.perf_counter() - merge_started_at
                     )
-                    await _schedule_translated_batch(flushed)
+                    await _schedule_with_context(flushed, final=True)
+                elif pending_cjk_translation_batch is not None:
+                    await _schedule_with_context([], final=True)
                 if non_cjk_buffer:
                     _trace(
                         "batch_processing_started",
@@ -880,7 +985,7 @@ async def run_v2_pipeline_async(
                     _add_timing(
                         "consumer_merge", _time.perf_counter() - merge_started_at
                     )
-                    await _schedule_translated_batch(flushed)
+                    await _schedule_with_context(flushed)
                     chunks_since_cjk_flush = 0
             else:
                 non_cjk_buffer.extend(chunk)
@@ -900,6 +1005,7 @@ async def run_v2_pipeline_async(
             "⏱️ Consumer: "
             f"merge={timing_state['consumer_merge']:.3f}s, "
             f"nmt={timing_state['consumer_nmt']:.3f}s, "
+            f"llm={timing_state['consumer_llm']:.3f}s, "
             f"upload={timing_state['consumer_upload']:.3f}s, "
             f"idle={timing_state['consumer_idle']:.3f}s, "
             f"total={consumer_total:.3f}s"
@@ -928,16 +1034,10 @@ async def run_v2_pipeline_async(
 
     if trust_gate_active:
         trust_candidate_routes: list[str] = [selected_route]
-        if (
-            settings.AI_CHINESE_RECOVERY_ENABLE_SENSEVOICE
-            and "sensevoice_small" not in trust_candidate_routes
-        ):
-            trust_candidate_routes.append("sensevoice_small")
-        if (
-            settings.AI_CHINESE_RECOVERY_ENABLE_WHISPER_FULL
-            and "whisper_full" not in trust_candidate_routes
-        ):
-            trust_candidate_routes.append("whisper_full")
+        for recovery_route in settings.chinese_recovery_route_ids:
+            resolved_recovery_route = pipeline.aligner.resolve_route(recovery_route)
+            if resolved_recovery_route not in trust_candidate_routes:
+                trust_candidate_routes.append(resolved_recovery_route)
 
         trusted_candidate_sentences: list[Sentence] | None = None
         trusted_candidate_batches = None
@@ -949,10 +1049,13 @@ async def run_v2_pipeline_async(
         for route_index, candidate_route in enumerate(trust_candidate_routes):
             if route_index == 0:
                 trust_stage = "first_pass"
-            elif candidate_route == "sensevoice_small":
-                trust_stage = "sensevoice_recovery"
             else:
-                trust_stage = "whisper_full_recovery"
+                stage_prefix = settings.normalize_route_id(candidate_route) or "recovery"
+                trust_stage = (
+                    "final_recovery"
+                    if route_index == len(trust_candidate_routes) - 1
+                    else f"{stage_prefix}_recovery"
+                )
 
             candidate_sentences, candidate_batches, candidate_usage = await _run_candidate_asr(
                 candidate_route,
@@ -1068,7 +1171,7 @@ async def run_v2_pipeline_async(
                     route_id=selected_route,
                     diagnostics={},
                     probe_details=probe_details,
-                    stage="whisper_full_recovery",
+                    stage="final_recovery",
                     duration_seconds=duration_seconds,
                     windows=[],
                 ).signals,
@@ -1266,6 +1369,7 @@ async def run_v2_pipeline_async(
         "consumer": {
             "merge": round(timing_state["consumer_merge"], 3),
             "nmt": round(timing_state["consumer_nmt"], 3),
+            "llm_rescue": round(timing_state["consumer_llm"], 3),
             "upload": round(timing_state["consumer_upload"], 3),
             "idle": round(timing_state["consumer_idle"], 3),
         },
@@ -1289,6 +1393,7 @@ async def run_v2_pipeline_async(
         "chinese_normalize": chinese_normalize_result.as_metrics(),
         "chinese_repair": chinese_repair_result.as_metrics(),
         "chinese_refine": chinese_refine_result.as_metrics(),
+        "chinese_llm_rescue": chinese_llm_metrics,
         "chinese_prior": {
             "prior_score": chinese_prior.prior_score,
             "suspected_family": chinese_prior.suspected_family,

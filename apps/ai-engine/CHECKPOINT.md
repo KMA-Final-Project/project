@@ -1,6 +1,6 @@
 # AI Engine - Checkpoint
 
-> Last updated: 2026-05-22
+> Last updated: 2026-05-23
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -33,10 +33,48 @@ Deprecated V1 paths must not be reintroduced.
 
 ## 2. Active Work
 
-- [ ] Improve trusted Chinese lexical quality on the live SenseVoice path without regressing the restored opening mixed-script lines (`第一次相亲。 First blind date.` and the first `你好。`).
-- [ ] Decide whether the next quality pass should prefer selective window repair against Whisper full or a lighter post-ASR lexical correction stage for mistranscribed Chinese dialogue.
+- [ ] Improve the first Chinese dialogue block through stricter LLM rescue examples and validation-safe punctuation recovery, without adding source-side placeholder text for colloquial `我是` / `是我` turns.
+- [ ] Re-run the next targeted Chinese E2E after the prompt-only rescue pass and verify whether segments like `你好，我是。你是李雷吧？`, `对，是我。第一次见面。`, and `幸会，等很久了吗？` survive through translation cleanly.
 
 ## 3. Recently Completed
+
+- 2026-05-23 — Reverted semantic placeholder insertion for colloquial Chinese meeting turns and moved the interpretation back to prompt-driven rescue.
+  - Status: Working
+  - Changed: Updated `src/core/chinese_primary_refiner.py` so the opening-dialogue cleanup no longer mutates `我是你是` into an ellipsis placeholder form; the refiner now stays source-preserving for that colloquial turn family while still applying deterministic punctuation-only or high-confidence lexical repairs such as `对，是我。第一次见面。` and `幸会，等很久了吗？`. Tightened `src/core/prompts.py` with explicit colloquial-dialogue rules and examples teaching that `我是` / `是我` can be complete standalone clauses, and updated the Chinese rescue and pipeline tests in `tests/test_chinese_primary_refiner.py` and `tests/test_chinese_batch_llm_translator.py`.
+  - Why: The previous placeholder form `我是……` encoded the wrong linguistic assumption, damaged downstream LLM context, and violated the principle that the refiner must not invent spoken lexical content. Boundary interpretation belongs in the adaptive rescue layer, while the validator continues to enforce source-token preservation.
+  - Contract touched: Language
+  - Validation: `venv\Scripts\python.exe -m py_compile src\core\chinese_primary_refiner.py src\core\prompts.py tests\test_chinese_primary_refiner.py tests\test_chinese_batch_llm_translator.py`; `venv\Scripts\python.exe -m pytest tests\test_chinese_primary_refiner.py tests\test_chinese_batch_llm_translator.py -q --maxfail=1 -k "not test_async_pipeline_uses_llm_rescue_for_flagged_chinese_batch" --basetemp temp\pytest-zh-dialogue-revert-v2` passed with `25 passed, 1 deselected, 1 warning`; direct invocation of `test_async_pipeline_uses_llm_rescue_for_flagged_chinese_batch` via `pytest.MonkeyPatch` and a manual temp directory passed in `0.01s`.
+  - Follow-up: Re-run the next Chinese E2E bundle and verify whether the prompt-only interpretation is enough to keep the colloquial meeting lines structurally correct without reintroducing semantic source edits.
+
+- 2026-05-23 — Narrowed SenseVoice radar rescue windows and added partial per-segment fallback acceptance.
+  - Status: Working
+  - Changed: Refined `src/core/chinese_batch_llm_translator.py` so hard-radar rescue no longer sends broad mixed dialogue windows when a smaller flagged run is sufficient; contiguous hard-jam runs are now isolated more tightly, and LLM validation now preserves source-valid segments while falling back only the mutated ones instead of discarding the whole window. Updated `tests/test_chinese_batch_llm_translator.py` to cover hard-radar window carving, partial acceptance, and the pipeline prompt path.
+  - Why: The first SenseVoice Chinese E2E run proved the new radar path was active but still unusable for the opening dialogue because one mutated source segment caused the entire rescue window to fall back to bad NMT output. The next pass had to recover the valid question/meeting lines without trusting mutated source text.
+  - Contract touched: Language
+  - Validation: `venv\Scripts\python.exe -m py_compile src\core\chinese_batch_llm_translator.py tests\test_chinese_batch_llm_translator.py src\async_pipeline.py`; `venv\Scripts\python.exe -m pytest tests\test_chinese_batch_llm_translator.py -q --maxfail=1 -k "not test_async_pipeline_uses_llm_rescue_for_flagged_chinese_batch" --basetemp temp\pytest-zh-radar-no-async2` passed with `16 passed, 1 deselected`; direct invocation of `test_async_pipeline_uses_llm_rescue_for_flagged_chinese_batch` via `pytest.MonkeyPatch` passed; `.\scripts\run-e2e-youtube-pipeline.ps1` produced `outputs/e2e-youtube-pipeline/20260523_150300/`, where the opening Chinese question now appears as `请问，你是王静吗？ -> Bạn có phải là Vương靜 không?` instead of the older NMT failure `Xin hãy giữ bình tĩnh.`
+  - Follow-up: The jammed source line `你好，我是你是李雷吧。` still mutates under LLM rescue and correctly falls back, so the next fix should target source-side lexical/turn repair for that exact segment before translation rather than broadening LLM trust.
+
+- 2026-05-23 — Added SenseVoice-scoped Chinese linguistic radar and prompt-only `[split_hint]` rescue hints.
+  - Status: Working
+  - Changed: Extended `src/core/chinese_batch_llm_translator.py` with a conservative regex radar for internal Chinese dialogue segmentation jams, added prompt payload fields `raw_text`, `text_with_hints`, and optional `radar_flags`, inserted `[split_hint]` only for configured SenseVoice Chinese routes with per-segment and per-batch caps, added normalized hint-leak auditing plus hint stripping before canonical source comparison, and threaded the active route into `src/async_pipeline.py` so the radar stays scoped to the live Chinese route.
+  - Why: Trusted SenseVoice Chinese batches were still reaching the LLM rescue path with jammed internal turn boundaries like `你好我是你是李雷吧`, which made punctuation restoration brittle. The fix needed to stay conservative, route-scoped, and prompt-internal so no hint token could leak into public subtitle artifacts.
+  - Contract touched: Language
+  - Validation: `venv\Scripts\python.exe -m py_compile src\config.py src\async_pipeline.py src\core\prompts.py src\core\chinese_batch_llm_translator.py tests\test_chinese_batch_llm_translator.py`; `venv\Scripts\python.exe -m pytest tests\test_chinese_batch_llm_translator.py -q --maxfail=1 -k "not test_async_pipeline_uses_llm_rescue_for_flagged_chinese_batch" --basetemp temp\pytest-zh-radar-no-async` passed with `15 passed, 1 deselected`; direct invocation of `test_async_pipeline_uses_llm_rescue_for_flagged_chinese_batch` via `pytest.MonkeyPatch` and a manual temp directory passed after pytest's known Windows `tmp_path` cleanup issue was bypassed.
+  - Follow-up: Keep the radar conservative and review future Chinese E2E bundles for over-splitting before expanding the route allowlist beyond `sensevoice_small`.
+
+- 2026-05-23 — Stabilized Paraformer as a configurable Chinese default route for controlled E2E runs.
+  - Status: Working
+  - Changed: Added `AI_CHINESE_RECOVERY_ROUTE_IDS` in `src/config.py` as an optional override and changed its default behavior so the Chinese trust-gated recovery ladder derives from the current Chinese default route plus enabled safe fallbacks instead of hardcoded SenseVoice assumptions; updated `src/async_pipeline.py` to honor the configured recovery order after the selected Chinese route; generalized final-stage trust handling away from a Whisper-specific stage name in `src/core/transcript_trust_gate.py`; and added focused routing/trust tests proving `AI_ASR_DEFAULT_ROUTE_ZH=paraformer_zh` becomes the first Chinese recovery route when the initial probe still misroutes to English.
+  - Why: Paraformer was already implemented as a provider, but the system still treated it as benchmark-only because the Chinese trust path was implicitly wired around SenseVoice-first recovery. Flipping `AI_ASR_DEFAULT_ROUTE_ZH` alone was therefore not a stable E2E configuration seam whenever the initial probe chose an English route first.
+  - Validation: `venv\Scripts\python.exe -m py_compile src/config.py src/async_pipeline.py src/core/transcript_trust_gate.py tests/test_asr_routing.py tests/test_chinese_trust_gate.py`; `venv\Scripts\python.exe -m pytest tests/test_asr_routing.py tests/test_chinese_trust_gate.py tests/test_asr_provider_contract.py -q --maxfail=1 --basetemp temp\pytest-paraformer-route`
+  - Follow-up: Run `.\scripts\run-e2e-youtube-pipeline.ps1` with `AI_ASR_DEFAULT_ROUTE_ZH=paraformer_zh` and inspect whether Paraformer remains a viable evaluation route on the current Chinese YouTube case or still degrades too much versus SenseVoice.
+
+- 2026-05-22 — Added selective Chinese LLM batch rescue and proved it on the live backend-submit opening batch.
+  - Status: Working
+  - Changed: Added `src/core/chinese_batch_llm_translator.py` and extended `src/core/llm_provider.py` plus `src/core/prompts.py` so trusted Chinese batches can selectively call local Ollama `qwen2.5:7b-instruct` with structured JSON output for punctuation-preserving source display text plus Vietnamese translation; wired the strategy into `src/async_pipeline.py` as a Chinese-only fallback-free branch alongside deterministic NMT; added deterministic risk metrics, exact canonical source-preservation validation, and mixed-script opener window splitting so a leading bilingual gloss line is treated as context while the following compact Chinese dialogue block is eligible for LLM rescue.
+  - Why: The real app-path E2E runs showed that the opening Chinese dialogue was no longer misrouted to English ASR, but deterministic NMT still collapsed short trusted dialogue like `请问你是王静吗？` into unrelated Vietnamese despite correct Chinese source ownership. A full Chinese-wide LLM replacement was too expensive, so the fix had to be selective and batch-local.
+  - Validation: `& .\apps\ai-engine\venv\Scripts\python.exe -m py_compile apps\ai-engine\src\config.py apps\ai-engine\src\core\prompts.py apps\ai-engine\src\core\llm_provider.py apps\ai-engine\src\core\chinese_batch_llm_translator.py apps\ai-engine\tests\test_chinese_batch_llm_translator.py`; `& .\apps\ai-engine\venv\Scripts\python.exe -m pytest apps\ai-engine\tests\test_chinese_batch_llm_translator.py -q --maxfail=1 --basetemp temp\pytest-zh-llm-trigger3` with all assertions passing before the known Windows pytest tempdir cleanup permission failure; `.\scripts\run-e2e-youtube-pipeline.ps1` produced `outputs/e2e-youtube-pipeline/20260522_232435/`, where `ai-engine.err.log` shows `Chinese batch translation 0: 8 segments (llm_batches=1, llm_fallbacks=0)` and the saved Chinese `evaluation.summary.json` now corrects the opening line `请问你是王静吗？ -> Xin hỏi bạn là Vương Tĩnh phải không?`.
+  - Follow-up: Keep improving trusted Chinese source lexical quality for lines like `你好，我是你是李雷吧。` and `信会等很久了吗？`, and decide whether those should be handled by additional selective LLM rescue windows or a separate source-text repair stage before translation.
 
 - 2026-05-22 — Added early-window Chinese candidate reconciliation and provider-level mixed-script sentence building.
   - Status: Working
@@ -160,9 +198,9 @@ Deprecated V1 paths must not be reintroduced.
   - Related areas: `src/core/chinese_prior.py`, `src/core/transcript_trust_gate.py`, `src/async_pipeline.py`, `src/main.py`, `outputs/e2e-youtube-pipeline/20260522_161155/`.
 
 - Chinese source transcript quality is now better structured but still not production-clean on SenseVoice-first live runs.
-  - Impact: ownership, timing continuity, and mixed-script opening preservation are materially better, but the saved Chinese E2E bundle still contains lexical ASR mistakes like `你好，我是你是李雷吧。`, `对，是我第一次见面。`, and mistranslated downstream lines such as `请问你是王静吗？ -> Xin hãy giữ bình tĩnh.`
-  - Current workaround: keep the Chinese trust gate and sentence-boundary repair in place, then focus the next pass on lexical cleanup or selective window repair instead of more ownership logic.
-  - Related areas: `src/core/chinese_primary_refiner.py`, `src/core/chinese_window_repairer.py`, `src/core/transcript_trust_gate.py`, `outputs/e2e-youtube-pipeline/20260522_161155/`.
+  - Impact: ownership, timing continuity, and mixed-script opening preservation are materially better, but the opening meeting dialogue still needs stronger punctuation/translation recovery for colloquial turns like `你好我是你是李雷吧` and `对是我第一次见面`, even after the refiner stopped injecting semantic placeholders.
+  - Current workaround: keep the Chinese trust gate, source-preserving refiner, and validated LLM rescue in place, then focus the next pass on prompt-level recovery and fresh E2E evidence instead of inventing source text upstream.
+  - Related areas: `src/core/chinese_primary_refiner.py`, `src/core/chinese_batch_llm_translator.py`, `src/core/prompts.py`, `src/core/transcript_trust_gate.py`, `outputs/e2e-youtube-pipeline/20260523_153018/`.
 
 - Benchmark quality and benchmark latency must be evaluated separately.
   - Impact: earlier benchmark wins for SenseVoice were real for latency/VRAM, but the benchmark artifacts themselves already contained emoji/decorative text pollution, so “benchmark passed” did not mean subtitle quality was acceptable.
