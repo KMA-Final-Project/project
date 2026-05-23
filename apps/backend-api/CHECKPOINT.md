@@ -25,6 +25,11 @@ Use `Next Candidates` below as the current backend backlog until a new task file
 
 ## 3. Recently Completed
 
+- 2026-05-23 — Modern visual refactoring and thumbnail ingestion updates. Status: Working.
+  - Added `youtubeVideoId` and `hasThumbnail` columns to `MediaItem` in database schema via migration `20260523082324_add_media_thumbnail_fields`.
+  - Updated `ConfirmUploadDto`, `PresignedUrlResponseDto`, `MediaListItemDto`, and `MediaStatusResponseDto` with thumbnail fields.
+  - Integrated `MediaService` to return dynamic `thumbnailUrl` (signed URLs for local videos, direct CDN URLs for YouTube) and pre-allocate `mediaId` in the presigned URL flow.
+
 - 2026-05-21 — Automated YouTube E2E pipeline evaluator added. Status: Working.
   - Added `scripts/e2e-youtube-pipeline-eval.ts` and `pnpm test:youtube:e2e` to drive the real backend path: create/login test user, `POST /media/youtube`, poll `GET /media/:id/status`, fetch `GET /media/:id/artifacts`, read artifact objects from local MinIO, and write a local evaluation bundle.
   - Added root `scripts/run-e2e-youtube-pipeline.ps1` to bring up local infra, start backend API + worker + AI engine, capture logs, run the evaluator, and store suite results under `outputs/e2e-youtube-pipeline/`.

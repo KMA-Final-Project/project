@@ -7,6 +7,7 @@ import {
   Matches,
   IsUrl,
   IsOptional,
+  IsBoolean,
 } from 'class-validator';
 
 // ==================== LOCAL UPLOAD FLOW ====================
@@ -73,6 +74,22 @@ export class ConfirmUploadDto {
   @IsString()
   @Matches(/^[a-z]{2}(-[A-Z]{2})?$/)
   targetLanguage?: string;
+
+  @ApiPropertyOptional({
+    example: '15209337-61c8-4a67-9f71-990475f394a4',
+    description: 'Pre-allocated MediaItem database ID',
+  })
+  @IsOptional()
+  @IsString()
+  mediaId?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Whether the client uploaded a thumbnail to MinIO',
+  })
+  @IsOptional()
+  @IsBoolean()
+  hasThumbnail?: boolean;
 }
 
 // ==================== YOUTUBE FLOW ====================

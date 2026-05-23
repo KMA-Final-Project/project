@@ -58,11 +58,20 @@ export class MediaService {
   ): Promise<PresignedUrlResponseDto> {
     await this.assertQuotaNotExceeded(userId);
 
-    const objectKey = `audio/${userId}/${randomUUID()}/${dto.fileName}`;
+    const mediaId = randomUUID();
+    const objectKey = `audio/${userId}/${mediaId}/${dto.fileName}`;
 
     const uploadUrl = await this.minioService.generatePresignedPutUrl(
       objectKey,
       PRESIGNED_URL_EXPIRY_SECONDS,
+    );
+
+    // Always pre-generate the thumbnail upload URL for the client to use if uploading a video
+    const thumbnailKey = `${mediaId}/thumbnail.jpg`;
+    const thumbnailUploadUrl = await this.minioService.generatePresignedPutUrl(
+      thumbnailKey,
+      PRESIGNED_URL_EXPIRY_SECONDS,
+      this.minioService.getProcessedBucketName(),
     );
 
     this.logger.log(`Presigned URL generated for user ${userId}: ${objectKey}`);
@@ -71,6 +80,8 @@ export class MediaService {
       uploadUrl,
       objectKey,
       expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
+      mediaId,
+      thumbnailUploadUrl,
     };
   }
 
@@ -83,14 +94,18 @@ export class MediaService {
       throw new BadRequestException(MEDIA_ERRORS.FILE_NOT_FOUND);
     }
 
+    const mediaId = dto.mediaId || dto.objectKey.split('/')[2] || randomUUID();
+
     const mediaItem = await this.prisma.mediaItem.create({
       data: {
+        id: mediaId,
         userId,
         title: dto.title,
         originType: MediaOriginType.LOCAL,
         audioS3Key: dto.objectKey,
         artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
+        hasThumbnail: dto.hasThumbnail ?? false,
       },
     });
 
@@ -122,6 +137,7 @@ export class MediaService {
 
     const placeholderKey = `audio/${userId}/${randomUUID()}/youtube-pending`;
     const title = dto.title?.trim() || this.extractYoutubeTitle(dto.url);
+    const youtubeVideoId = extractYoutubeVideoId(dto.url);
 
     const mediaItem = await this.prisma.mediaItem.create({
       data: {
@@ -129,6 +145,7 @@ export class MediaService {
         title,
         originType: MediaOriginType.YOUTUBE,
         originUrl: dto.url,
+        youtubeVideoId,
         audioS3Key: placeholderKey,
         artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
@@ -296,14 +313,25 @@ export class MediaService {
         subtitleS3Key: true,
         artifactSummary: true,
         createdAt: true,
+        youtubeVideoId: true,
+        hasThumbnail: true,
       },
     });
 
     if (!item) {
       throw new NotFoundException('Media item not found');
     }
+
+    let thumbnailUrl: string | null = null;
+    if (item.originType === 'YOUTUBE' && item.youtubeVideoId) {
+      thumbnailUrl = `https://img.youtube.com/vi/${item.youtubeVideoId}/hqdefault.jpg`;
+    } else if (item.originType === 'LOCAL' && item.hasThumbnail) {
+      thumbnailUrl = await this.minioService.generatePresignedGetUrl(`${item.id}/thumbnail.jpg`);
+    }
+
     return {
       ...item,
+      thumbnailUrl,
       artifacts: normalizeArtifactSummary(item.artifactSummary),
     };
   }
@@ -325,14 +353,28 @@ export class MediaService {
         currentStep: true,
         artifactSummary: true,
         createdAt: true,
+        youtubeVideoId: true,
+        hasThumbnail: true,
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return items.map((item) => ({
-      ...item,
-      artifacts: normalizeArtifactSummary(item.artifactSummary),
-    }));
+    return Promise.all(
+      items.map(async (item) => {
+        let thumbnailUrl: string | null = null;
+        if (item.originType === 'YOUTUBE' && item.youtubeVideoId) {
+          thumbnailUrl = `https://img.youtube.com/vi/${item.youtubeVideoId}/hqdefault.jpg`;
+        } else if (item.originType === 'LOCAL' && item.hasThumbnail) {
+          thumbnailUrl = await this.minioService.generatePresignedGetUrl(`${item.id}/thumbnail.jpg`);
+        }
+
+        return {
+          ...item,
+          thumbnailUrl,
+          artifacts: normalizeArtifactSummary(item.artifactSummary),
+        };
+      }),
+    );
   }
 
   async recordChunkArtifact(
@@ -469,4 +511,12 @@ export class MediaService {
 
     await this.persistArtifactSummary(mediaId, nextSummary);
   }
+}
+
+function extractYoutubeVideoId(url: string): string | null {
+  if (!url) return null;
+  const regExp =
+    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const match = url.match(regExp);
+  return match && match[1].length === 11 ? match[1] : null;
 }

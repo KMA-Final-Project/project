@@ -129,15 +129,21 @@ export class MinioService {
   async generatePresignedPutUrl(
     objectKey: string,
     expirySeconds: number = 3600,
+    bucket?: string,
   ): Promise<string> {
+    const targetBucket = bucket ?? this.bucketRaw;
     const publicUrl = await this.publicPresignClient.presignedPutObject(
-      this.bucketRaw,
+      targetBucket,
       objectKey,
       expirySeconds,
     );
 
-    this.logger.debug(`Presigned URL generated for: ${objectKey}`);
+    this.logger.debug(`Presigned URL generated for: ${objectKey} in bucket: ${targetBucket}`);
     return publicUrl;
+  }
+
+  getProcessedBucketName(): string {
+    return this.bucketProcessed;
   }
 
   async generatePresignedGetUrl(
