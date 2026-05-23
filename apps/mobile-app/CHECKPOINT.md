@@ -36,6 +36,16 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
 
 ## 3. Recently Completed
 
+- 2026-05-23 — Subtitle Player Screen Refactoring. Status: Working.
+  - Implemented vertical inline word-level phonetic stack layout in `SubtitleRow.tsx` (pinyin/phoneme on top for CJK, below for non-CJK).
+  - Synced active karaoke word and phonetic highlights synchronously in real-time.
+  - Refactored `PlayerControls.tsx` container into a modern floating pill with diffuse drop shadow and margin offsets.
+  - Designed the 5-button control bar layout: `Pin`, `Explain` (placeholder), `Play/Pause` (Squircle), `Repeat`, and `Speed`.
+  - Converted speed cycling pressable into a modal-based dropdown selector, enabling user-friendly speed choices.
+  - Implemented `isPinned` store state/action and modified `player.tsx` auto-scroll FlatList logic to bypass scroll when active.
+  - Fixed a race condition where translation layer auto-disable is triggered on initial empty loading states, resetting `showTranslation` prematurely. Added loading guards to prevent this behavior.
+  - Cleared unused imports/variables to resolve all linting and compiler warnings.
+
 - 2026-05-23 — YouTube Pre-Flight Configuration Panel & i18n support. Status: Working.
   - Implemented reusable Dropdown component with squircle borders matching Kapter's brand identity.
   - Injected side-by-side dropdown pickers for Source Language (`Auto detect`, `Chinese (zh)`, `English (en)`) and Target Language (`Tiếng Việt (vi)`, `English (en)`) inside the YouTube Video Modal.
@@ -108,13 +118,8 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
   - Impact: native behavior that depends on `react-native-unistyles` requires a development build.
   - Current workaround: use `expo run:android`, `expo run:ios`, or dev-client flow when native validation is required.
 
-- Player rendering polish is still pending.
-  - Impact: core incremental player is shipped, but karaoke rendering, layer toggles, and long-session UX can be improved.
-  - Current workaround: current player flow is usable for the existing demo path.
-
 ## 5. Next Candidates
 
-- [ ] Improve karaoke playback rendering and active-word visual behavior.
 - [ ] Add richer subtitle layer toggles for source, translation, phonetic, or karaoke views.
 - [ ] Improve long-session player UX and memory behavior.
 - [ ] Remove or repurpose unused preview-only helpers from the older processing preview flow.

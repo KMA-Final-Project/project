@@ -75,8 +75,10 @@ export default function PlayerScreen() {
     setMediaMode,
     setPlaybackSourceKind,
     toggleLayer,
-    cycleSpeed,
+    setPlaybackSpeed,
     toggleLoop,
+    isPinned,
+    togglePin,
   } = usePlayerStore();
 
   const activeSentenceState = useActiveSentence(segments, currentTimeSec);
@@ -142,10 +144,10 @@ export default function PlayerScreen() {
   }, [playback, playbackSpeed]);
 
   useEffect(() => {
-    if (!isTranslationLayerAvailable && showTranslation) {
+    if (!subtitlesQuery.isLoading && !mediaLoading && !isTranslationLayerAvailable && showTranslation) {
       toggleLayer("translation");
     }
-  }, [isTranslationLayerAvailable, showTranslation, toggleLayer]);
+  }, [subtitlesQuery.isLoading, mediaLoading, isTranslationLayerAvailable, showTranslation, toggleLayer]);
 
   useEffect(() => {
     if (
@@ -250,7 +252,7 @@ export default function PlayerScreen() {
   );
 
   useEffect(() => {
-    if (activeSentenceState.activeSentenceIndex < 0 || segments.length === 0) {
+    if (activeSentenceState.activeSentenceIndex < 0 || segments.length === 0 || isPinned) {
       return;
     }
 
@@ -261,7 +263,7 @@ export default function PlayerScreen() {
         viewPosition: 0.35,
       });
     });
-  }, [activeSentenceState.activeSentenceIndex, segments.length]);
+  }, [activeSentenceState.activeSentenceIndex, segments.length, isPinned]);
 
   useEffect(() => {
     if (pendingSeekTimeSec == null || !hasCoverageAt(pendingSeekTimeSec)) {
@@ -499,8 +501,7 @@ export default function PlayerScreen() {
         style={[
           styles.footerShell,
           {
-            backgroundColor: theme.colors.card,
-            borderColor: theme.colors.divider,
+            backgroundColor: "transparent",
             paddingBottom: Math.max(insets.bottom, theme.spacing[5]),
           },
         ]}
@@ -513,6 +514,7 @@ export default function PlayerScreen() {
           loopSentence={loopSentence}
           playbackSpeed={playbackSpeed}
           disabled={controlsDisabled}
+          isPinned={isPinned}
           onTogglePlayback={handleTogglePlayback}
           onSeek={requestSeek}
           onPrevious={() =>
@@ -523,18 +525,10 @@ export default function PlayerScreen() {
               Math.min(currentSentenceIndex + 1, segments.length - 1),
             )
           }
-          onCycleSpeed={cycleSpeed}
+          onChangeSpeed={setPlaybackSpeed}
           onToggleLoop={toggleLoop}
+          onTogglePin={togglePin}
         />
-
-        {/* {mediaItem ? (
-          <SourceActions
-            mediaItem={mediaItem}
-            source={playbackSource.source}
-            onOpenLayers={() => setLayersVisible(true)}
-            onOpenYoutube={handleOpenYoutube}
-          />
-        ) : null} */}
       </View>
 
       <LayerToggle
@@ -612,9 +606,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingBottom: theme.spacing[2],
   },
   footerShell: {
-    borderTopLeftRadius: theme.radii["2xl"],
-    borderTopRightRadius: theme.radii["2xl"],
-    borderTopWidth: 1,
+    borderTopWidth: 0,
     paddingTop: theme.spacing[1],
   },
   centerState: {
