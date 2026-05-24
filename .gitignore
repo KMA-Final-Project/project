@@ -33,7 +33,7 @@ coverage/
 .cache/
 tmp/
 
-docs/
+# docs/
 
 pytest-cache-*
 
