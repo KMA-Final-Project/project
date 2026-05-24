@@ -95,6 +95,7 @@ export class MediaService {
     }
 
     const mediaId = dto.mediaId || dto.objectKey.split('/')[2] || randomUUID();
+    const targetLanguage = dto.targetLanguage || 'vi';
 
     const mediaItem = await this.prisma.mediaItem.create({
       data: {
@@ -103,6 +104,7 @@ export class MediaService {
         title: dto.title,
         originType: MediaOriginType.LOCAL,
         audioS3Key: dto.objectKey,
+        targetLanguage,
         artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
         hasThumbnail: dto.hasThumbnail ?? false,
@@ -114,7 +116,7 @@ export class MediaService {
       type: MediaOriginType.LOCAL,
       filePath: dto.objectKey,
       userId,
-      targetLanguage: dto.targetLanguage,
+      targetLanguage,
     });
 
     this.logger.log(`Upload confirmed: media ${mediaItem.id}, job ${jobId}`);
@@ -124,6 +126,7 @@ export class MediaService {
       title: mediaItem.title,
       status: mediaItem.status,
       jobId,
+      targetLanguage: mediaItem.targetLanguage,
     };
   }
 
@@ -138,6 +141,7 @@ export class MediaService {
     const placeholderKey = `audio/${userId}/${randomUUID()}/youtube-pending`;
     const title = dto.title?.trim() || this.extractYoutubeTitle(dto.url);
     const youtubeVideoId = extractYoutubeVideoId(dto.url);
+    const targetLanguage = dto.targetLanguage || 'vi';
 
     const mediaItem = await this.prisma.mediaItem.create({
       data: {
@@ -150,6 +154,7 @@ export class MediaService {
         artifactSummary: toArtifactSummaryJson(createEmptyArtifactSummary()),
         status: 'QUEUED',
         sourceLanguage: dto.sourceLanguage || null,
+        targetLanguage,
       },
     });
 
@@ -158,7 +163,7 @@ export class MediaService {
       type: MediaOriginType.YOUTUBE,
       url: dto.url,
       userId,
-      targetLanguage: dto.targetLanguage,
+      targetLanguage,
       sourceLanguage: dto.sourceLanguage,
     });
 
@@ -170,6 +175,7 @@ export class MediaService {
       status: mediaItem.status,
       originUrl: mediaItem.originUrl,
       jobId,
+      targetLanguage: mediaItem.targetLanguage,
     };
   }
 
@@ -306,6 +312,7 @@ export class MediaService {
         status: true,
         progress: true,
         sourceLanguage: true,
+        targetLanguage: true,
         durationSeconds: true,
         failReason: true,
         originType: true,
@@ -354,6 +361,8 @@ export class MediaService {
         originType: true,
         originUrl: true,
         durationSeconds: true,
+        sourceLanguage: true,
+        targetLanguage: true,
         currentStep: true,
         artifactSummary: true,
         createdAt: true,

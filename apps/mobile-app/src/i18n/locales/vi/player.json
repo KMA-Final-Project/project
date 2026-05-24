@@ -23,5 +23,22 @@
   "openOnYoutube": "Mở trên YouTube",
   "pin": "Ghim",
   "explain": "Giải thích",
-  "speedTitle": "Tốc độ phát"
+  "speedTitle": "Tốc độ phát",
+  "explainEyebrow": "Kapter Explain",
+  "explainTitle": "Trợ lý phụ đề",
+  "explainSubtitle": "Hỏi về bản dịch, từ vựng, ngữ pháp hoặc sắc thái.",
+  "explainCredits": "Còn {{count}} lượt AI",
+  "explainCreditsPending": "Đang kiểm tra lượt AI",
+  "explainCurrentSegment": "Câu hiện tại #{{index}}",
+  "explainLoading": "Đang tải lịch sử giải thích...",
+  "explainThinking": "Đang suy nghĩ...",
+  "explainInputPlaceholder": "Hỏi tiếp về câu phụ đề này",
+  "explainStop": "Dừng",
+  "explainClose": "Đóng",
+  "explainOpenDrawer": "Ngăn câu",
+  "explainHideDrawer": "Ẩn ngăn",
+  "explainSentenceDrawerTitle": "Ngăn câu",
+  "explainPlaySentence": "Phát âm thanh câu này",
+  "explainPauseSentence": "Tạm dừng âm thanh câu này",
+  "explainChangeSpeed": "Đổi tốc độ phát thành {{speed}}x"
 }

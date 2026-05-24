@@ -40,3 +40,5 @@ pytest-cache-*
 outputs/
 
 references/
+
+diagrams/

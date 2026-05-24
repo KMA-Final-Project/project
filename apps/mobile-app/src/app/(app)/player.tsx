@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   IconButton,
+  ExplainBottomSheet,
   LayerToggle,
   MediaPane,
   PlayerControls,
@@ -33,6 +34,7 @@ import { useMediaPlayback } from "@/hooks/useMediaPlayback";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
 import { usePlayerSubtitles } from "@/hooks/usePlayerSubtitles";
 import { useMediaStatus } from "@/hooks/useMedia";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { ROUTES } from "@/constants/routes";
 import { usePlayerStore } from "@/stores/player.store";
 import type { Sentence } from "@/types/subtitle";
@@ -42,8 +44,15 @@ export default function PlayerScreen() {
   const router = useRouter();
   const { theme } = useUnistyles();
   const { t } = useTranslation("player");
+  const { defaultTargetLanguage } = useOnboarding();
   const insets = useSafeAreaInsets();
   const [layersVisible, setLayersVisible] = useState(false);
+  const [explainVisible, setExplainVisible] = useState(false);
+  const [explainSelection, setExplainSelection] = useState<{
+    segmentIndex: number;
+    sentence: Sentence | null;
+    targetLanguage: string;
+  } | null>(null);
   const [pendingSeekTimeSec, setPendingSeekTimeSec] = useState<number | null>(
     null,
   );
@@ -79,6 +88,7 @@ export default function PlayerScreen() {
     toggleLoop,
     isPinned,
     togglePin,
+    registerExplainPlaybackHandler,
   } = usePlayerStore();
 
   const activeSentenceState = useActiveSentence(segments, currentTimeSec);
@@ -94,8 +104,11 @@ export default function PlayerScreen() {
     [mediaItem?.sourceLanguage, subtitlesQuery.metadata?.source_lang],
   );
   const normalizedTargetLanguage = useMemo(
-    () => normalizeLanguage(subtitlesQuery.metadata?.target_lang),
-    [subtitlesQuery.metadata?.target_lang],
+    () =>
+      normalizeLanguage(
+        subtitlesQuery.metadata?.target_lang ?? mediaItem?.targetLanguage,
+      ),
+    [mediaItem?.targetLanguage, subtitlesQuery.metadata?.target_lang],
   );
   const hasTranslationContent = useMemo(
     () => segments.some((sentence) => Boolean(sentence.translation?.trim())),
@@ -227,6 +240,7 @@ export default function PlayerScreen() {
   };
 
   const controlsDisabled = playerDisabled || segments.length === 0;
+  const activeExplainSentence = segments[currentSentenceIndex] ?? null;
   const headerTextColor = theme.colors.text;
   const handleScrollToIndexFailed = useCallback(
     ({
@@ -324,6 +338,55 @@ export default function PlayerScreen() {
 
     playback.play();
   }, [currentTimeSec, hasCoverageAt, isPlaying, playback, playerDisabled]);
+
+  const handleOpenExplain = useCallback(() => {
+    shouldResumeWhenCoverageArrivesRef.current = false;
+    playback.pause();
+    setExplainSelection({
+      segmentIndex: currentSentenceIndex,
+      sentence: activeExplainSentence,
+      targetLanguage: normalizedTargetLanguage ?? defaultTargetLanguage,
+    });
+    setExplainVisible(true);
+  }, [
+    activeExplainSentence,
+    currentSentenceIndex,
+    defaultTargetLanguage,
+    normalizedTargetLanguage,
+    playback,
+  ]);
+
+  const handleCloseExplain = useCallback(() => {
+    setExplainVisible(false);
+    setExplainSelection(null);
+  }, []);
+
+  useEffect(() => {
+    registerExplainPlaybackHandler(
+      playerDisabled
+        ? null
+        : (startSec: number) => {
+            if (isPlaying) {
+              shouldResumeWhenCoverageArrivesRef.current = false;
+              playback.pause();
+              return;
+            }
+
+            shouldResumeWhenCoverageArrivesRef.current = true;
+            requestSeek(startSec);
+          },
+    );
+
+    return () => {
+      registerExplainPlaybackHandler(null);
+    };
+  }, [
+    isPlaying,
+    playback,
+    playerDisabled,
+    registerExplainPlaybackHandler,
+    requestSeek,
+  ]);
 
   const renderSentenceItem = useCallback(
     ({ item, index }: ListRenderItemInfo<Sentence>) => (
@@ -528,6 +591,7 @@ export default function PlayerScreen() {
           onChangeSpeed={setPlaybackSpeed}
           onToggleLoop={toggleLoop}
           onTogglePin={togglePin}
+          onExplain={handleOpenExplain}
         />
       </View>
 
@@ -539,6 +603,16 @@ export default function PlayerScreen() {
         showKaraoke={showKaraoke}
         onToggleLayer={toggleLayer}
         translationEnabled={isTranslationLayerAvailable}
+      />
+      <ExplainBottomSheet
+        visible={explainVisible}
+        mediaId={id ?? null}
+        segmentIndex={explainSelection?.segmentIndex ?? -1}
+        sentence={explainSelection?.sentence ?? null}
+        targetLanguage={
+          explainSelection?.targetLanguage ?? defaultTargetLanguage
+        }
+        onClose={handleCloseExplain}
       />
     </LinearGradient>
   );

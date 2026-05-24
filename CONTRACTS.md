@@ -120,7 +120,7 @@ Rules:
 - `type = "LOCAL"` requires `filePath` to reference the uploaded raw object key.
 - `type = "YOUTUBE"` requires `url`.
 - `userId` is required for ownership, quota, and audit context.
-- `targetLanguage` is the active bilingual translation selector.
+- `targetLanguage` is the canonical bilingual translation selector for the media item and must default to the backend baseline when the client omits it.
 - `processingMode` is removed and must not be reintroduced.
 
 ### 4.3 `AiProcessingJobPayload`
@@ -144,7 +144,7 @@ Rules:
 - `audioS3Key` points to validated audio accessible by the AI Engine.
 - `durationSeconds` must come from validation, not client trust.
 - Quota and per-file duration limits must be checked before this job is emitted.
-- `targetLanguage` is passed through to the AI Engine.
+- `targetLanguage` is passed through to the AI Engine from the canonical media record / validated backend request path, not inferred from Explain client traffic.
 - Payload compatibility with the Python worker is part of the product contract, not an implementation detail.
 
 ## 5. Media API Contracts
@@ -159,6 +159,9 @@ The backend is the only stable HTTP boundary for the mobile app.
 | `GET /media/:id/status` | Returns processing status, progress, `currentStep`, ETA, and failure reason state. |
 | `GET /media/:id/artifacts` | Returns durable inventory for `chunks/`, `translated_batches/`, and `final.json`. |
 | `GET /media` | Returns the authenticated user's media library and artifact summaries for readiness UI. |
+| `POST /media/:id/explain` | Streams Kapter Explain responses for one canonical subtitle segment. |
+| `GET /media/:id/explain/history` | Returns the authenticated user's chat history for one media segment. |
+| `POST /media/:id/explain/feedback` | Records authenticated feedback on an assistant chat message. |
 
 Rules:
 
@@ -166,6 +169,155 @@ Rules:
 - Artifact inventory must remain backend-owned so the mobile app does not reconstruct MinIO state itself.
 - YouTube submissions may carry a client title; when absent, the worker may use metadata from `yt-dlp` before falling back to a generic placeholder.
 - Request DTO changes must update backend validation, mobile API types/schemas, and checkpoints.
+- `GET /media/:id/status` and `GET /media` should expose the canonical persisted `targetLanguage` when available so the mobile player and Explain UI can stay aligned with the media's translation profile even after onboarding preferences change.
+
+### 5.1 Kapter Explain API
+
+Kapter Explain is an authenticated, media-owned language-learning chat surface embedded in the mobile player.
+
+#### `POST /media/:id/explain`
+
+Transport:
+
+- Request method is `POST`.
+- Response is a `text/event-stream` stream.
+- The mobile client consumes the stream with a fetch/ReadableStream client, not browser `EventSource`.
+
+Request body:
+
+```ts
+interface ExplainRequestDto {
+  segmentIndex: number;
+  sessionId?: string;
+  userMessage?: string;
+}
+```
+
+Rules:
+
+- The mobile app must not send subtitle text, translation, phonetic text, word timestamps, previous/next segment text, source language, or target language.
+- The backend must verify media ownership before resolving any subtitle context.
+- The backend resolves canonical context from server-owned artifacts/cache using `mediaId` and `segmentIndex`.
+- The backend resolves the authoritative Explain output language from the canonical media context and persisted media profile, never from client Explain payload fields.
+- `segmentIndex` is required for initial explain and follow-up requests.
+- `sessionId` is required for follow-up requests and must belong to the authenticated user, media item, and segment index.
+- `userMessage` is omitted for initial explain and required for follow-ups.
+- Initial explain cache hits are free and must be served before any credit reservation.
+- Cache misses and follow-ups require an AI credit reservation ledger row before the LLM call.
+
+SSE event payloads:
+
+```ts
+type ExplainSseEvent = "meta" | "delta" | "error" | "done";
+
+interface ExplainMetaEvent {
+  sessionId: string;
+  messageId: string;
+  cacheHit: boolean;
+  creditsRemaining: number;
+  model: string;
+  promptVersion: string;
+}
+
+interface ExplainDeltaEvent {
+  content: string;
+}
+
+interface ExplainErrorEvent {
+  code:
+    | "INSUFFICIENT_CREDITS"
+    | "GUARDRAIL_REJECTED"
+    | "SUBTITLE_CONTEXT_UNAVAILABLE"
+    | "LLM_UNAVAILABLE"
+    | "LLM_ERROR"
+    | "RATE_LIMITED";
+  message: string;
+}
+
+interface ExplainDoneEvent {
+  tokensUsed: number;
+  finishReason: "stop" | "length" | "aborted";
+}
+```
+
+#### `GET /media/:id/explain/history?segmentIndex=N`
+
+Response:
+
+```ts
+interface ChatHistoryResponse {
+  sessionId: string | null;
+  segmentIndex: number;
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: string;
+    feedback?: { rating: "POSITIVE" | "NEGATIVE" };
+  }>;
+}
+```
+
+Rules:
+
+- History is scoped by authenticated `userId`, `mediaId`, and `segmentIndex`.
+- The backend must return only sessions owned by the authenticated user.
+- For the first explain turn, the persisted initial user message should reflect the localized display phrase generated from the canonical media `targetLanguage` so reopened history matches the chat UI seed bubble.
+
+#### `POST /media/:id/explain/feedback`
+
+Request body:
+
+```ts
+interface ChatFeedbackDto {
+  chatMessageId: string;
+  rating: "POSITIVE" | "NEGATIVE";
+  reason?: string;
+}
+```
+
+Rules:
+
+- Feedback must be scoped to the authenticated user.
+- Feedback may only target assistant messages in a session owned by the user.
+
+### 5.2 Kapter Explain Admin API
+
+Admin endpoints require ADMIN role enforcement through the existing admin guard pattern.
+
+Documented endpoints:
+
+- `GET /admin/ai-explain/metrics?period=7d`
+- `GET /admin/ai-explain/sessions?page=1&limit=20`
+
+Metrics response:
+
+```ts
+interface AiExplainMetrics {
+  period: string;
+  totalRequests: number;
+  totalCreditsConsumed: number;
+  totalTokensInput: number;
+  totalTokensOutput: number;
+  cacheHitRate: number;
+  averageLatencyMs: number;
+  guardrailRejectionRate: number;
+  feedbackPositiveRate: number;
+  topSegments: Array<{
+    mediaId: string;
+    mediaTitle: string;
+    segmentIndex: number;
+    segmentText: string;
+    requestCount: number;
+  }>;
+  dailyUsage: Array<{
+    date: string;
+    requests: number;
+    credits: number;
+    tokens: number;
+  }>;
+}
+```
 
 ## 6. Artifact Storage Contract
 
@@ -264,6 +416,7 @@ Rules:
 - Final `segment_index` values, when present, must be consecutive and 0-based.
 - `translation` must be a string. Use `""` rather than `null` when unavailable.
 - `phonetic` must be a string. Use `""` for languages where phonetic output is unavailable.
+- `words` are the renderable karaoke and lookup tokens, not a guarantee of raw ASR character granularity. Chinese-family output may group consecutive character-level timings into multi-character lexical words while preserving token order and using `start=first_child.start`, `end=last_child.end`.
 - The mobile app depends on `start`, `end`, `text`, `translation`, `phonetic`, and `words` for bilingual/karaoke rendering.
 
 ## 7. MinIO URL Contract
@@ -372,6 +525,45 @@ Rules:
 - Backend worker must re-check quota/duration after validation because client-provided metadata is not trusted.
 - Usage data must remain audit-ready.
 - Users and media use soft deletes rather than hard deletion in normal user flows.
+
+### 11.1 AI Credit Quota Contract
+
+Kapter Explain uses a separate AI credit pool. It must not be conflated with audio processing duration quota.
+
+Plan and subscription fields:
+
+```ts
+interface PlanVariantAiCreditFields {
+  aiCreditsPerMonth: number;
+}
+
+interface SubscriptionAiCreditSnapshot {
+  aiCreditsPerMonthSnapshot: number;
+}
+
+interface UserAiCreditBalance {
+  aiCreditsRemaining: number;
+  aiCreditsLastResetDate: string;
+}
+```
+
+Ledger state:
+
+```ts
+type AiCreditReservationState = "PENDING" | "CONFIRMED" | "REFUNDED";
+```
+
+Rules:
+
+- Initial explain cache hits cost 0 credits and must not create a reservation.
+- Initial explain cache misses cost 1 credit when a usable response is delivered.
+- Follow-up questions cost 1 credit when a usable response is delivered.
+- Credit reservations must be recorded as durable ledger rows before an LLM call starts.
+- Reservation cleanup must be idempotent: only one `PENDING -> REFUNDED` transition may increment the user balance.
+- Successful charged requests transition `PENDING -> CONFIRMED`.
+- Failed, refused, or early-aborted requests transition `PENDING -> REFUNDED`.
+- Usage logs must record provider, model, prompt version, cache hit status, token counts when available, and the linked reservation ID when a reservation exists.
+- Usage logs must store any admin-facing segment text as a server-resolved canonical snapshot, never from client-supplied subtitle text.
 
 ## 12. Language and Translation Contract
 

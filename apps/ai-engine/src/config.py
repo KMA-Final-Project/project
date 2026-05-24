@@ -435,6 +435,13 @@ class Settings(BaseSettings):
         default=0.1,
         description="Temperature used for Chinese batch LLM rescue prompts.",
     )
+    AI_CHINESE_WORD_SEGMENTATION_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Group Chinese character-level subtitle words into lexical word tokens "
+            "before Tier 2 upload and final export."
+        ),
+    )
     AI_CHINESE_LLM_RESCUE_NUM_CTX: int = Field(
         default=8192,
         description="Ollama context window used for Chinese batch LLM rescue prompts.",

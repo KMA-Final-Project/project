@@ -32,6 +32,7 @@ from src.core.chinese_candidate_normalizer import (
     normalize_chinese_candidate_sentences,
 )
 from src.core.chinese_phonetics import apply_chinese_pinyin
+from src.core.chinese_word_segmenter import segment_chinese_sentence_words
 from src.core.chinese_primary_refiner import (
     ChinesePrimaryRefineResult,
     refine_chinese_primary_transcript,
@@ -1267,6 +1268,17 @@ async def run_v2_pipeline_async(
 
             for i, s in enumerate(sentences):
                 s.segment_index = batch_start_index + i
+
+            if src in {"zh", "yue"} and settings.AI_CHINESE_WORD_SEGMENTATION_ENABLED:
+                segmented_count = sum(
+                    1 for sentence in sentences if segment_chinese_sentence_words(sentence)
+                )
+                if segmented_count:
+                    logger.info(
+                        f"🧩 Chinese word segmentation {batch_index}: "
+                        f"{segmented_count}/{len(sentences)} segments regrouped"
+                    )
+                apply_chinese_pinyin(sentences)
 
             _apply_qwen3_forced_alignment(
                 sentences,

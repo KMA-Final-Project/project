@@ -25,6 +25,7 @@ import {
   PlanService,
   VariantService,
   UserAdminService,
+  AiExplainAdminService,
 } from './services';
 import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
@@ -34,6 +35,12 @@ import {
   AdminUserListResponseDto,
   AdminUserDetailDto,
 } from './dto/user.dto';
+import {
+  AiExplainMetricsDto,
+  AiExplainMetricsQueryDto,
+  AiExplainSessionsQueryDto,
+  AiExplainSessionsResponseDto,
+} from './dto/ai-explain.dto';
 import { ErrorResponseDto } from 'src/common/dto';
 
 @ApiTags('Admin - Subscription Plans')
@@ -47,6 +54,7 @@ export class AdminController {
     private readonly planService: PlanService,
     private readonly variantService: VariantService,
     private readonly userAdminService: UserAdminService,
+    private readonly aiExplainAdminService: AiExplainAdminService,
   ) {}
 
   @Get('overview')
@@ -75,6 +83,26 @@ export class AdminController {
   @ApiResponse({ status: 404, type: ErrorResponseDto })
   async findUserById(@Param('id') id: string): Promise<AdminUserDetailDto> {
     return this.userAdminService.findById(id);
+  }
+
+  // ==================== AI EXPLAIN ====================
+
+  @Get('ai-explain/metrics')
+  @ApiOperation({ summary: 'Get Kapter Explain usage and quality metrics' })
+  @ApiResponse({ status: 200, type: AiExplainMetricsDto })
+  async getAiExplainMetrics(
+    @Query() query: AiExplainMetricsQueryDto,
+  ): Promise<AiExplainMetricsDto> {
+    return this.aiExplainAdminService.getMetrics(query);
+  }
+
+  @Get('ai-explain/sessions')
+  @ApiOperation({ summary: 'Paginated Kapter Explain chat sessions' })
+  @ApiResponse({ status: 200, type: AiExplainSessionsResponseDto })
+  async getAiExplainSessions(
+    @Query() query: AiExplainSessionsQueryDto,
+  ): Promise<AiExplainSessionsResponseDto> {
+    return this.aiExplainAdminService.getSessions(query);
   }
 
   // ==================== PLANS ====================

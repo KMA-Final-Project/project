@@ -43,6 +43,7 @@ type FormValues = {
   billingCycleType: BillingCycleType
   maxDurationPerFile: string
   monthlyQuotaSeconds: string
+  aiCreditsPerMonth: string
 }
 
 const BILLING_CYCLES: { value: BillingCycleType; label: string }[] = [
@@ -73,6 +74,7 @@ export const VariantFormDialog = ({
       currency: variant?.currency ?? "VND",
       maxDurationPerFile: String(variant?.maxDurationPerFile ?? 3600),
       monthlyQuotaSeconds: String(variant?.monthlyQuotaSeconds ?? 72000),
+      aiCreditsPerMonth: String(variant?.aiCreditsPerMonth ?? 10),
     },
   })
 
@@ -84,6 +86,7 @@ export const VariantFormDialog = ({
       currency: variant?.currency ?? "VND",
       maxDurationPerFile: String(variant?.maxDurationPerFile ?? 3600),
       monthlyQuotaSeconds: String(variant?.monthlyQuotaSeconds ?? 72000),
+      aiCreditsPerMonth: String(variant?.aiCreditsPerMonth ?? 10),
     })
     const timer = setTimeout(() => {
       setBillingCycle(variant?.billingCycleType ?? "MONTHLY")
@@ -101,6 +104,7 @@ export const VariantFormDialog = ({
           currency: values.currency,
           maxDurationPerFile: Number(values.maxDurationPerFile),
           monthlyQuotaSeconds: Number(values.monthlyQuotaSeconds),
+          aiCreditsPerMonth: Number(values.aiCreditsPerMonth),
         }
         return updateVariant(variant!.id, dto)
       }
@@ -111,6 +115,7 @@ export const VariantFormDialog = ({
         billingCycleType: billingCycle,
         maxDurationPerFile: Number(values.maxDurationPerFile),
         monthlyQuotaSeconds: Number(values.monthlyQuotaSeconds),
+        aiCreditsPerMonth: Number(values.aiCreditsPerMonth),
       }
       return createVariant(planId, dto)
     },
@@ -225,6 +230,20 @@ export const VariantFormDialog = ({
                 })}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="variant-ai-credits">AI credits / month</Label>
+            <Input
+              id="variant-ai-credits"
+              type="number"
+              min={0}
+              {...register("aiCreditsPerMonth", {
+                required: true,
+                min: 0,
+                valueAsNumber: true,
+              })}
+            />
           </div>
 
           {error && (

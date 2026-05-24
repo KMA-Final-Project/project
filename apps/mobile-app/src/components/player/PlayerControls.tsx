@@ -38,6 +38,7 @@ interface PlayerControlsProps {
   onChangeSpeed: (speed: number) => void;
   onToggleLoop: () => void;
   onTogglePin: () => void;
+  onExplain: () => void;
 }
 
 const formatTime = (seconds: number) => {
@@ -62,6 +63,7 @@ export function PlayerControls({
   onChangeSpeed,
   onToggleLoop,
   onTogglePin,
+  onExplain,
 }: PlayerControlsProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation("player");
@@ -267,13 +269,26 @@ export function PlayerControls({
           </Text>
         </Pressable>
 
-        <Pressable onPress={() => {}} style={styles.controlButton}>
+        <Pressable
+          onPress={onExplain}
+          disabled={disabled}
+          style={[styles.controlButton, disabled ? styles.controlButtonDisabled : null]}
+        >
           <Ionicons
             name="sparkles-outline"
             size={22}
-            color={theme.colors.textSecondary}
+            color={disabled ? theme.colors.disabledText : theme.colors.textSecondary}
           />
-          <Text style={[styles.controlLabel, { color: theme.colors.textSecondary }]}>
+          <Text
+            style={[
+              styles.controlLabel,
+              {
+                color: disabled
+                  ? theme.colors.disabledText
+                  : theme.colors.textSecondary,
+              },
+            ]}
+          >
             {t("explain")}
           </Text>
         </Pressable>
@@ -458,6 +473,9 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: "center",
     gap: theme.spacing[1],
     height: 48,
+  },
+  controlButtonDisabled: {
+    opacity: 0.6,
   },
   playButton: {
     width: 56,

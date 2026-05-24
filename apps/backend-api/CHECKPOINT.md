@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-05-20  
+> Last updated: 2026-05-25
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -16,14 +16,74 @@ Current completed surfaces:
 - Media upload, YouTube submission, status, artifact inventory, and media library APIs.
 - Standalone validation worker consuming `transcription` jobs and producing `ai-processing` jobs.
 - Supporting MinIO, Redis, mail, OTP, user subscription, and queue services.
+- Kapter Explain backend provider transport now uses the official OpenAI Node SDK behind a NestJS custom provider boundary.
 
 ## 2. Active Work
 
-No single active backend task is recorded in the imported checkpoint.
-
-Use `Next Candidates` below as the current backend backlog until a new task file or issue exists.
+- [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
 
 ## 3. Recently Completed
+
+- 2026-05-25 — Explain SSE responses now flush per event for live mobile updates. Status: Working.
+  - Updated the Explain controller SSE response headers to disable proxy buffering (`X-Accel-Buffering: no`) and flush each written event frame when the underlying Express response supports `flush()`.
+  - Why: the mobile Explain sheet could reopen and read persisted history, but live `meta` / `delta` events were not always reaching the client promptly during the active request, which made the UI look disconnected from the backend.
+  - Contract touched: API transport behavior only; public DTO/SSE event schema unchanged.
+  - Validation: `pnpm build`.
+  - Follow-up: manual end-to-end verification from the mobile Explain sheet against a live backend/provider session to confirm first-token delivery and stop/abort timing.
+
+- 2026-05-25 — Explain initial user message now includes the translated context line. Status: Working.
+  - Updated the backend-generated first-turn explain display message to include the canonical translated layer when available, keeping persisted history aligned with the mobile Explain seed bubble.
+  - Why: the chosen sentence in the chat seed bubble needed to show both source and translated context, and reopened history must match that exact UI state.
+  - Contract touched: Language, Mobile impact.
+  - Validation: `pnpm build`; `pnpm test -- chat.service.spec.ts`.
+  - Follow-up: none beyond the existing live mobile/backend manual verification pass.
+
+- 2026-05-24 — Kapter Explain target-language enforcement and media target profile persistence. Status: Working.
+  - Added `MediaItem.targetLanguage` with migration `20260524184500_add_media_target_language` and persisted the canonical target language for local uploads and YouTube submissions.
+  - Normalized backend media ingestion so the stored target language, queue payload, media status response, and media library response stay aligned on one canonical value.
+  - Updated Explain context resolution and prompt construction to enforce response language from backend-owned media context, and persisted the localized first-turn user message so history matches the mobile seed bubble.
+  - Contract touchpoints: API, DB, Queue, Language, Mobile impact.
+  - Validation: `pnpm pgen`; `pnpm build`; `pnpm lint`; `pnpm test -- chat.service.spec.ts chat-provider.service.spec.ts ai-credit-ledger.service.spec.ts ai-explain-admin.service.spec.ts`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: run the new flow against a live backend/mobile session and execute the pending Prisma migration in the target environments.
+
+- 2026-05-24 — Database seeding on reseed fix. Status: Working.
+  - Updated the `db:reseed` script in `package.json` to run `prisma migrate reset --force && prisma db seed`.
+  - Why: Prisma v7 has removed automatic seeding during `prisma migrate reset`.
+  - Validation: verified `pnpm db:reseed` successfully resets the database and runs the seed script.
+
+- 2026-05-24 — Kapter Explain provider SDK transport hardening. Status: Partial.
+  - Replaced the backend provider-side raw HTTP/SSE parsing path with the official OpenAI Node SDK streaming API.
+  - Added an `OPENAI_CLIENT` symbol-token NestJS custom provider so SDK construction stays outside business services and can be mocked cleanly in unit tests.
+  - Added provider-level SDK error mapping to Kapter canonical explain errors (`RATE_LIMITED`, `LLM_UNAVAILABLE`, `LLM_ERROR`) so upstream SDK details do not leak to mobile SSE payloads.
+  - Added anti-regression coverage proving the provider path does not reintroduce `getReader`, `TextDecoder`, `data:` frame parsing, or `[DONE]` marker parsing.
+  - Contract touchpoints: Backend provider dependency only; public explain DTO/SSE contracts unchanged.
+  - Validation: `pnpm build`; `pnpm lint`; `pnpm test`.
+  - Follow-up: manually verify live provider SSE behavior with local Redis/MinIO/provider credentials.
+
+- 2026-05-24 — Kapter Explain Phase 1 backend foundation. Status: In-Progress.
+  - Added `CONTRACTS.md` entries for Kapter Explain request/stream/history/feedback/admin metrics contracts; the client request DTO is limited to `segmentIndex`, `sessionId`, and `userMessage`.
+  - Added Prisma schema and migration `20260524093000_add_ai_explain_foundation` for chat sessions/messages/feedback, AI usage logs, and idempotent credit reservations with `PENDING | CONFIRMED | REFUNDED` states.
+  - Added provider-agnostic chat config defaults via `ConfigService` with OpenAI `gpt-4o-mini` as the baseline model, plus a Phase 1 chat module shell and credit ledger service.
+  - Extended plan variants, subscriptions, seed data, and free-plan assignment with AI credit snapshot/remaining-credit fields.
+  - Contract touchpoints: API, DB, Quota, Mobile impact.
+  - Validation: `pnpm prisma validate`; `pnpm pgen`; `pnpm build`; `pnpm test -- ai-credit-ledger.service.spec.ts`.
+  - Follow-up: implement cache-first Redis lookup, canonical subtitle resolver, SSE endpoint behavior, usage logging, and admin metrics queries.
+
+- 2026-05-24 — Kapter Explain backend streaming slice. Status: Partial.
+  - Added `POST /media/:id/explain` SSE runtime with strict DTO validation, canonical subtitle context resolution from `final.json` or translated batches, Redis L1 cache-first initial explanations, provider-compatible OpenAI chat streaming, and ledger-backed reserve/confirm/refund behavior.
+  - Added `GET /media/:id/explain/history` and `POST /media/:id/explain/feedback` backend routes.
+  - Added guardrail sanitizer/refusal detection tests and a cache-hit service test proving no credit reservation occurs on L1 hit.
+  - Contract touchpoints: API, DB, Quota, Artifact, Mobile impact.
+  - Validation: `pnpm build`; `pnpm lint`; `pnpm test -- chat-guardrails.spec.ts chat.service.spec.ts ai-credit-ledger.service.spec.ts`.
+  - Follow-up: add manual SSE verification against local Redis/MinIO/provider credentials, add concurrency/abort integration coverage, implement admin AI metrics queries, and wire mobile UI.
+
+- 2026-05-24 — Kapter Explain admin observability endpoints. Status: Partial.
+  - Added `GET /admin/ai-explain/metrics` and `GET /admin/ai-explain/sessions` behind the existing admin role guard.
+  - Added AI Explain metrics aggregation for requests, credits, cache hit rate, guardrail rejection rate, feedback positive rate, daily usage, and top requested segments.
+  - Added canonical `segmentText` snapshots to `AiUsageLog` so admin top-segment text is backend-resolved and not client supplied.
+  - Contract touchpoints: API, DB, Quota, Dashboard impact.
+  - Validation: `pnpm prisma validate`; `pnpm pgen`; `pnpm build`; `pnpm lint`; `pnpm test -- ai-explain-admin.service.spec.ts chat-guardrails.spec.ts chat.service.spec.ts ai-credit-ledger.service.spec.ts`.
+  - Follow-up: exercise the admin endpoints against real seeded usage data after the local SSE path is manually verified.
 
 - 2026-05-23 — YouTube Pre-Flight Configuration Panel & Queue updates. Status: Working.
   - Added `sourceLanguage` parameter to `TranscriptionJobPayload` and `AiProcessingJobPayload` queue contracts.

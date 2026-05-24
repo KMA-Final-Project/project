@@ -100,18 +100,30 @@ class _FakeForcedAligner:
         if plan is not None:
             return plan
         step = 0.05
+        expanded_units = self._expanded_baseline_units(baseline)
         return [
             SimpleNamespace(
-                text=word.word,
+                text=text,
                 start=index * step,
                 end=(index + 1) * step,
             )
-            for index, word in enumerate(baseline)
+            for index, text in enumerate(expanded_units)
         ]
 
     @staticmethod
     def normalize_unit_text(text: str) -> str:
         return forced_mod.Qwen3ForcedAlignerProvider.normalize_unit_text(text)
+
+    @staticmethod
+    def _expanded_baseline_units(baseline: list[Any]) -> list[str]:
+        expanded: list[str] = []
+        for word in baseline:
+            normalized = _FakeForcedAligner.normalize_unit_text(
+                getattr(word, "word", "")
+            )
+            for char in normalized:
+                expanded.append(char)
+        return expanded
 
 
 class _FakeForcedAlignerHolder:
@@ -405,7 +417,7 @@ def test_qwen3_force_alignment_overlays_timestamps_only(monkeypatch, tmp_path) -
     assert question.text == "请问你是王静吗？"
     assert question.translation == "Xin hỏi bạn có phải là Vương Tĩnh không?"
     assert question.words[0].start == pytest.approx(4.2)
-    assert question.words[0].end == pytest.approx(4.25)
+    assert question.words[0].end == pytest.approx(4.3)
     assert question.start == pytest.approx(4.2)
     assert question.end == pytest.approx(4.55)
     assert question.words[0].confidence == 0.95
@@ -434,8 +446,16 @@ def test_qwen3_force_alignment_updates_translated_batch_artifact_before_upload(
     assert len(minio.uploaded_batches) == 1
     uploaded_question = minio.uploaded_batches[0].segments[2]
     assert uploaded_question.text == "请问你是王静吗？"
+    assert [word.word for word in uploaded_question.words] == ["请问", "你", "是", "王静", "吗"]
+    assert [word.phoneme for word in uploaded_question.words] == [
+        "qǐngwèn",
+        "nǐ",
+        "shì",
+        "wángjìng",
+        "ma",
+    ]
     assert uploaded_question.words[0].start == pytest.approx(4.2)
-    assert uploaded_question.words[0].end == pytest.approx(4.25)
+    assert uploaded_question.words[0].end == pytest.approx(4.3)
     assert uploaded_question.model_dump() == output.segments[2].model_dump()
     assert (
         pipeline.last_run_metrics["chinese_forced_alignment"]["aligned_segments"]
@@ -593,11 +613,13 @@ def test_qwen3_force_alignment_partial_match_overlays_and_keeps_skipped_chars_ba
                 SimpleNamespace(text="错", start=0.0, end=0.05),
                 *[
                     SimpleNamespace(
-                        text=word.word,
+                        text=char,
                         start=(index + 1) * 0.05,
                         end=(index + 2) * 0.05,
                     )
-                    for index, word in enumerate(baseline[1:])
+                    for index, char in enumerate(
+                        _FakeForcedAligner._expanded_baseline_units(baseline)[1:]
+                    )
                 ],
             ]
         }
@@ -614,7 +636,7 @@ def test_qwen3_force_alignment_partial_match_overlays_and_keeps_skipped_chars_ba
     assert question.text == "请问你是王静吗？"
     assert question.translation == "Xin hỏi bạn có phải là Vương Tĩnh không?"
     assert question.words[0].start == pytest.approx(4.2)
-    assert question.words[1].start == pytest.approx(4.25)
+    assert question.words[1].start == pytest.approx(4.3)
     assert question.words[-1].end == pytest.approx(4.55)
     assert pipeline.last_run_metrics["chinese_forced_alignment"]["aligned_segments"] >= 1
     assert pipeline.last_run_metrics["chinese_forced_alignment"]["downgraded_segments"] == 0

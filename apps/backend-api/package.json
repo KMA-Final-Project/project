@@ -21,7 +21,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "pgen": "prisma generate",
-    "db:reseed": "prisma migrate reset --force",
+    "db:reseed": "prisma migrate reset --force && prisma db seed",
     "sync:schema": "tsx scripts/sync-schema.ts",
     "pmigrate:dev": "prisma migrate dev --name",
     "start:local": "cd ../../infra && docker-compose up -d && cd - && npm run start:dev",
@@ -52,6 +52,7 @@
     "ioredis": "^5.9.2",
     "minio": "^8.0.6",
     "nodemailer": "^8.0.0",
+    "openai": "^6.39.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.18.0",
@@ -105,6 +106,12 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1",
+      "^prisma/(.*)$": "<rootDir>/../prisma/$1",
+      "^\\./enums\\.js$": "<rootDir>/../prisma/generated/enums",
+      "^\\./internal/(class|prismaNamespace)\\.js$": "<rootDir>/../prisma/generated/internal/$1"
+    },
     "testEnvironment": "node"
   }
 }

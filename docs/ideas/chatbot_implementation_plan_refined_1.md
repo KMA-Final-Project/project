@@ -491,6 +491,10 @@ Rules:
 
 - `gpt-4o-mini` is the baseline production model because it is a fast, lower-cost OpenAI model with streaming support.
 - The provider adapter must support swapping to another OpenAI-compatible provider by changing config only, not controller/service contracts.
+- The OpenAI baseline must use the official OpenAI Node SDK through a NestJS custom provider token, not raw `fetch`, Axios, or manual provider-SSE parsing inside business services.
+- The SDK client must be registered with a symbol injection token such as `OPENAI_CLIENT`, created through a `useFactory` provider that reads `ChatConfigService`, and injected only into the provider adapter boundary.
+- Streaming requests must set an explicit timeout and disable automatic retries unless a separate idempotent provider-retry strategy is designed.
+- SDK errors must be mapped to Kapter canonical explain errors (`RATE_LIMITED`, `LLM_UNAVAILABLE`, `LLM_ERROR`) before they reach mobile SSE payloads. Raw SDK stack traces, base URLs, headers, request bodies, and provider class names must never be streamed to clients.
 - Provider-specific legal/commercial terms must be verified before production use. Token-plan-only or tool-only products are not acceptable backend dependencies.
 - The selected `model` and `promptVersion` are persisted in `AiUsageLog`, included in cache keys, and shown in admin observability.
 
@@ -1474,7 +1478,7 @@ The original backend would embed this adversarial text directly into `CONTEXT: C
 | 2.5 | Implement `GET /media/:id/explain/history` endpoint | Backend |
 | 2.6 | Implement `POST /media/:id/explain/feedback` endpoint | Backend |
 | 2.7 | Implement two-layer guardrail pipeline (follow-up regex sanitizer + output validator with refusal JSON detection) | Backend |
-| 2.8 | Implement provider adapter streaming with OpenAI baseline config and abort signal support | Backend |
+| 2.8 | Implement provider adapter streaming with the official OpenAI Node SDK, NestJS symbol-token client injection, abort signal support, timeout, disabled streaming retries, and canonical SDK error mapping | Backend |
 | 2.9 | Implement cache-first flow for initial explain: canonical context -> Redis L1 -> ledger reservation only on miss | Backend |
 | 2.10 | Implement `AiUsageLog` recording for every request including provider/model/prompt version/reservation ID | Backend |
 | 2.11 | Implement ledger lifecycle (reserve -> stream -> confirm/refund) with partial abort logic | Backend |

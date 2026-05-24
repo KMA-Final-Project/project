@@ -2,6 +2,7 @@ import {
   RiBarChartBoxLine,
   RiLogoutBoxRLine,
   RiRadarLine,
+  RiSparklingLine,
   RiStackLine,
   RiUserLine,
 } from "@remixicon/react"
@@ -26,6 +27,11 @@ const navigation = [
     label: "Plans",
     to: "/plans",
     icon: RiStackLine,
+  },
+  {
+    label: "AI Explain",
+    to: "/ai-explain",
+    icon: RiSparklingLine,
   },
   {
     label: "Queues",

@@ -31,6 +31,7 @@ function buildQueuedMediaItem(
   response: ConfirmUploadResponse | SubmitYouTubeResponse,
   originType: MediaOriginType,
   originUrl: string | null = null,
+  targetLanguage: string | null = null,
 ): MediaItem {
   return {
     id: response.id,
@@ -45,6 +46,7 @@ function buildQueuedMediaItem(
     estimatedTimeRemaining: null,
     failReason: null,
     sourceLanguage: null,
+    targetLanguage,
     transcriptS3Key: null,
     subtitleS3Key: null,
   };
@@ -130,6 +132,7 @@ export function useSubmitYouTube() {
         response,
         "YOUTUBE",
         response.originUrl,
+        response.targetLanguage ?? defaultTargetLanguage,
       );
       upsertLibraryItem(queryClient, queuedItem);
       queryClient.setQueryData(mediaKeys.status(response.id), queuedItem);
@@ -222,7 +225,12 @@ export function useUploadMedia() {
       });
     },
     onSuccess: (response) => {
-      const queuedItem = buildQueuedMediaItem(response, "LOCAL");
+      const queuedItem = buildQueuedMediaItem(
+        response,
+        "LOCAL",
+        null,
+        response.targetLanguage ?? defaultTargetLanguage,
+      );
       upsertLibraryItem(queryClient, queuedItem);
       queryClient.setQueryData(mediaKeys.status(response.id), queuedItem);
       queryClient.invalidateQueries({ queryKey: mediaKeys.all });

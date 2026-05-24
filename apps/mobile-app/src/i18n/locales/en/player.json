@@ -23,5 +23,22 @@
   "openOnYoutube": "Open on YouTube",
   "pin": "Pin",
   "explain": "Explain",
-  "speedTitle": "Playback Speed"
+  "speedTitle": "Playback Speed",
+  "explainEyebrow": "Kapter Explain",
+  "explainTitle": "Subtitle Coach",
+  "explainSubtitle": "Ask about translation, vocabulary, grammar, or nuance.",
+  "explainCredits": "{{count}} AI credits remaining",
+  "explainCreditsPending": "Checking AI credits",
+  "explainCurrentSegment": "Current segment #{{index}}",
+  "explainLoading": "Loading explanation history...",
+  "explainThinking": "Thinking...",
+  "explainInputPlaceholder": "Ask a follow-up about this subtitle",
+  "explainStop": "Stop",
+  "explainClose": "Close",
+  "explainOpenDrawer": "Sentence drawer",
+  "explainHideDrawer": "Hide drawer",
+  "explainSentenceDrawerTitle": "Sentence drawer",
+  "explainPlaySentence": "Play sentence audio",
+  "explainPauseSentence": "Pause sentence audio",
+  "explainChangeSpeed": "Change playback speed to {{speed}}x"
 }

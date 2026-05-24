@@ -45,10 +45,14 @@ export function UploadSheet({
       <View style={styles.quotaContainer}>
         <Ionicons name="time-outline" size={16} color={theme.colors.primary} />
         <Text style={[styles.quotaText, { color: theme.colors.textSecondary }]}>
-          {t("upload.quotaRemaining", "Remaining quota: {{remaining}}/{{total}} mins", {
-            remaining: remainingMinutes,
-            total: totalMinutes,
-          })}
+          {t(
+            "upload.quotaRemaining",
+            "Remaining quota: {{remaining}}/{{total}} mins",
+            {
+              remaining: remainingMinutes,
+              total: totalMinutes,
+            },
+          )}
         </Text>
       </View>
 

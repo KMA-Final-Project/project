@@ -24,13 +24,19 @@ interface BottomSheetProps {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  height?: number;
 }
 
 const SHEET_HEIGHT = 340;
 const DISMISS_THRESHOLD = 80;
 
-export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
-  const translateY = useSharedValue(SHEET_HEIGHT);
+export function BottomSheet({
+  visible,
+  onClose,
+  children,
+  height,
+}: BottomSheetProps) {
+  const translateY = useSharedValue(height ?? SHEET_HEIGHT);
   const backdropOpacity = useSharedValue(0);
 
   useEffect(() => {
@@ -41,10 +47,10 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
       });
       backdropOpacity.value = withTiming(1, { duration: 250 });
     } else {
-      translateY.value = withTiming(SHEET_HEIGHT, { duration: 220 });
+      translateY.value = withTiming(height ?? SHEET_HEIGHT, { duration: 220 });
       backdropOpacity.value = withTiming(0, { duration: 200 });
     }
-  }, [visible, translateY, backdropOpacity]);
+  }, [visible, translateY, backdropOpacity, height]);
 
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -56,12 +62,12 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
 
   // Animate the sheet out, then call onClose on JS thread when done
   const closeWithAnimation = useCallback(() => {
-    translateY.value = withTiming(SHEET_HEIGHT, { duration: 220 });
+    translateY.value = withTiming(height ?? SHEET_HEIGHT, { duration: 220 });
     backdropOpacity.value = withTiming(0, { duration: 200 }, (finished) => {
       "worklet";
       if (finished) runOnJS(onClose)();
     });
-  }, [onClose, translateY, backdropOpacity]);
+  }, [onClose, translateY, backdropOpacity, height]);
 
   // Legacy worklet handle (used inside gesture worklets)
   const handleClose = useCallback(() => {
@@ -79,24 +85,11 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
     .onEnd((e) => {
       "worklet";
       if (e.translationY > DISMISS_THRESHOLD) {
-        translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
+        translateY.value = withTiming(height ?? SHEET_HEIGHT, {
+          duration: 200,
+        });
         backdropOpacity.value = withTiming(0, { duration: 200 }, () => {
           handleClose();
-        });
-      } else {
-        translateY.value = withTiming(0, {
-          duration: 250,
-          easing: Easing.out(Easing.cubic),
-        });
-      }
-    })
-    .onEnd((e) => {
-      "worklet";
-      if (e.translationY > DISMISS_THRESHOLD) {
-        translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
-        backdropOpacity.value = withTiming(0, { duration: 200 }, (finished) => {
-          "worklet";
-          if (finished) handleClose();
         });
       } else {
         translateY.value = withTiming(0, {
@@ -120,15 +113,23 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
         </TouchableWithoutFeedback>
 
         {/* Sheet */}
-        <GestureDetector gesture={panGesture}>
-          <Animated.View style={[styles.sheet, sheetStyle]}>
-            {/* Handle bar */}
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              minHeight: height ?? SHEET_HEIGHT,
+              maxHeight: height ?? "auto",
+            },
+            sheetStyle,
+          ]}
+        >
+          <GestureDetector gesture={panGesture}>
             <View style={styles.handleContainer}>
               <View style={styles.handle} />
             </View>
-            {children}
-          </Animated.View>
-        </GestureDetector>
+          </GestureDetector>
+          {children}
+        </Animated.View>
       </GestureHandlerRootView>
     </Modal>
   );

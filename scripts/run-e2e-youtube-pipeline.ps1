@@ -10,7 +10,7 @@ run directory.
 #>
 [CmdletBinding()]
 param(
-    [string[]]$CaseIds = @("english_-moW9jvvMr4", "chinese_kUzay3X1maA"),
+    [string[]]$CaseIds = @("english_-moW9jvvMr4", "chinese_60xeAEe7H28"),
     [string]$TargetLanguage = "vi",
     [string]$OutputDir = "",
     [switch]$KeepProcesses
