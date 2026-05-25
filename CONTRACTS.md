@@ -162,6 +162,8 @@ The backend is the only stable HTTP boundary for the mobile app.
 | `POST /media/:id/explain` | Streams Kapter Explain responses for one canonical subtitle segment. |
 | `GET /media/:id/explain/history` | Returns the authenticated user's chat history for one media segment. |
 | `POST /media/:id/explain/feedback` | Records authenticated feedback on an assistant chat message. |
+| `POST /media/:id/lookup` | Returns one atomic vocabulary lookup payload for a canonical word/span inside a subtitle segment. |
+| `POST /media/:id/lookup/bookmark` | Persists one explicitly saved vocabulary lookup snapshot for the authenticated user. |
 
 Rules:
 
@@ -204,6 +206,8 @@ Rules:
 - `userMessage` is omitted for initial explain and required for follow-ups.
 - Initial explain cache hits are free and must be served before any credit reservation.
 - Cache misses and follow-ups require an AI credit reservation ledger row before the LLM call.
+- The initial Explain turn must provide an exhaustive sequential breakdown of every canonical token block in the active subtitle sentence, matching the order of `sentence.words[]`; it must not cherry-pick only a few "main vocabulary" items.
+- Explain prompt context may include server-derived token-block order and phoneme hints to keep the pedagogical breakdown aligned with canonical subtitle segmentation.
 
 SSE event payloads:
 
@@ -281,7 +285,116 @@ Rules:
 - Feedback must be scoped to the authenticated user.
 - Feedback may only target assistant messages in a session owned by the user.
 
-### 5.2 Kapter Explain Admin API
+### 5.2 Vocabulary Lookup API
+
+Vocabulary Lookup is an authenticated, media-owned utility surface embedded in the subtitle player. It is non-streaming and returns one atomic JSON payload.
+
+#### `POST /media/:id/lookup`
+
+Request body:
+
+```ts
+interface LookupRequestDto {
+  segmentIndex: number;
+  wordText: string;
+  startWordIndex: number;
+  endWordIndex: number;
+}
+```
+
+Response:
+
+```ts
+interface LookupResponseDto {
+  data: {
+    word: string;
+    phonetic: string;
+    partOfSpeech:
+      | "noun"
+      | "pronoun"
+      | "verb"
+      | "adjective"
+      | "adverb"
+      | "particle"
+      | "classifier"
+      | "preposition"
+      | "conjunction"
+      | "interjection"
+      | "phrase"
+      | "idiom"
+      | "proper_noun"
+      | "other";
+    contextualDefinition: string;
+    exampleSentence: string;
+    exampleSentenceTranslation: string;
+  };
+  meta: {
+    cacheHit: boolean;
+    alreadySaved: boolean;
+    saveToken: string;
+    quota: {
+      tier: "free" | "paid";
+      dailyLimit: number | null;
+      remainingToday: number | null;
+      resetsInSeconds: number | null;
+    };
+  };
+}
+```
+
+Rules:
+
+- The mobile app must not send sentence text, translation, phonetic text, source language, target language, or arbitrary definition text.
+- The backend must verify media ownership before resolving subtitle context.
+- The backend resolves the canonical segment from server-owned artifacts using `mediaId` and `segmentIndex`.
+- `startWordIndex` and `endWordIndex` are inclusive offsets inside canonical `sentence.words[]`.
+- The backend reconstructs the authoritative selected span from subtitle tokens and treats `wordText` as validation only.
+- Free users are limited to 20 valid lookup requests per rolling 24-hour Redis window using `rate_limit:lookup:{userId}`.
+- Paid users bypass the Redis lookup limiter when `plan.code !== "free"`.
+- Lookup cache is Redis-only with key `lookup:{mediaId}:{segmentIndex}:{wordText}` and TTL 7 days.
+- Lookup responses must be built from one non-streaming OpenAI Structured Outputs call using `json_schema` with `strict: true` on cache miss.
+- The model must return only structured lexical fields; `word`, `phonetic`, and example sentence context are server-derived from canonical subtitle data.
+- `contextualDefinition` is not a generic dictionary gloss; it must explain the selected word or phrase's exact role, structural behavior, or nuance inside the provided sentence context.
+- For grammar-heavy tokens such as particles, classifiers, complements, aspect markers, or structural words, the lookup explanation must explicitly say what the token attaches to or changes in the sentence.
+
+Error codes:
+
+```ts
+type LookupErrorCode =
+  | "INVALID_WORD_SELECTION"
+  | "INVALID_SAVE_TOKEN"
+  | "MEDIA_NOT_FOUND"
+  | "SUBTITLE_CONTEXT_UNAVAILABLE"
+  | "LOOKUP_LIMIT_REACHED"
+  | "RATE_LIMITED"
+  | "LLM_UNAVAILABLE"
+  | "LLM_ERROR";
+```
+
+#### `POST /media/:id/lookup/bookmark`
+
+Request body:
+
+```ts
+interface SaveLookupWordDto {
+  segmentIndex: number;
+  wordText: string;
+  startWordIndex: number;
+  endWordIndex: number;
+  saveToken: string;
+}
+```
+
+Rules:
+
+- Save Word is explicit only; lookup must not auto-persist anything to PostgreSQL.
+- `saveToken` is an opaque Redis-backed snapshot token issued by `POST /media/:id/lookup`.
+- The backend must validate that `saveToken`, `mediaId`, `segmentIndex`, and the selected span all match before writing.
+- Bookmark persistence must snapshot the server-returned lookup data from Redis, never trust client-sent meaning or part-of-speech text.
+- Canonical vocabulary identity is `normalizedWord + sourceLanguage`.
+- User saves are unique per `userId + mediaItemId + segmentIndex + startWordIndex + endWordIndex`.
+
+### 5.3 Kapter Explain Admin API
 
 Admin endpoints require ADMIN role enforcement through the existing admin guard pattern.
 
@@ -564,6 +677,7 @@ Rules:
 - Failed, refused, or early-aborted requests transition `PENDING -> REFUNDED`.
 - Usage logs must record provider, model, prompt version, cache hit status, token counts when available, and the linked reservation ID when a reservation exists.
 - Usage logs must store any admin-facing segment text as a server-resolved canonical snapshot, never from client-supplied subtitle text.
+- Vocabulary lookup does not consume AI credits and must not create `AiCreditReservation` or `AiUsageLog` rows in the current design.
 
 ## 12. Language and Translation Contract
 

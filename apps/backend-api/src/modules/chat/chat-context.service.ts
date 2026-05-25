@@ -222,6 +222,12 @@ export class ChatContextService {
       translation: segment.translation,
       phonetic: segment.phonetic,
       detected_lang: segment.detected_lang,
+      words: Array.isArray(segment.words)
+        ? segment.words.map((word) => ({
+            word: word.word,
+            phoneme: word.phoneme,
+          }))
+        : [],
     };
   }
 }

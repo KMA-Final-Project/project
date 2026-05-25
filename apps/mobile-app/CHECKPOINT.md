@@ -30,9 +30,27 @@ Auth/session
 
 ## 2. Active Work
 
-- [ ] Manually verify Kapter Explain against a running backend/provider, then refine stream error/abort UX from device testing.
+- [x] Manually verify Kapter Explain against a running backend/provider, then refine stream error/abort UX from device testing.
+- [ ] Manually verify vocabulary lookup/save on device against the live backend, including active-word tap targets, free-tier limit handling, and Explain handoff.
 
 ## 3. Recently Completed
+
+- 2026-05-25 — Lookup bookmark tap-guard and visible saving state. Status: Working.
+  - Hardened the player lookup save handler with a synchronous in-flight token guard so repeated taps cannot enqueue parallel bookmark requests before React re-renders the card.
+  - Kept the lookup card save control visibly in its saving state for the active save token and prevented stale save completions from mutating a newer lookup selection.
+  - Why: rapid bookmark taps could bypass the previous render-time-only disable path, which made the button feel not fully loading-safe and triggered duplicate backend save requests.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: verify on device that the save button visibly locks immediately on first tap and stays stable while rapidly tapping.
+
+- 2026-05-25 — Floating vocabulary lookup card and active-word player taps. Status: Working.
+  - Added mobile endpoint constants and typed lookup/save DTOs aligned to the live `POST /media/:id/lookup` and `POST /media/:id/lookup/bookmark` backend contract.
+  - Implemented a dedicated `useVocabularyLookup` hook for atomic lookup fetches and explicit Save Word requests through the authenticated mobile API client.
+  - Reworked the active subtitle row so only the current sentence exposes per-word tap targets, while inactive rows keep the existing row-level seek behavior.
+  - Added a floating lookup card overlay in the player with fixed-height loading skeleton, contextual definition, localized part-of-speech pill, inline save state, and sentence-level Explain handoff.
+  - Why: the player needed a fast single-tap vocabulary surface that stays lighter than Kapter Explain while still matching the approved backend lookup contract.
+  - Contract touchpoints: API, Player UX, Subtitle JSON.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: device verification for overlay placement on small screens, repeated word retaps, saved-state persistence, and free-tier lookup-limit messaging.
 
 - 2026-05-25 — Explain sheet now shows immediate pending state and drains streamed answers without requiring reopen. Status: Working.
   - Added an optimistic assistant pending bubble in `useExplainStream`, reconciled it with the backend `meta.messageId`, and hardened the SSE parser so any final buffered event block is processed even if the transport flushes late.
@@ -184,7 +202,7 @@ Auth/session
 - [ ] Remove or repurpose unused preview-only helpers from the older processing preview flow.
 - [ ] Add forgot-password flow.
 - [ ] Add social login if still useful for the final product scope.
-- [ ] Add vocabulary/dictionary UI once backend endpoints exist.
+- [ ] Add device-verified polish for vocabulary lookup placement, error copy, and bookmark feedback once the first round of live testing is complete.
 - [ ] Strengthen mobile validation with a typecheck script if the package does not already expose one.
 - [ ] Replace the mobile-side raw explain SSE parser with the same official SDK-backed or typed-stream approach once Expo/runtime constraints and product scope justify it.
 

@@ -35,7 +35,7 @@ describe('ChatService', () => {
     };
     const config = {
       model: 'gpt-4o-mini',
-      promptVersion: 'v3',
+      promptVersion: 'v4',
       provider: 'openai',
     };
     const credits = {
@@ -95,7 +95,7 @@ describe('ChatService', () => {
           cacheHit: true,
           creditsRemaining: 0,
           model: 'gpt-4o-mini',
-          promptVersion: 'v3',
+          promptVersion: 'v4',
         },
       },
       { event: 'delta', data: { content: 'Cached explanation' } },
@@ -109,7 +109,7 @@ describe('ChatService', () => {
       {} as never,
       {
         model: 'gpt-4o-mini',
-        promptVersion: 'v3',
+        promptVersion: 'v4',
         provider: 'openai',
       } as never,
       {} as never,
@@ -130,7 +130,22 @@ describe('ChatService', () => {
         detected_lang: 'en',
         start: 0,
         end: 1,
-        words: [],
+        words: [
+          {
+            word: 'Hello',
+            start: 0,
+            end: 0.5,
+            confidence: 1,
+            phoneme: 'heh-loh',
+          },
+          {
+            word: 'there',
+            start: 0.51,
+            end: 1,
+            confidence: 1,
+            phoneme: 'thair',
+          },
+        ],
         segment_index: 3,
       },
       previous: null,
@@ -142,14 +157,27 @@ describe('ChatService', () => {
       buildSystemPrompt: (
         value: CanonicalSubtitleContext,
         salt: string,
+        isFollowUp: boolean,
       ) => string;
     };
 
     expect(privateService.buildInitialDisplayMessage(context)).toBe(
       'Hãy giúp tôi hiểu câu này:\nHello there\nBản dịch hiện tại: Xin chao',
     );
-    expect(privateService.buildSystemPrompt(context, 'salt-1')).toContain(
-      'phải viết độc quyền bằng tiếng Việt',
+    expect(
+      privateService.buildSystemPrompt(context, 'salt-1', false),
+    ).toContain('phải viết độc quyền bằng tiếng Việt');
+    expect(
+      privateService.buildSystemPrompt(context, 'salt-1', false),
+    ).toContain('Giải thích từng từ/cụm theo thứ tự');
+    expect(
+      privateService.buildSystemPrompt(context, 'salt-1', false),
+    ).toContain('<token index="1">');
+    expect(
+      privateService.buildSystemPrompt(context, 'salt-1', false),
+    ).toContain('<surface>Hello</surface>');
+    expect(privateService.buildSystemPrompt(context, 'salt-1', true)).toContain(
+      'Với lượt hỏi tiếp theo',
     );
   });
 });

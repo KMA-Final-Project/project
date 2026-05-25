@@ -19,4 +19,6 @@ export const ENDPOINTS = {
   MEDIA_EXPLAIN: (id: string) => `/media/${id}/explain`,
   MEDIA_EXPLAIN_HISTORY: (id: string) => `/media/${id}/explain/history`,
   MEDIA_EXPLAIN_FEEDBACK: (id: string) => `/media/${id}/explain/feedback`,
+  MEDIA_LOOKUP: (id: string) => `/media/${id}/lookup`,
+  MEDIA_LOOKUP_BOOKMARK: (id: string) => `/media/${id}/lookup/bookmark`,
 };

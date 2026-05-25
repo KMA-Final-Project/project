@@ -11,7 +11,9 @@ interface SubtitleRowProps {
   showPhonetic: boolean;
   showTranslation: boolean;
   showKaraoke: boolean;
-  onPress: () => void;
+  onPress?: () => void;
+  onWordPress?: (wordIndex: number) => void;
+  selectedWordIndex?: number | null;
 }
 
 const cjkPattern = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
@@ -24,6 +26,8 @@ export function SubtitleRow({
   showTranslation,
   showKaraoke,
   onPress,
+  onWordPress,
+  selectedWordIndex = null,
 }: SubtitleRowProps) {
   const activeWordIndex = useMemo(() => {
     if (!showKaraoke || sentence.words.length === 0) {
@@ -36,6 +40,111 @@ export function SubtitleRow({
   }, [currentTimeSec, sentence.words, showKaraoke]);
 
   const isCjk = useMemo(() => cjkPattern.test(sentence.text), [sentence.text]);
+  const wordsAreInteractive = isActive && typeof onWordPress === "function";
+
+  const content = (
+    <View style={[styles.container, isActive && styles.containerActive]}>
+      {sentence.words && sentence.words.length > 0 ? (
+        <View style={styles.wordsContainer}>
+          {sentence.words.map((word, index) => {
+            const isWordSelected = selectedWordIndex === index;
+            const isWordActive =
+              !isWordSelected && showKaraoke && index === activeWordIndex;
+            const wordContent = (
+              <View
+                style={[
+                  styles.wordStack,
+                  isWordSelected && styles.wordStackSelected,
+                ]}
+              >
+                {isCjk && showPhonetic && word.phoneme ? (
+                  <Text
+                    style={[
+                      styles.wordPhonetic,
+                      isWordSelected
+                        ? styles.wordPhoneticSelected
+                        : isWordActive
+                          ? styles.wordPhoneticActive
+                          : styles.wordPhoneticIdle,
+                      { marginBottom: 2 },
+                    ]}
+                  >
+                    {word.phoneme}
+                  </Text>
+                ) : null}
+
+                <Text
+                  style={[
+                    styles.wordText,
+                    isWordSelected
+                      ? styles.wordSelected
+                      : isWordActive
+                        ? styles.wordActive
+                        : styles.wordIdle,
+                    isActive && styles.wordTextActiveSize,
+                  ]}
+                >
+                  {word.word}
+                </Text>
+
+                {!isCjk && showPhonetic && word.phoneme ? (
+                  <Text
+                    style={[
+                      styles.wordPhonetic,
+                      isWordSelected
+                        ? styles.wordPhoneticSelected
+                        : isWordActive
+                          ? styles.wordPhoneticActive
+                          : styles.wordPhoneticIdle,
+                      { marginTop: 2 },
+                    ]}
+                  >
+                    {word.phoneme}
+                  </Text>
+                ) : null}
+              </View>
+            );
+
+            if (!wordsAreInteractive) {
+              return (
+                <View key={`${word.start}-${word.end}-${index}`}>
+                  {wordContent}
+                </View>
+              );
+            }
+
+            return (
+              <Pressable
+                key={`${word.start}-${word.end}-${index}`}
+                onPress={() => onWordPress(index)}
+                style={({ pressed }) => [pressed && styles.pressed]}
+                hitSlop={6}
+              >
+                {wordContent}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <View>
+          <Text style={[styles.source, isActive && styles.sourceActive]}>
+            {sentence.text}
+          </Text>
+          {showPhonetic && Boolean(sentence.phonetic?.trim()) ? (
+            <Text style={styles.phonetic}>{sentence.phonetic}</Text>
+          ) : null}
+        </View>
+      )}
+
+      {showTranslation && Boolean(sentence.translation?.trim()) ? (
+        <Text style={styles.translation}>{sentence.translation}</Text>
+      ) : null}
+    </View>
+  );
+
+  if (wordsAreInteractive || !onPress) {
+    return content;
+  }
 
   return (
     <Pressable
@@ -43,72 +152,7 @@ export function SubtitleRow({
       style={({ pressed }) => [pressed && styles.pressed]}
       hitSlop={8}
     >
-      <View style={[styles.container, isActive && styles.containerActive]}>
-        {sentence.words && sentence.words.length > 0 ? (
-          <View style={styles.wordsContainer}>
-            {sentence.words.map((word, index) => {
-              const isWordActive = showKaraoke && index === activeWordIndex;
-              return (
-                <View
-                  key={`${word.start}-${word.end}-${index}`}
-                  style={styles.wordStack}
-                >
-                  {isCjk && showPhonetic && word.phoneme ? (
-                    <Text
-                      style={[
-                        styles.wordPhonetic,
-                        isWordActive
-                          ? styles.wordPhoneticActive
-                          : styles.wordPhoneticIdle,
-                        { marginBottom: 2 },
-                      ]}
-                    >
-                      {word.phoneme}
-                    </Text>
-                  ) : null}
-
-                  <Text
-                    style={[
-                      styles.wordText,
-                      isWordActive ? styles.wordActive : styles.wordIdle,
-                      isActive && styles.wordTextActiveSize,
-                    ]}
-                  >
-                    {word.word}
-                  </Text>
-
-                  {!isCjk && showPhonetic && word.phoneme ? (
-                    <Text
-                      style={[
-                        styles.wordPhonetic,
-                        isWordActive
-                          ? styles.wordPhoneticActive
-                          : styles.wordPhoneticIdle,
-                        { marginTop: 2 },
-                      ]}
-                    >
-                      {word.phoneme}
-                    </Text>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          <View>
-            <Text style={[styles.source, isActive && styles.sourceActive]}>
-              {sentence.text}
-            </Text>
-            {showPhonetic && Boolean(sentence.phonetic?.trim()) ? (
-              <Text style={styles.phonetic}>{sentence.phonetic}</Text>
-            ) : null}
-          </View>
-        )}
-
-        {showTranslation && Boolean(sentence.translation?.trim()) ? (
-          <Text style={styles.translation}>{sentence.translation}</Text>
-        ) : null}
-      </View>
+      {content}
     </Pressable>
   );
 }
@@ -146,6 +190,14 @@ const styles = StyleSheet.create((theme) => ({
   wordStack: {
     alignItems: "center",
     justifyContent: "flex-end",
+    paddingHorizontal: theme.spacing[1],
+    paddingVertical: 2,
+    borderRadius: theme.radii.lg,
+  },
+  wordStackSelected: {
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
   },
   wordText: {
     color: theme.colors.text,
@@ -162,6 +214,9 @@ const styles = StyleSheet.create((theme) => ({
   wordActive: {
     color: theme.colors.player.karaokeHighlight,
   },
+  wordSelected: {
+    color: theme.colors.primary,
+  },
   wordPhonetic: {
     fontSize: theme.typography.sizes.sm,
     fontWeight: theme.typography.weights.medium,
@@ -172,6 +227,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   wordPhoneticActive: {
     color: theme.colors.player.phoneticText,
+  },
+  wordPhoneticSelected: {
+    color: theme.colors.primaryDark,
   },
   phonetic: {
     color: theme.colors.player.phoneticText,

@@ -7,11 +7,25 @@ import {
   PermissionDeniedError,
   RateLimitError,
 } from 'openai';
-import { ExplainErrorCode } from './dto';
+import { ExplainErrorCode, LookupErrorCode } from './dto';
+
+type ProviderErrorCode = ExplainErrorCode | LookupErrorCode;
+
+interface ProviderErrorMapping {
+  rateLimited: ProviderErrorCode;
+  llmUnavailable: ProviderErrorCode;
+  llmError: ProviderErrorCode;
+}
+
+const DEFAULT_PROVIDER_ERROR_MAPPING: ProviderErrorMapping = {
+  rateLimited: ExplainErrorCode.RATE_LIMITED,
+  llmUnavailable: ExplainErrorCode.LLM_UNAVAILABLE,
+  llmError: ExplainErrorCode.LLM_ERROR,
+};
 
 export class ChatProviderError extends Error {
   constructor(
-    readonly code: ExplainErrorCode,
+    readonly code: ProviderErrorCode,
     message: string,
   ) {
     super(message);
@@ -19,13 +33,16 @@ export class ChatProviderError extends Error {
   }
 }
 
-export const mapOpenAiProviderError = (error: unknown): ChatProviderError => {
+export const mapOpenAiProviderError = (
+  error: unknown,
+  mapping: ProviderErrorMapping = DEFAULT_PROVIDER_ERROR_MAPPING,
+): ChatProviderError => {
   if (
     error instanceof RateLimitError ||
     (error instanceof APIError && error.status === 429)
   ) {
     return new ChatProviderError(
-      ExplainErrorCode.RATE_LIMITED,
+      mapping.rateLimited,
       'The AI assistant is busy. Please try again shortly.',
     );
   }
@@ -38,7 +55,7 @@ export const mapOpenAiProviderError = (error: unknown): ChatProviderError => {
       error.status >= 500)
   ) {
     return new ChatProviderError(
-      ExplainErrorCode.LLM_UNAVAILABLE,
+      mapping.llmUnavailable,
       'AI assistant is temporarily unavailable.',
     );
   }
@@ -53,13 +70,13 @@ export const mapOpenAiProviderError = (error: unknown): ChatProviderError => {
       error.status < 500)
   ) {
     return new ChatProviderError(
-      ExplainErrorCode.LLM_ERROR,
+      mapping.llmError,
       'AI assistant could not complete this request.',
     );
   }
 
   return new ChatProviderError(
-    ExplainErrorCode.LLM_UNAVAILABLE,
+    mapping.llmUnavailable,
     'AI assistant is temporarily unavailable.',
   );
 };

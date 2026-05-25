@@ -231,31 +231,43 @@ model MediaItem {
 }
 
 model Vocabulary {
-  id              String  @id @default(uuid())
-  word            String  @unique // Unique word
-  meaning         String  @db.Text
-  pronunciation   String?
-  exampleSentence String? @map("example_sentence") @db.Text
-  lookupCount     Int     @default(0) @map("lookup_count")
+  id             String  @id @default(uuid())
+  word           String
+  normalizedWord String  @map("normalized_word")
+  sourceLanguage String  @map("source_language")
+  phonetic       String?
 
   userVocabularies UserVocabulary[]
 
+  @@unique([normalizedWord, sourceLanguage])
+  @@index([sourceLanguage])
   @@map("vocabularies")
 }
 
 model UserVocabulary {
-  id           String  @id @default(uuid())
-  userId       String  @map("user_id")
-  vocabularyId String  @map("vocabulary_id")
-  mediaItemId  String? @map("media_item_id") // Optional context
-
-  contextSentence String? @map("context_sentence") @db.Text // Personal context where user saved word
+  id                         String   @id @default(uuid())
+  userId                     String   @map("user_id")
+  vocabularyId               String   @map("vocabulary_id")
+  mediaItemId                String   @map("media_item_id")
+  segmentIndex               Int      @map("segment_index")
+  startWordIndex             Int      @map("start_word_index")
+  endWordIndex               Int      @map("end_word_index")
+  selectedTextSnapshot       String   @map("selected_text_snapshot")
+  phoneticSnapshot           String   @default("") @map("phonetic_snapshot")
+  partOfSpeech               String   @map("part_of_speech")
+  contextualDefinition       String   @map("contextual_definition") @db.Text
+  sourceSentence             String   @map("source_sentence") @db.Text
+  sourceSentenceTranslation  String   @default("") @map("source_sentence_translation") @db.Text
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
   user       User       @relation(fields: [userId], references: [id])
   vocabulary Vocabulary @relation(fields: [vocabularyId], references: [id])
-  mediaItem  MediaItem? @relation(fields: [mediaItemId], references: [id])
+  mediaItem  MediaItem  @relation(fields: [mediaItemId], references: [id])
 
-  @@unique([userId, vocabularyId]) // Prevent duplicate saves per user
+  @@unique([userId, mediaItemId, segmentIndex, startWordIndex, endWordIndex])
+  @@index([userId, vocabularyId])
+  @@index([mediaItemId, segmentIndex])
   @@map("user_vocabularies")
 }
 

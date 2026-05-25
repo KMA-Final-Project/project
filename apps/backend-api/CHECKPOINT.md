@@ -24,6 +24,33 @@ Current completed surfaces:
 
 ## 3. Recently Completed
 
+- 2026-05-25 — Explain and Lookup pedagogical prompt deepening. Status: Working.
+  - Upgraded Kapter Explain prompt defaults to `promptVersion=v4`, raised the default output-token budget, and injected canonical `<token_blocks>` into subtitle context so the initial Explain turn now has to cover every token block in order instead of cherry-picking only a few main words.
+  - Tightened Explain first-turn instructions to require a sequential token-by-token breakdown, while keeping follow-up turns direct and still grounded in the canonical sentence token order.
+  - Upgraded Lookup prompt defaults to `lookup-v2`, widened the Structured Outputs `contextualDefinition` allowance, and rewrote the lookup prompt so the model must explain sentence-specific grammatical role, structural behavior, and nuance instead of returning a generic dictionary gloss.
+  - Added lookup cache version-awareness so pre-upgrade Redis entries are treated as stale and recomputed under the stronger prompt.
+  - Why: current Explain and Lookup answers were too shallow compared with the intended teaching quality, especially for grammar-heavy Chinese subtitle cases.
+  - Contract touched: API behavior, Language.
+  - Validation: `pnpm build`; `pnpm test -- chat.service.spec.ts chat-provider.service.spec.ts lookup.service.spec.ts`; `pnpm exec eslint src/modules/chat/chat-config.service.ts src/modules/chat/chat-context.service.ts src/modules/chat/chat-provider.service.ts src/modules/chat/chat-provider.service.spec.ts src/modules/chat/chat.service.ts src/modules/chat/chat.service.spec.ts src/modules/chat/lookup.service.ts src/modules/chat/lookup.service.spec.ts`.
+  - Follow-up: manually verify the refreshed Explain and Lookup outputs against live provider calls and clear any long-lived Redis entries if old lookup wording is still observed during the 7-day TTL window.
+
+- 2026-05-25 — Lookup Save Word duplicate-key race hardened. Status: Working.
+  - Updated the lookup bookmark save path so concurrent duplicate save requests no longer bubble a PostgreSQL/Prisma unique-key collision into a `500`.
+  - The service now treats a `P2002` race on `UserVocabulary` create as an idempotent already-saved result by re-reading the canonical saved row and returning `created: false`.
+  - Why: rapid repeated mobile taps could race past the pre-create existence check and crash the save request instead of returning the existing bookmark state.
+  - Contract touched: API behavior only; request/response DTOs unchanged.
+  - Validation: `pnpm build`; `pnpm test -- lookup.service.spec.ts`; `pnpm exec eslint src/modules/chat/lookup.service.ts src/modules/chat/lookup.service.spec.ts`.
+  - Follow-up: validate this behavior from the mobile app against a live local database session while stress-tapping Save Word.
+
+- 2026-05-25 — Vocabulary lookup and Save Word backend slice. Status: Working.
+  - Added Prisma migration `20260525130000_add_lookup_vocabulary` to remodel canonical vocabulary identity as `normalizedWord + sourceLanguage` and convert `UserVocabulary` into a context-aware saved-word snapshot table keyed by `userId + mediaItemId + segmentIndex + startWordIndex + endWordIndex`.
+  - Added `POST /media/:id/lookup` with canonical subtitle context resolution, free-tier Redis rate limiting, Redis L1 lookup caching, `saveToken` snapshot issuance, and one atomic OpenAI Structured Outputs (`json_schema`, strict) response on cache miss.
+  - Added `POST /media/:id/lookup/bookmark` so saved vocabulary is explicit only and persists the server-issued Redis lookup snapshot rather than trusting client-sent definition text.
+  - Extended the shared OpenAI provider/config boundary with a non-streaming lookup path while preserving the existing Explain streaming path.
+  - Contract touchpoints: API, DB, Quota, Artifact, Mobile impact.
+  - Validation: `pnpm pgen`; `pnpm db:reseed`; `pnpm build`; `pnpm test -- chat.service.spec.ts chat-provider.service.spec.ts ai-credit-ledger.service.spec.ts lookup.service.spec.ts`; `pnpm exec eslint "src/modules/chat/**/*.ts" --fix`.
+  - Follow-up: wire the mobile player popup to the new lookup and bookmark routes, then validate the full UI flow against live provider credentials.
+
 - 2026-05-25 — Explain SSE responses now flush per event for live mobile updates. Status: Working.
   - Updated the Explain controller SSE response headers to disable proxy buffering (`X-Accel-Buffering: no`) and flush each written event frame when the underlying Express response supports `flush()`.
   - Why: the mobile Explain sheet could reopen and read persisted history, but live `meta` / `delta` events were not always reaching the client promptly during the active request, which made the UI look disconnected from the backend.
@@ -166,7 +193,6 @@ Current completed surfaces:
 ## 5. Next Candidates
 
 - [ ] Optimize or cache artifact summaries for `GET /media` if library latency becomes noticeable.
-- [ ] Add dictionary lookup and saved vocabulary backend endpoints.
 - [ ] Add artifact-level assertions or fixture expectations on top of `test:youtube:e2e` so the harness can fail automatically on misrouting or obvious hallucination cases.
 - [ ] Swagger operation responses for new admin user endpoints — currently documented but not exhaustively typed in Swagger.
 - [ ] Add monitoring/logging conventions for API and worker processes.
@@ -185,6 +211,11 @@ Stable documented endpoints:
 - `GET /media/:id/status`
 - `GET /media/:id/artifacts`
 - `GET /media`
+- `POST /media/:id/explain`
+- `GET /media/:id/explain/history`
+- `POST /media/:id/explain/feedback`
+- `POST /media/:id/lookup`
+- `POST /media/:id/lookup/bookmark`
 
 ### Queue
 

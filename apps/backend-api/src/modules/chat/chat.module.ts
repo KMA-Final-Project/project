@@ -9,12 +9,15 @@ import { ChatContextService } from './chat-context.service';
 import { ChatProviderService } from './chat-provider.service';
 import { OPENAI_CLIENT } from './chat-provider.constants';
 import { openAiClientProvider } from './openai-client.provider';
+import { LookupController } from './lookup.controller';
+import { LookupService } from './lookup.service';
 
 @Module({
   imports: [PrismaModule, MinioModule],
-  controllers: [ChatController],
+  controllers: [ChatController, LookupController],
   providers: [
     ChatService,
+    LookupService,
     ChatConfigService,
     AiCreditLedgerService,
     ChatContextService,
@@ -23,6 +26,7 @@ import { openAiClientProvider } from './openai-client.provider';
   ],
   exports: [
     ChatService,
+    LookupService,
     ChatConfigService,
     AiCreditLedgerService,
     ChatContextService,
