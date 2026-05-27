@@ -1,11 +1,11 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-05-25
+> Last updated: 2026-05-27
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
 
-Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E evaluator that exercises the actual app-facing submit path through API, validation worker, AI queue handoff, status polling, socket-visible progress, and artifact retrieval.
+Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E WER suite that exercises the real app-facing submit path through API, validation worker, AI queue handoff, status polling, artifact retrieval, manual-caption ground-truth harvesting through `yt-dlp`, and word/token-level WER reporting.
 
 The module owns authentication, subscription/quota enforcement, media APIs, presigned upload negotiation, MinIO integration, BullMQ job production, and the NestJS validation worker. It does not perform transcription or translation; validated jobs are handed off to the AI Engine through the `ai-processing` queue.
 
@@ -23,6 +23,19 @@ Current completed surfaces:
 - [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
 
 ## 3. Recently Completed
+
+- 2026-05-27 — End-to-end YouTube WER benchmark suite. Status: Working.
+  - Rebuilt `scripts/e2e-youtube-pipeline-eval.ts` into a modular benchmark harness under `scripts/e2e-youtube-benchmark/` with helper modules for fixture loading, benchmark-user bootstrap, Axios API access, `yt-dlp` manual subtitle acquisition, English/Chinese tokenization, Levenshtein WER, and suite reporting.
+  - The suite now defaults to the full 20-video fixture matrix from `apps/ai-engine/test_medias.md`, submits each case through `POST /media/youtube` with explicit `sourceLanguage`, polls `GET /media/:id/status` for milestone timestamps, fetches `final.json` through the backend artifact URL, and saves per-case evidence bundles including `translated_batch.first.json`, `final.json`, normalized reference/hypothesis text, and `evaluation.summary.json`.
+  - Hardened long-running suite execution by re-authenticating before each case, retrying transient Axios network failures during login/artifact fetch/status polling, and keeping per-case evidence directly under the run `results/<caseId>/` directory instead of nesting under `results/results/`.
+  - Hardened Chinese ground-truth handling after finding that some `yt-dlp` manual `zh*` tracks were romanized pinyin rather than Han-character captions and that the Windows subprocess bridge to the `jieba` tokenizer was not forcing UTF-8. The suite now scores Chinese manual subtitle candidates by Han-script dominance, strips pinyin companion lines when a cue also contains Han text, and forces `PYTHONUTF8=1` plus `PYTHONIOENCODING=utf-8` for the tokenizer subprocess.
+  - Added manual-subtitle WER scoring with strict skip behavior when no human-authored subtitle track exists. After fixing Chinese subtitle selection, the current fixture reality is 15 scored cases and 5 latency-only Chinese cases because four videos expose no manual subtitles and `chinese_nSeVUZDzCUY` only exposed a pinyin-only manual track, which is now treated as unsuitable for Mandarin WER.
+  - Added stable suite exports at `outputs/e2e-benchmarks/e2e_wer_suite_summary.json` and `.md`, while each run also keeps its own timestamped bundle under `outputs/e2e-benchmarks/runs/`.
+  - Updated `scripts/run-e2e-youtube-pipeline.ps1` so the existing launcher now targets the new benchmark output root and defaults to the full matrix when no explicit `-CaseIds` override is supplied.
+  - Why: isolated AI-engine benchmarks were no longer enough; the project needed one reproducible quantitative harness that measures real wall-clock app-path latency and subtitle accuracy from the live backend submit surface.
+  - Contract touched: none. API endpoints, queue payloads, artifacts, and socket events were exercised but not changed.
+  - Validation: `pnpm add axios@^1.13.5`; `pnpm build`; `.\scripts\run-e2e-youtube-pipeline.ps1 -CaseIds english_-moW9jvvMr4,chinese_WA18WJmXZZE -OutputDir .\outputs\e2e-benchmarks\runs\smoke-20260527`; `.\scripts\run-e2e-youtube-pipeline.ps1 -OutputDir .\outputs\e2e-benchmarks\runs\full-20260527-rerun2`, which completed all 20 fixtures but still contained contaminated Chinese ground truth; followed by a local artifact audit on `chinese_LcUoiBwG-OA`, `chinese_FqqK8hQzPgM`, and `chinese_GOjlcDYurP0` that confirmed the old saved ground truth mixed pinyin/Han incorrectly and that the UTF-8-forced tokenizer bridge now returns clean Chinese tokens; then `.\scripts\run-e2e-youtube-pipeline.ps1 -OutputDir .\outputs\e2e-benchmarks\runs\full-20260527-chinese-fix-rerun3`, which completed all 20 fixtures with clean Chinese normalized references, skipped the pinyin-only `chinese_nSeVUZDzCUY` track, and refreshed the stable suite summary to `averageWer=0.0669`, `averageLatencySeconds=96.7286`, `english averageWer=0.0361`, and `chinese averageWer=0.1290` across 15 WER-eligible fixtures.
+  - Follow-up: run the full 20-case matrix after major AI-engine routing or subtitle-quality changes, and consider promoting fixture-specific pass/fail thresholds once the Chinese reference coverage is expanded.
 
 - 2026-05-25 — Explain and Lookup pedagogical prompt deepening. Status: Working.
   - Upgraded Kapter Explain prompt defaults to `promptVersion=v4`, raised the default output-token budget, and injected canonical `<token_blocks>` into subtitle context so the initial Explain turn now has to cover every token block in order instead of cherry-picking only a few main words.
@@ -190,10 +203,14 @@ Current completed surfaces:
   - Impact: the same Chinese YouTube case that looked acceptable in forced benchmark runs completed through the real backend path as `source_lang=en` and `model_used=distil-large-v3.5`, so the problem is in runtime routing / AI-engine behavior, not in mobile submission payloads.
   - Current workaround: use the new E2E harness to compare backend/worker/AI-engine logs and saved artifacts while routing fixes are developed.
 
+- Four Chinese benchmark fixtures currently have no manual subtitles in `yt-dlp`, so the WER suite cannot score all 20 cases under the strict human-authored-caption policy.
+  - Impact: wall-clock latency is still measured for all 20 fixtures, but WER is currently available for 16 fixtures only.
+  - Current workaround: keep the suite strict and report `manual_subtitles_unavailable` instead of falling back to auto captions.
+
 ## 5. Next Candidates
 
 - [ ] Optimize or cache artifact summaries for `GET /media` if library latency becomes noticeable.
-- [ ] Add artifact-level assertions or fixture expectations on top of `test:youtube:e2e` so the harness can fail automatically on misrouting or obvious hallucination cases.
+- [ ] Add fixture thresholds or fail-fast assertions on top of the WER suite once acceptable latency/WER ranges are agreed.
 - [ ] Swagger operation responses for new admin user endpoints — currently documented but not exhaustively typed in Swagger.
 - [ ] Add monitoring/logging conventions for API and worker processes.
 - [ ] Review quota usage audit behavior under failed, retried, and completed jobs.

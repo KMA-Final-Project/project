@@ -10,7 +10,7 @@ run directory.
 #>
 [CmdletBinding()]
 param(
-    [string[]]$CaseIds = @("english_-moW9jvvMr4", "chinese_60xeAEe7H28"),
+    [string[]]$CaseIds = @(),
     [string]$TargetLanguage = "vi",
     [string]$OutputDir = "",
     [switch]$KeepProcesses
@@ -37,7 +37,9 @@ if (-not (Test-Path $pythonPath)) {
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "outputs\e2e-youtube-pipeline\$timestamp"
+    $OutputDir = Join-Path $repoRoot "outputs\e2e-benchmarks\runs\$timestamp"
+} elseif (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
+    $OutputDir = Join-Path $repoRoot $OutputDir
 }
 
 $logsDir = Join-Path $OutputDir "logs"
@@ -169,8 +171,10 @@ try {
             "--output-dir", $resultsDir,
             "--target-language", $TargetLanguage
         )
-        foreach ($caseId in $CaseIds) {
-            $evalArgs += @("--case-id", $caseId)
+        if ($CaseIds.Count -gt 0) {
+            foreach ($caseId in $CaseIds) {
+                $evalArgs += @("--case-id", $caseId)
+            }
         }
 
         & pnpm @evalArgs

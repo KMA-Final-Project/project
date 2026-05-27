@@ -35,6 +35,12 @@ Auth/session
 
 ## 3. Recently Completed
 
+- 2026-05-27 — Enforce onboarding screen flow after sign in. Status: Working.
+  - Changed: Modified the root layout `_layout.tsx` auth guard to reset onboarding state via `resetOnboarding()` and redirect the user to the onboarding flow whenever they are detected as authenticated inside the auth group (`(auth)`). Commented out the old logic that bypassed onboarding for already-completed sessions.
+  - Why: Simplifies showing/testing the onboarding flow during the demo day.
+  - Validation: `pnpm lint` and `pnpm exec tsc --noEmit` passed.
+  - Follow-up: Verify on the device that logging in triggers the full onboarding flow from step 1 even if previously completed.
+
 - 2026-05-25 — Lookup bookmark tap-guard and visible saving state. Status: Working.
   - Hardened the player lookup save handler with a synchronous in-flight token guard so repeated taps cannot enqueue parallel bookmark requests before React re-renders the card.
   - Kept the lookup card save control visibly in its saving state for the active save token and prevented stale save completions from mutating a newer lookup selection.
