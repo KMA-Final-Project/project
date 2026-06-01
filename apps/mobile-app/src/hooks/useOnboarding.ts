@@ -43,7 +43,8 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       set({
         hasCompletedOnboarding: completed === "true",
         defaultTargetLanguage: targetLang !== null ? targetLang : "vi",
-        learningLanguages: learningLangs !== null ? JSON.parse(learningLangs) : [],
+        learningLanguages:
+          learningLangs !== null ? JSON.parse(learningLangs) : [],
         isLoading: false,
       });
     } catch {
@@ -69,19 +70,25 @@ export function useOnboarding() {
     } catch {}
   }, [store]);
 
-  const setTargetLanguage = useCallback(async (lang: string) => {
-    store.setDefaultTargetLanguage(lang);
-    try {
-      await AsyncStorage.setItem(DEFAULT_TARGET_LANG_KEY, lang);
-    } catch {}
-  }, [store]);
+  const setTargetLanguage = useCallback(
+    async (lang: string) => {
+      store.setDefaultTargetLanguage(lang);
+      try {
+        await AsyncStorage.setItem(DEFAULT_TARGET_LANG_KEY, lang);
+      } catch {}
+    },
+    [store],
+  );
 
-  const setLearningLangs = useCallback(async (langs: string[]) => {
-    store.setLearningLanguages(langs);
-    try {
-      await AsyncStorage.setItem(LEARNING_LANGS_KEY, JSON.stringify(langs));
-    } catch {}
-  }, [store]);
+  const setLearningLangs = useCallback(
+    async (langs: string[]) => {
+      store.setLearningLanguages(langs);
+      try {
+        await AsyncStorage.setItem(LEARNING_LANGS_KEY, JSON.stringify(langs));
+      } catch {}
+    },
+    [store],
+  );
 
   const resetOnboarding = useCallback(async () => {
     store.setHasCompletedOnboarding(false);

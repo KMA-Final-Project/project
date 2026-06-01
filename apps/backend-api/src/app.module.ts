@@ -16,6 +16,7 @@ import { MinioModule } from './modules/minio/minio.module';
 import { MediaModule } from './modules/media/media.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { SocketModule } from './modules/socket/socket.module';
+import { ChatModule } from './modules/chat';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { SocketModule } from './modules/socket/socket.module';
     UserModule,
     MinioModule,
     MediaModule,
+    ChatModule,
     SocketModule,
   ],
   controllers: [AppController],

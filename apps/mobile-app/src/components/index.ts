@@ -22,6 +22,8 @@ export * from "./media/PipelineStepper";
 
 // Player
 export * from "./player/LayerToggle";
+export * from "./player/ExplainBottomSheet";
+export * from "./player/LookupCardOverlay";
 export * from "./player/MediaPane";
 export * from "./player/PlayerControls";
 export * from "./player/StreamingTailIndicator";

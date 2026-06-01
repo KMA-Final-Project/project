@@ -1,11 +1,11 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-05-20  
+> Last updated: 2026-05-27
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
 
-Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E evaluator that exercises the actual app-facing submit path through API, validation worker, AI queue handoff, status polling, socket-visible progress, and artifact retrieval.
+Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E WER suite that exercises the real app-facing submit path through API, validation worker, AI queue handoff, status polling, artifact retrieval, manual-caption ground-truth harvesting through `yt-dlp`, and word/token-level WER reporting.
 
 The module owns authentication, subscription/quota enforcement, media APIs, presigned upload negotiation, MinIO integration, BullMQ job production, and the NestJS validation worker. It does not perform transcription or translation; validated jobs are handed off to the AI Engine through the `ai-processing` queue.
 
@@ -16,14 +16,114 @@ Current completed surfaces:
 - Media upload, YouTube submission, status, artifact inventory, and media library APIs.
 - Standalone validation worker consuming `transcription` jobs and producing `ai-processing` jobs.
 - Supporting MinIO, Redis, mail, OTP, user subscription, and queue services.
+- Kapter Explain backend provider transport now uses the official OpenAI Node SDK behind a NestJS custom provider boundary.
 
 ## 2. Active Work
 
-No single active backend task is recorded in the imported checkpoint.
-
-Use `Next Candidates` below as the current backend backlog until a new task file or issue exists.
+- [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
 
 ## 3. Recently Completed
+
+- 2026-05-27 — End-to-end YouTube WER benchmark suite. Status: Working.
+  - Rebuilt `scripts/e2e-youtube-pipeline-eval.ts` into a modular benchmark harness under `scripts/e2e-youtube-benchmark/` with helper modules for fixture loading, benchmark-user bootstrap, Axios API access, `yt-dlp` manual subtitle acquisition, English/Chinese tokenization, Levenshtein WER, and suite reporting.
+  - The suite now defaults to the full 20-video fixture matrix from `apps/ai-engine/test_medias.md`, submits each case through `POST /media/youtube` with explicit `sourceLanguage`, polls `GET /media/:id/status` for milestone timestamps, fetches `final.json` through the backend artifact URL, and saves per-case evidence bundles including `translated_batch.first.json`, `final.json`, normalized reference/hypothesis text, and `evaluation.summary.json`.
+  - Hardened long-running suite execution by re-authenticating before each case, retrying transient Axios network failures during login/artifact fetch/status polling, and keeping per-case evidence directly under the run `results/<caseId>/` directory instead of nesting under `results/results/`.
+  - Hardened Chinese ground-truth handling after finding that some `yt-dlp` manual `zh*` tracks were romanized pinyin rather than Han-character captions and that the Windows subprocess bridge to the `jieba` tokenizer was not forcing UTF-8. The suite now scores Chinese manual subtitle candidates by Han-script dominance, strips pinyin companion lines when a cue also contains Han text, and forces `PYTHONUTF8=1` plus `PYTHONIOENCODING=utf-8` for the tokenizer subprocess.
+  - Added manual-subtitle WER scoring with strict skip behavior when no human-authored subtitle track exists. After fixing Chinese subtitle selection, the current fixture reality is 15 scored cases and 5 latency-only Chinese cases because four videos expose no manual subtitles and `chinese_nSeVUZDzCUY` only exposed a pinyin-only manual track, which is now treated as unsuitable for Mandarin WER.
+  - Added stable suite exports at `outputs/e2e-benchmarks/e2e_wer_suite_summary.json` and `.md`, while each run also keeps its own timestamped bundle under `outputs/e2e-benchmarks/runs/`.
+  - Updated `scripts/run-e2e-youtube-pipeline.ps1` so the existing launcher now targets the new benchmark output root and defaults to the full matrix when no explicit `-CaseIds` override is supplied.
+  - Why: isolated AI-engine benchmarks were no longer enough; the project needed one reproducible quantitative harness that measures real wall-clock app-path latency and subtitle accuracy from the live backend submit surface.
+  - Contract touched: none. API endpoints, queue payloads, artifacts, and socket events were exercised but not changed.
+  - Validation: `pnpm add axios@^1.13.5`; `pnpm build`; `.\scripts\run-e2e-youtube-pipeline.ps1 -CaseIds english_-moW9jvvMr4,chinese_WA18WJmXZZE -OutputDir .\outputs\e2e-benchmarks\runs\smoke-20260527`; `.\scripts\run-e2e-youtube-pipeline.ps1 -OutputDir .\outputs\e2e-benchmarks\runs\full-20260527-rerun2`, which completed all 20 fixtures but still contained contaminated Chinese ground truth; followed by a local artifact audit on `chinese_LcUoiBwG-OA`, `chinese_FqqK8hQzPgM`, and `chinese_GOjlcDYurP0` that confirmed the old saved ground truth mixed pinyin/Han incorrectly and that the UTF-8-forced tokenizer bridge now returns clean Chinese tokens; then `.\scripts\run-e2e-youtube-pipeline.ps1 -OutputDir .\outputs\e2e-benchmarks\runs\full-20260527-chinese-fix-rerun3`, which completed all 20 fixtures with clean Chinese normalized references, skipped the pinyin-only `chinese_nSeVUZDzCUY` track, and refreshed the stable suite summary to `averageWer=0.0669`, `averageLatencySeconds=96.7286`, `english averageWer=0.0361`, and `chinese averageWer=0.1290` across 15 WER-eligible fixtures.
+  - Follow-up: run the full 20-case matrix after major AI-engine routing or subtitle-quality changes, and consider promoting fixture-specific pass/fail thresholds once the Chinese reference coverage is expanded.
+
+- 2026-05-25 — Explain and Lookup pedagogical prompt deepening. Status: Working.
+  - Upgraded Kapter Explain prompt defaults to `promptVersion=v4`, raised the default output-token budget, and injected canonical `<token_blocks>` into subtitle context so the initial Explain turn now has to cover every token block in order instead of cherry-picking only a few main words.
+  - Tightened Explain first-turn instructions to require a sequential token-by-token breakdown, while keeping follow-up turns direct and still grounded in the canonical sentence token order.
+  - Upgraded Lookup prompt defaults to `lookup-v2`, widened the Structured Outputs `contextualDefinition` allowance, and rewrote the lookup prompt so the model must explain sentence-specific grammatical role, structural behavior, and nuance instead of returning a generic dictionary gloss.
+  - Added lookup cache version-awareness so pre-upgrade Redis entries are treated as stale and recomputed under the stronger prompt.
+  - Why: current Explain and Lookup answers were too shallow compared with the intended teaching quality, especially for grammar-heavy Chinese subtitle cases.
+  - Contract touched: API behavior, Language.
+  - Validation: `pnpm build`; `pnpm test -- chat.service.spec.ts chat-provider.service.spec.ts lookup.service.spec.ts`; `pnpm exec eslint src/modules/chat/chat-config.service.ts src/modules/chat/chat-context.service.ts src/modules/chat/chat-provider.service.ts src/modules/chat/chat-provider.service.spec.ts src/modules/chat/chat.service.ts src/modules/chat/chat.service.spec.ts src/modules/chat/lookup.service.ts src/modules/chat/lookup.service.spec.ts`.
+  - Follow-up: manually verify the refreshed Explain and Lookup outputs against live provider calls and clear any long-lived Redis entries if old lookup wording is still observed during the 7-day TTL window.
+
+- 2026-05-25 — Lookup Save Word duplicate-key race hardened. Status: Working.
+  - Updated the lookup bookmark save path so concurrent duplicate save requests no longer bubble a PostgreSQL/Prisma unique-key collision into a `500`.
+  - The service now treats a `P2002` race on `UserVocabulary` create as an idempotent already-saved result by re-reading the canonical saved row and returning `created: false`.
+  - Why: rapid repeated mobile taps could race past the pre-create existence check and crash the save request instead of returning the existing bookmark state.
+  - Contract touched: API behavior only; request/response DTOs unchanged.
+  - Validation: `pnpm build`; `pnpm test -- lookup.service.spec.ts`; `pnpm exec eslint src/modules/chat/lookup.service.ts src/modules/chat/lookup.service.spec.ts`.
+  - Follow-up: validate this behavior from the mobile app against a live local database session while stress-tapping Save Word.
+
+- 2026-05-25 — Vocabulary lookup and Save Word backend slice. Status: Working.
+  - Added Prisma migration `20260525130000_add_lookup_vocabulary` to remodel canonical vocabulary identity as `normalizedWord + sourceLanguage` and convert `UserVocabulary` into a context-aware saved-word snapshot table keyed by `userId + mediaItemId + segmentIndex + startWordIndex + endWordIndex`.
+  - Added `POST /media/:id/lookup` with canonical subtitle context resolution, free-tier Redis rate limiting, Redis L1 lookup caching, `saveToken` snapshot issuance, and one atomic OpenAI Structured Outputs (`json_schema`, strict) response on cache miss.
+  - Added `POST /media/:id/lookup/bookmark` so saved vocabulary is explicit only and persists the server-issued Redis lookup snapshot rather than trusting client-sent definition text.
+  - Extended the shared OpenAI provider/config boundary with a non-streaming lookup path while preserving the existing Explain streaming path.
+  - Contract touchpoints: API, DB, Quota, Artifact, Mobile impact.
+  - Validation: `pnpm pgen`; `pnpm db:reseed`; `pnpm build`; `pnpm test -- chat.service.spec.ts chat-provider.service.spec.ts ai-credit-ledger.service.spec.ts lookup.service.spec.ts`; `pnpm exec eslint "src/modules/chat/**/*.ts" --fix`.
+  - Follow-up: wire the mobile player popup to the new lookup and bookmark routes, then validate the full UI flow against live provider credentials.
+
+- 2026-05-25 — Explain SSE responses now flush per event for live mobile updates. Status: Working.
+  - Updated the Explain controller SSE response headers to disable proxy buffering (`X-Accel-Buffering: no`) and flush each written event frame when the underlying Express response supports `flush()`.
+  - Why: the mobile Explain sheet could reopen and read persisted history, but live `meta` / `delta` events were not always reaching the client promptly during the active request, which made the UI look disconnected from the backend.
+  - Contract touched: API transport behavior only; public DTO/SSE event schema unchanged.
+  - Validation: `pnpm build`.
+  - Follow-up: manual end-to-end verification from the mobile Explain sheet against a live backend/provider session to confirm first-token delivery and stop/abort timing.
+
+- 2026-05-25 — Explain initial user message now includes the translated context line. Status: Working.
+  - Updated the backend-generated first-turn explain display message to include the canonical translated layer when available, keeping persisted history aligned with the mobile Explain seed bubble.
+  - Why: the chosen sentence in the chat seed bubble needed to show both source and translated context, and reopened history must match that exact UI state.
+  - Contract touched: Language, Mobile impact.
+  - Validation: `pnpm build`; `pnpm test -- chat.service.spec.ts`.
+  - Follow-up: none beyond the existing live mobile/backend manual verification pass.
+
+- 2026-05-24 — Kapter Explain target-language enforcement and media target profile persistence. Status: Working.
+  - Added `MediaItem.targetLanguage` with migration `20260524184500_add_media_target_language` and persisted the canonical target language for local uploads and YouTube submissions.
+  - Normalized backend media ingestion so the stored target language, queue payload, media status response, and media library response stay aligned on one canonical value.
+  - Updated Explain context resolution and prompt construction to enforce response language from backend-owned media context, and persisted the localized first-turn user message so history matches the mobile seed bubble.
+  - Contract touchpoints: API, DB, Queue, Language, Mobile impact.
+  - Validation: `pnpm pgen`; `pnpm build`; `pnpm lint`; `pnpm test -- chat.service.spec.ts chat-provider.service.spec.ts ai-credit-ledger.service.spec.ts ai-explain-admin.service.spec.ts`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: run the new flow against a live backend/mobile session and execute the pending Prisma migration in the target environments.
+
+- 2026-05-24 — Database seeding on reseed fix. Status: Working.
+  - Updated the `db:reseed` script in `package.json` to run `prisma migrate reset --force && prisma db seed`.
+  - Why: Prisma v7 has removed automatic seeding during `prisma migrate reset`.
+  - Validation: verified `pnpm db:reseed` successfully resets the database and runs the seed script.
+
+- 2026-05-24 — Kapter Explain provider SDK transport hardening. Status: Partial.
+  - Replaced the backend provider-side raw HTTP/SSE parsing path with the official OpenAI Node SDK streaming API.
+  - Added an `OPENAI_CLIENT` symbol-token NestJS custom provider so SDK construction stays outside business services and can be mocked cleanly in unit tests.
+  - Added provider-level SDK error mapping to Kapter canonical explain errors (`RATE_LIMITED`, `LLM_UNAVAILABLE`, `LLM_ERROR`) so upstream SDK details do not leak to mobile SSE payloads.
+  - Added anti-regression coverage proving the provider path does not reintroduce `getReader`, `TextDecoder`, `data:` frame parsing, or `[DONE]` marker parsing.
+  - Contract touchpoints: Backend provider dependency only; public explain DTO/SSE contracts unchanged.
+  - Validation: `pnpm build`; `pnpm lint`; `pnpm test`.
+  - Follow-up: manually verify live provider SSE behavior with local Redis/MinIO/provider credentials.
+
+- 2026-05-24 — Kapter Explain Phase 1 backend foundation. Status: In-Progress.
+  - Added `CONTRACTS.md` entries for Kapter Explain request/stream/history/feedback/admin metrics contracts; the client request DTO is limited to `segmentIndex`, `sessionId`, and `userMessage`.
+  - Added Prisma schema and migration `20260524093000_add_ai_explain_foundation` for chat sessions/messages/feedback, AI usage logs, and idempotent credit reservations with `PENDING | CONFIRMED | REFUNDED` states.
+  - Added provider-agnostic chat config defaults via `ConfigService` with OpenAI `gpt-4o-mini` as the baseline model, plus a Phase 1 chat module shell and credit ledger service.
+  - Extended plan variants, subscriptions, seed data, and free-plan assignment with AI credit snapshot/remaining-credit fields.
+  - Contract touchpoints: API, DB, Quota, Mobile impact.
+  - Validation: `pnpm prisma validate`; `pnpm pgen`; `pnpm build`; `pnpm test -- ai-credit-ledger.service.spec.ts`.
+  - Follow-up: implement cache-first Redis lookup, canonical subtitle resolver, SSE endpoint behavior, usage logging, and admin metrics queries.
+
+- 2026-05-24 — Kapter Explain backend streaming slice. Status: Partial.
+  - Added `POST /media/:id/explain` SSE runtime with strict DTO validation, canonical subtitle context resolution from `final.json` or translated batches, Redis L1 cache-first initial explanations, provider-compatible OpenAI chat streaming, and ledger-backed reserve/confirm/refund behavior.
+  - Added `GET /media/:id/explain/history` and `POST /media/:id/explain/feedback` backend routes.
+  - Added guardrail sanitizer/refusal detection tests and a cache-hit service test proving no credit reservation occurs on L1 hit.
+  - Contract touchpoints: API, DB, Quota, Artifact, Mobile impact.
+  - Validation: `pnpm build`; `pnpm lint`; `pnpm test -- chat-guardrails.spec.ts chat.service.spec.ts ai-credit-ledger.service.spec.ts`.
+  - Follow-up: add manual SSE verification against local Redis/MinIO/provider credentials, add concurrency/abort integration coverage, implement admin AI metrics queries, and wire mobile UI.
+
+- 2026-05-24 — Kapter Explain admin observability endpoints. Status: Partial.
+  - Added `GET /admin/ai-explain/metrics` and `GET /admin/ai-explain/sessions` behind the existing admin role guard.
+  - Added AI Explain metrics aggregation for requests, credits, cache hit rate, guardrail rejection rate, feedback positive rate, daily usage, and top requested segments.
+  - Added canonical `segmentText` snapshots to `AiUsageLog` so admin top-segment text is backend-resolved and not client supplied.
+  - Contract touchpoints: API, DB, Quota, Dashboard impact.
+  - Validation: `pnpm prisma validate`; `pnpm pgen`; `pnpm build`; `pnpm lint`; `pnpm test -- ai-explain-admin.service.spec.ts chat-guardrails.spec.ts chat.service.spec.ts ai-credit-ledger.service.spec.ts`.
+  - Follow-up: exercise the admin endpoints against real seeded usage data after the local SSE path is manually verified.
 
 - 2026-05-23 — YouTube Pre-Flight Configuration Panel & Queue updates. Status: Working.
   - Added `sourceLanguage` parameter to `TranscriptionJobPayload` and `AiProcessingJobPayload` queue contracts.
@@ -103,11 +203,14 @@ Use `Next Candidates` below as the current backend backlog until a new task file
   - Impact: the same Chinese YouTube case that looked acceptable in forced benchmark runs completed through the real backend path as `source_lang=en` and `model_used=distil-large-v3.5`, so the problem is in runtime routing / AI-engine behavior, not in mobile submission payloads.
   - Current workaround: use the new E2E harness to compare backend/worker/AI-engine logs and saved artifacts while routing fixes are developed.
 
+- Four Chinese benchmark fixtures currently have no manual subtitles in `yt-dlp`, so the WER suite cannot score all 20 cases under the strict human-authored-caption policy.
+  - Impact: wall-clock latency is still measured for all 20 fixtures, but WER is currently available for 16 fixtures only.
+  - Current workaround: keep the suite strict and report `manual_subtitles_unavailable` instead of falling back to auto captions.
+
 ## 5. Next Candidates
 
 - [ ] Optimize or cache artifact summaries for `GET /media` if library latency becomes noticeable.
-- [ ] Add dictionary lookup and saved vocabulary backend endpoints.
-- [ ] Add artifact-level assertions or fixture expectations on top of `test:youtube:e2e` so the harness can fail automatically on misrouting or obvious hallucination cases.
+- [ ] Add fixture thresholds or fail-fast assertions on top of the WER suite once acceptable latency/WER ranges are agreed.
 - [ ] Swagger operation responses for new admin user endpoints — currently documented but not exhaustively typed in Swagger.
 - [ ] Add monitoring/logging conventions for API and worker processes.
 - [ ] Review quota usage audit behavior under failed, retried, and completed jobs.
@@ -125,6 +228,11 @@ Stable documented endpoints:
 - `GET /media/:id/status`
 - `GET /media/:id/artifacts`
 - `GET /media`
+- `POST /media/:id/explain`
+- `GET /media/:id/explain/history`
+- `POST /media/:id/explain/feedback`
+- `POST /media/:id/lookup`
+- `POST /media/:id/lookup/bookmark`
 
 ### Queue
 

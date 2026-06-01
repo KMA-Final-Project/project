@@ -6,7 +6,7 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 
 ---
 
-## Status as of 2026-05-21
+## Status as of 2026-05-24
 
 ### Working ✅
 
@@ -32,6 +32,7 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 | Area | Detail |
 |------|--------|
 | Monitoring page (`/monitoring`) | Placeholder only — no data layer |
+| Kapter Explain admin monitoring | Metrics/session page wired to backend admin endpoints |
 | Toast notifications | No global toast provider; errors shown inline only |
 
 ---
@@ -42,9 +43,27 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 |----|-------|----------|
 | F-01 | JWT refresh interceptor — 401 is not retried after token expiry | Medium |
 | F-02 | `Monitoring` page data layer and UI | Low |
+| F-06 | Manual visual verification of Kapter Explain admin page with real usage data | Medium |
 | F-03 | Plan slide-over drawer for detail view (currently only list + edit dialog) | Low |
 | F-04 | Global toast/sonner provider for success/error notifications | Low |
 | F-05 | `_count.subscriptions` not present on list-level plan data — requires `GET /admin/plans/:id` fetch per variant edit | Low |
+
+---
+
+## Recent Update — 2026-05-24
+
+- Kapter Explain Phase 1 dashboard types. Status: In-Progress.
+- Added admin metrics/session response types for future Kapter Explain monitoring.
+- Added `aiCreditsPerMonth` to plan variant create/update/list types so dashboard contracts match backend plan quota fields.
+- Contract touchpoints: API, Quota.
+- Validation: `pnpm typecheck` passed.
+
+- Kapter Explain admin observability page. Status: Partial.
+- Added AI Explain dashboard API wrappers, TanStack Query options, `/ai-explain` route, sidebar navigation entry, metrics cards, daily usage bars, top-segments table, and recent-session table.
+- Updated plan variant form to create/update `aiCreditsPerMonth`, keeping the dashboard aligned with the backend plan DTO contract.
+- Contract touchpoints: API, Quota.
+- Validation: `pnpm typecheck`; `pnpm lint`; `pnpm build`.
+- Follow-up: manually verify visual data with a running backend after real Explain usage logs exist.
 
 ---
 
@@ -73,4 +92,6 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 Backend build:     PASSED (pnpm build — zero errors)
 Dashboard tsc:     PASSED (pnpm typecheck — zero errors)
 Dashboard eslint:  PASSED (pnpm lint — zero errors)
+2026-05-24:        PASSED (pnpm typecheck — zero errors)
+2026-05-24:        PASSED (pnpm lint; pnpm build)
 ```

@@ -66,6 +66,7 @@ export interface MediaItem {
   estimatedTimeRemaining?: number | null;
   failReason?: string | null;
   sourceLanguage?: string | null;
+  targetLanguage?: string | null;
   transcriptS3Key?: string | null;
   subtitleS3Key?: string | null;
   artifacts?: MediaArtifactsSummary;
@@ -110,6 +111,7 @@ export interface ConfirmUploadResponse {
   title: string;
   status: MediaStatus;
   jobId: string;
+  targetLanguage?: string | null;
 }
 
 export interface SubmitYouTubeResponse {
@@ -118,12 +120,14 @@ export interface SubmitYouTubeResponse {
   status: MediaStatus;
   originUrl: string | null;
   jobId: string;
+  targetLanguage?: string | null;
 }
 
 export interface MediaStatusResponse extends MediaItem {
   estimatedTimeRemaining: number | null;
   failReason: string | null;
   sourceLanguage: string | null;
+  targetLanguage: string | null;
   transcriptS3Key: string | null;
   subtitleS3Key: string | null;
   artifacts: MediaArtifactsSummary;

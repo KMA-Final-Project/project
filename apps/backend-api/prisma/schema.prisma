@@ -44,6 +44,12 @@ enum OtpType {
   FORGOT_PASSWORD
 }
 
+enum AiCreditReservationState {
+  PENDING
+  CONFIRMED
+  REFUNDED
+}
+
 // --- MODELS ---
 
 model User {
@@ -58,16 +64,22 @@ model User {
   quotaUsageCurrentMonth        Int      @default(0) @map("quota_usage_current_month")
   quotaUsageCurrentMonthSeconds Int      @default(0) @map("quota_usage_current_month_seconds") // Track duration
   lastQuotaResetDate            DateTime @default(now()) @map("last_quota_reset_date")
+  aiCreditsRemaining            Int      @default(0) @map("ai_credits_remaining")
+  aiCreditsLastResetDate        DateTime @default(now()) @map("ai_credits_last_reset_date")
   role                          Role     @default(USER)
 
   // Relationships
-  currentSubscription Subscription?    @relation("UserCurrentSub", fields: [currentSubscriptionId], references: [id])
-  subscriptions       Subscription[]   @relation("UserHistorySub")
-  usageHistories      UsageHistory[]
-  mediaItems          MediaItem[]
-  vocabularies        UserVocabulary[]
-  otps                Otp[]
-  refreshTokens       RefreshToken[]
+  currentSubscription  Subscription?         @relation("UserCurrentSub", fields: [currentSubscriptionId], references: [id])
+  subscriptions        Subscription[]        @relation("UserHistorySub")
+  usageHistories       UsageHistory[]
+  mediaItems           MediaItem[]
+  vocabularies         UserVocabulary[]
+  otps                 Otp[]
+  refreshTokens        RefreshToken[]
+  chatSessions         ChatSession[]
+  chatFeedbacks        ChatFeedback[]
+  aiUsageLogs          AiUsageLog[]
+  aiCreditReservations AiCreditReservation[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -107,6 +119,7 @@ model PlanVariant {
   // Quota & Limits
   maxDurationPerFile  Int @map("max_duration_per_file") // seconds
   monthlyQuotaSeconds Int @map("monthly_quota_seconds")
+  aiCreditsPerMonth   Int @default(0) @map("ai_credits_per_month")
 
   isActive Boolean @default(true)
 
@@ -141,6 +154,7 @@ model Subscription {
   priceSnapshot               Decimal @map("price_snapshot") @db.Decimal(10, 2)
   maxDurationPerFileSnapshot  Int     @map("max_duration_per_file_snapshot")
   monthlyQuotaSecondsSnapshot Int     @map("monthly_quota_seconds_snapshot")
+  aiCreditsPerMonthSnapshot   Int     @default(0) @map("ai_credits_per_month_snapshot")
 
   // Relationships
   user    User        @relation("UserHistorySub", fields: [userId], references: [id])
@@ -181,6 +195,7 @@ model MediaItem {
 
   // Processing Metadata
   sourceLanguage String? @map("source_language") // Auto-detected: "en", "zh", "vi"
+  targetLanguage String? @map("target_language") // Requested translation language for downstream explain/prompt context
 
   // Storage Keys (MinIO/S3 Paths)
   audioS3Key      String  @map("audio_s3_key")
@@ -203,8 +218,11 @@ model MediaItem {
   hasThumbnail   Boolean @default(false) @map("has_thumbnail")
 
   // Relationships
-  user             User             @relation(fields: [userId], references: [id])
-  userVocabularies UserVocabulary[]
+  user                 User                  @relation(fields: [userId], references: [id])
+  userVocabularies     UserVocabulary[]
+  chatSessions         ChatSession[]
+  aiUsageLogs          AiUsageLog[]
+  aiCreditReservations AiCreditReservation[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   deletedAt DateTime? @map("deleted_at") // Soft delete
@@ -213,32 +231,146 @@ model MediaItem {
 }
 
 model Vocabulary {
-  id              String  @id @default(uuid())
-  word            String  @unique // Unique word
-  meaning         String  @db.Text
-  pronunciation   String?
-  exampleSentence String? @map("example_sentence") @db.Text
-  lookupCount     Int     @default(0) @map("lookup_count")
+  id             String  @id @default(uuid())
+  word           String
+  normalizedWord String  @map("normalized_word")
+  sourceLanguage String  @map("source_language")
+  phonetic       String?
 
   userVocabularies UserVocabulary[]
 
+  @@unique([normalizedWord, sourceLanguage])
+  @@index([sourceLanguage])
   @@map("vocabularies")
 }
 
 model UserVocabulary {
-  id           String  @id @default(uuid())
-  userId       String  @map("user_id")
-  vocabularyId String  @map("vocabulary_id")
-  mediaItemId  String? @map("media_item_id") // Optional context
-
-  contextSentence String? @map("context_sentence") @db.Text // Personal context where user saved word
+  id                         String   @id @default(uuid())
+  userId                     String   @map("user_id")
+  vocabularyId               String   @map("vocabulary_id")
+  mediaItemId                String   @map("media_item_id")
+  segmentIndex               Int      @map("segment_index")
+  startWordIndex             Int      @map("start_word_index")
+  endWordIndex               Int      @map("end_word_index")
+  selectedTextSnapshot       String   @map("selected_text_snapshot")
+  phoneticSnapshot           String   @default("") @map("phonetic_snapshot")
+  partOfSpeech               String   @map("part_of_speech")
+  contextualDefinition       String   @map("contextual_definition") @db.Text
+  sourceSentence             String   @map("source_sentence") @db.Text
+  sourceSentenceTranslation  String   @default("") @map("source_sentence_translation") @db.Text
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
   user       User       @relation(fields: [userId], references: [id])
   vocabulary Vocabulary @relation(fields: [vocabularyId], references: [id])
-  mediaItem  MediaItem? @relation(fields: [mediaItemId], references: [id])
+  mediaItem  MediaItem  @relation(fields: [mediaItemId], references: [id])
 
-  @@unique([userId, vocabularyId]) // Prevent duplicate saves per user
+  @@unique([userId, mediaItemId, segmentIndex, startWordIndex, endWordIndex])
+  @@index([userId, vocabularyId])
+  @@index([mediaItemId, segmentIndex])
   @@map("user_vocabularies")
+}
+
+model AiCreditReservation {
+  id              String                   @id @default(uuid())
+  userId          String                   @map("user_id")
+  mediaId         String?                  @map("media_id")
+  segmentIndex    Int?                     @map("segment_index")
+  state           AiCreditReservationState @default(PENDING)
+  creditsReserved Int                      @default(1) @map("credits_reserved")
+  requestType     String                   @map("request_type")
+  idempotencyKey  String                   @unique @map("idempotency_key")
+  confirmedAt     DateTime?                @map("confirmed_at")
+  refundedAt      DateTime?                @map("refunded_at")
+  expiresAt       DateTime                 @map("expires_at")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+
+  user      User          @relation(fields: [userId], references: [id])
+  mediaItem MediaItem?    @relation(fields: [mediaId], references: [id])
+  usageLog  AiUsageLog?
+
+  @@index([userId, state])
+  @@index([expiresAt, state])
+  @@index([mediaId, segmentIndex])
+  @@map("ai_credit_reservations")
+}
+
+model AiUsageLog {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  mediaId         String   @map("media_id")
+  segmentIndex    Int      @map("segment_index")
+  segmentText     String?  @map("segment_text") @db.Text
+  requestType     String   @map("request_type")
+  reservationId   String?  @unique @map("reservation_id")
+  creditsConsumed Int      @default(1) @map("credits_consumed")
+  tokensInput     Int      @default(0) @map("tokens_input")
+  tokensOutput    Int      @default(0) @map("tokens_output")
+  modelUsed       String   @map("model_used")
+  provider        String   @default("openai")
+  promptVersion   String   @map("prompt_version")
+  latencyMs       Int      @default(0) @map("latency_ms")
+  cacheHit        Boolean  @default(false) @map("cache_hit")
+  rejected        Boolean  @default(false)
+  aborted         Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user        User                 @relation(fields: [userId], references: [id])
+  mediaItem   MediaItem            @relation(fields: [mediaId], references: [id])
+  reservation AiCreditReservation? @relation(fields: [reservationId], references: [id])
+
+  @@index([userId])
+  @@index([mediaId, segmentIndex])
+  @@index([createdAt])
+  @@map("ai_usage_logs")
+}
+
+model ChatSession {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  mediaId      String   @map("media_id")
+  segmentIndex Int      @map("segment_index")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user      User          @relation(fields: [userId], references: [id])
+  mediaItem MediaItem     @relation(fields: [mediaId], references: [id])
+  messages  ChatMessage[]
+
+  @@unique([userId, mediaId, segmentIndex])
+  @@index([userId])
+  @@index([mediaId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  role       String
+  content    String   @db.Text
+  tokensUsed Int      @default(0) @map("tokens_used")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session  ChatSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  feedback ChatFeedback?
+
+  @@index([sessionId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatFeedback {
+  id        String   @id @default(uuid())
+  messageId String   @unique @map("message_id")
+  userId    String   @map("user_id")
+  rating    String
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("chat_feedbacks")
 }
 
 model Otp {

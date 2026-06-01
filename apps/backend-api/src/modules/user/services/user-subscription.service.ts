@@ -78,13 +78,18 @@ export class UserSubscriptionService {
           priceSnapshot: freeVariant.price,
           monthlyQuotaSecondsSnapshot: freeVariant.monthlyQuotaSeconds,
           maxDurationPerFileSnapshot: freeVariant.maxDurationPerFile,
+          aiCreditsPerMonthSnapshot: freeVariant.aiCreditsPerMonth,
         },
       });
 
       // Link as the user's current active subscription
       await tx.user.update({
         where: { id: userId },
-        data: { currentSubscriptionId: sub.id },
+        data: {
+          currentSubscriptionId: sub.id,
+          aiCreditsRemaining: freeVariant.aiCreditsPerMonth,
+          aiCreditsLastResetDate: now,
+        },
       });
 
       return sub;

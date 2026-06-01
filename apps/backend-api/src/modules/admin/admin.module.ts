@@ -5,6 +5,7 @@ import {
   PlanService,
   VariantService,
   UserAdminService,
+  AiExplainAdminService,
 } from './services';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { QueueModule } from 'src/modules/queue/queue.module';
@@ -17,8 +18,15 @@ import { QueueModule } from 'src/modules/queue/queue.module';
     PlanService,
     VariantService,
     UserAdminService,
+    AiExplainAdminService,
     PrismaService,
   ],
-  exports: [OverviewService, PlanService, VariantService, UserAdminService],
+  exports: [
+    OverviewService,
+    PlanService,
+    VariantService,
+    UserAdminService,
+    AiExplainAdminService,
+  ],
 })
 export class AdminModule {}

@@ -9,6 +9,7 @@ export type PlanVariant = {
   billingCycleType: BillingCycleType
   maxDurationPerFile: number
   monthlyQuotaSeconds: number
+  aiCreditsPerMonth: number
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -58,6 +59,7 @@ export type CreateVariantPayload = {
   billingCycleType: BillingCycleType
   maxDurationPerFile: number
   monthlyQuotaSeconds: number
+  aiCreditsPerMonth: number
 }
 
 export type UpdateVariantPayload = {
@@ -66,6 +68,7 @@ export type UpdateVariantPayload = {
   currency?: string
   maxDurationPerFile?: number
   monthlyQuotaSeconds?: number
+  aiCreditsPerMonth?: number
   isActive?: boolean
 }
 

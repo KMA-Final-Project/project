@@ -16,6 +16,7 @@
     "settings": "Cài đặt",
     "cancel": "Hủy",
     "confirm": "Xác nhận",
+    "submit": "Gửi",
     "save": "Lưu",
     "back": "Quay lại",
     "next": "Tiếp",
@@ -121,6 +122,7 @@
       "sourceLanguageLabel": "Ngôn ngữ nguồn",
       "targetLanguageLabel": "Ngôn ngữ dịch",
       "autoDetect": "Tự động nhận diện",
+      "usingTargetLanguage": "Ngôn ngữ dịch sẽ dùng theo tùy chọn trong Cài đặt: {{language}}.",
       "quotaUsage": "Tác vụ này sẽ trừ đi thời lượng video từ số dư quota của bạn. Nếu xử lý thất bại, hạn mức sẽ tự động được hoàn lại."
     }
   },

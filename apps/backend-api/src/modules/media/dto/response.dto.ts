@@ -67,6 +67,13 @@ export class ConfirmUploadResponseDto {
     example: '42',
   })
   jobId: string;
+
+  @ApiProperty({
+    description: 'Canonical target language stored on the media record',
+    example: 'vi',
+    nullable: true,
+  })
+  targetLanguage?: string | null;
 }
 
 // ==================== YouTube Submission Response ====================
@@ -104,6 +111,13 @@ export class SubmitYoutubeResponseDto {
     example: '43',
   })
   jobId: string;
+
+  @ApiProperty({
+    description: 'Canonical target language stored on the media record',
+    example: 'vi',
+    nullable: true,
+  })
+  targetLanguage?: string | null;
 }
 
 // ==================== Artifact Inventory ====================
@@ -242,6 +256,9 @@ export class MediaStatusResponseDto {
   @ApiProperty({ example: 'en', nullable: true })
   sourceLanguage: string | null;
 
+  @ApiProperty({ example: 'vi', nullable: true })
+  targetLanguage: string | null;
+
   @ApiProperty({ example: 120, description: 'Duration in seconds' })
   durationSeconds: number;
 
@@ -335,6 +352,12 @@ export class MediaListItemDto {
 
   @ApiProperty()
   durationSeconds: number;
+
+  @ApiProperty({ example: 'en', nullable: true })
+  sourceLanguage: string | null;
+
+  @ApiProperty({ example: 'vi', nullable: true })
+  targetLanguage: string | null;
 
   @ApiProperty({
     type: MediaArtifactsSummaryDto,

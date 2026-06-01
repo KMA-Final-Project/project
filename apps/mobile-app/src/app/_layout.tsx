@@ -25,7 +25,7 @@ export default function RootLayout() {
   const isHydrated = useAuthStore((s) => s.isHydrated);
   const hydrate = useAuthStore((s) => s.hydrate);
   const invalidate = useAuthStore((s) => s.invalidate);
-  const { hasCompletedOnboarding, isLoading: isOnboardingLoading } = useOnboarding();
+  const { hasCompletedOnboarding, isLoading: isOnboardingLoading, resetOnboarding } = useOnboarding();
 
   useEffect(() => {
     hydrate();
@@ -62,13 +62,24 @@ export default function RootLayout() {
     if (!isAuthenticated && !inAuthGroup) {
       router.replace(ROUTES.AUTH as any);
     } else if (isAuthenticated) {
-      if (hasCompletedOnboarding === false && !inOnboardingFlow) {
+      // Demo day requirement: always show onboarding screens after signing in.
+      // Commented out original logic:
+      // if (hasCompletedOnboarding === false && !inOnboardingFlow) {
+      //   router.replace(ROUTES.ONBOARDING_APP_LANG as any);
+      // } else if (hasCompletedOnboarding === true && (inAuthGroup || inOnboardingFlow)) {
+      //   router.replace(ROUTES.HOME as any);
+      // }
+
+      if (inAuthGroup) {
+        resetOnboarding();
         router.replace(ROUTES.ONBOARDING_APP_LANG as any);
-      } else if (hasCompletedOnboarding === true && (inAuthGroup || inOnboardingFlow)) {
+      } else if (hasCompletedOnboarding === false && !inOnboardingFlow) {
+        router.replace(ROUTES.ONBOARDING_APP_LANG as any);
+      } else if (hasCompletedOnboarding === true && inOnboardingFlow) {
         router.replace(ROUTES.HOME as any);
       }
     }
-  }, [isHydrated, isAuthenticated, segments, router, hasCompletedOnboarding, isOnboardingLoading]);
+  }, [isHydrated, isAuthenticated, segments, router, hasCompletedOnboarding, isOnboardingLoading, resetOnboarding]);
 
   if (!isHydrated || !isLanguageReady || isOnboardingLoading) {
     return (

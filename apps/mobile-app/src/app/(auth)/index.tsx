@@ -1,11 +1,13 @@
 import { useState, useCallback } from "react";
-import { View, Text } from "react-native";
+import { View, Text, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { SegmentedControl } from "@/components";
 import { LoginForm, RegisterForm } from "@/components/auth";
+
+import LogoImage from "../../../assets/logo/vertical_colored_blue.png";
 
 export default function AuthScreen() {
   const { t } = useTranslation();
@@ -22,7 +24,8 @@ export default function AuthScreen() {
     <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>{t("app.name")}</Text>
+        {/* <Text style={styles.title}>{t("app.name")}</Text> */}
+        <Image source={LogoImage} style={styles.logo} />
         <Text style={styles.tagline}>{t("auth.tagline")}</Text>
       </View>
 
@@ -58,6 +61,12 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  logo: {
+    width: 180,
+    height: 180,
+    resizeMode: "contain",
+    marginBottom: theme.spacing[6],
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,

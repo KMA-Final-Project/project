@@ -1,6 +1,6 @@
 # AI Engine - Checkpoint
 
-> Last updated: 2026-05-23
+> Last updated: 2026-05-25
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -37,6 +37,14 @@ Deprecated V1 paths must not be reintroduced.
 - [ ] Re-run the next targeted Chinese E2E after the prompt-only rescue pass and verify whether segments like `你好，我是。你是李雷吧？`, `对，是我。第一次见面。`, and `幸会，等很久了吗？` survive through translation cleanly.
 
 ## 3. Recently Completed
+
+- 2026-05-25 — Integrated early Chinese word segmentation into the live Tier 2 batch path.
+  - Status: Working
+  - Changed: Added `src/core/chinese_word_segmenter.py` using `jieba` precise-mode tokenization to regroup character-level Chinese and mixed-script `sentence.words` into lexical tokens during `_translate_batch()` in `src/async_pipeline.py`, before `TranslatedBatch` upload and before final export reuse. Added `AI_CHINESE_WORD_SEGMENTATION_ENABLED` as a kill switch, refreshed Chinese phonetics after regrouping so `word.phoneme` / `sentence.phonetic` stay aligned with the new tokens, and added focused coverage in `tests/test_chinese_word_segmenter.py` plus a Tier 2 regression in `tests/test_qwen3_forced_alignment.py`.
+  - Why: Character-level SenseVoice-style words were reaching `translated_batches/` unchanged, so the mobile player rendered fractured Chinese like `我  们` and future word-tap lookup would only see isolated characters instead of compounds such as `我们` or `橱柜`.
+  - Contract touched: Artifact | Language
+  - Validation: `venv\Scripts\python.exe -m py_compile src\core\chinese_word_segmenter.py src\async_pipeline.py tests\test_chinese_word_segmenter.py tests\test_qwen3_forced_alignment.py tests\test_streaming_contracts.py`; `venv\Scripts\python.exe -m pytest tests\test_chinese_word_segmenter.py tests\test_qwen3_forced_alignment.py tests\test_streaming_contracts.py -q`
+  - Follow-up: Punctuation is intentionally still serialized as standalone tokens in v1 so lookup keys and pinyin stay clean. If the remaining punctuation gap on mobile is unacceptable, solve that as a renderer concern instead of concatenating punctuation into lexical `word.word` values.
 
 - 2026-05-24 — Moved global Qwen retiming and Latin token merging into the live Tier 2 batch path so progressive artifacts match `final.json`.
   - Status: Working

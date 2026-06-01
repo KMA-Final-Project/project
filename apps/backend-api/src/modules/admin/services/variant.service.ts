@@ -53,6 +53,7 @@ export class VariantService extends BaseCrudService<
         billingCycleType: dto.billingCycleType,
         maxDurationPerFile: dto.maxDurationPerFile,
         monthlyQuotaSeconds: dto.monthlyQuotaSeconds,
+        aiCreditsPerMonth: dto.aiCreditsPerMonth,
       },
     });
   }
@@ -78,7 +79,9 @@ export class VariantService extends BaseCrudService<
       (dto.maxDurationPerFile !== undefined &&
         dto.maxDurationPerFile !== variant.maxDurationPerFile) ||
       (dto.monthlyQuotaSeconds !== undefined &&
-        dto.monthlyQuotaSeconds !== variant.monthlyQuotaSeconds);
+        dto.monthlyQuotaSeconds !== variant.monthlyQuotaSeconds) ||
+      (dto.aiCreditsPerMonth !== undefined &&
+        dto.aiCreditsPerMonth !== variant.aiCreditsPerMonth);
 
     // If has subscribers AND changing terms → create new version
     if (hasSubscribers && isChangingTerms) {
@@ -95,6 +98,7 @@ export class VariantService extends BaseCrudService<
         currency: dto.currency,
         maxDurationPerFile: dto.maxDurationPerFile,
         monthlyQuotaSeconds: dto.monthlyQuotaSeconds,
+        aiCreditsPerMonth: dto.aiCreditsPerMonth,
         isActive: dto.isActive,
       },
     });
@@ -127,6 +131,8 @@ export class VariantService extends BaseCrudService<
             dto.maxDurationPerFile ?? oldVariant.maxDurationPerFile,
           monthlyQuotaSeconds:
             dto.monthlyQuotaSeconds ?? oldVariant.monthlyQuotaSeconds,
+          aiCreditsPerMonth:
+            dto.aiCreditsPerMonth ?? oldVariant.aiCreditsPerMonth,
         },
       });
 

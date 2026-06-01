@@ -61,16 +61,12 @@ export function YouTubeModal({
   // loading state now derived from props
   const [error, setError] = useState<string | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("auto");
-  const [targetLanguage, setTargetLanguage] = useState(
-    defaultTargetLanguage || "vi",
-  );
 
   useEffect(() => {
     if (visible) {
       setSourceLanguage("auto");
-      setTargetLanguage(defaultTargetLanguage || "vi");
     }
-  }, [visible, defaultTargetLanguage]);
+  }, [visible]);
 
   const videoId = extractYouTubeId(debouncedUrl);
 
@@ -119,7 +115,7 @@ export function YouTubeModal({
 
   const handleSubmit = async () => {
     if (!isValidYouTubeUrl(url)) {
-      setError("Invalid YouTube URL");
+      setError(t("apiErrors.invalidYoutubeUrl"));
       return;
     }
     setError(null);
@@ -128,12 +124,12 @@ export function YouTubeModal({
         url: url.trim(),
         title: metadata?.title?.trim() || undefined,
         sourceLanguage: sourceLanguage === "auto" ? undefined : sourceLanguage,
-        targetLanguage,
+        targetLanguage: defaultTargetLanguage || "vi",
       });
       setUrl("");
       onClose();
     } catch (e: any) {
-      setError(e?.message ?? "An error occurred");
+      setError(e?.message ?? t("common.error"));
     }
   };
 
@@ -141,7 +137,6 @@ export function YouTubeModal({
     setUrl("");
     setError(null);
     setSourceLanguage("auto");
-    setTargetLanguage(defaultTargetLanguage || "vi");
     onClose();
   };
 
@@ -269,7 +264,7 @@ export function YouTubeModal({
             />
             <Pressable onPress={handlePaste} hitSlop={8}>
               <Text style={[styles.pasteBtn, { color: theme.colors.primary }]}>
-                Paste
+                {t("upload.pasteClipboard")}
               </Text>
             </Pressable>
           </View>
@@ -283,7 +278,7 @@ export function YouTubeModal({
 
           {/* Language Selection */}
           {metadata && (
-            <View style={styles.dropdownRow}>
+            <View style={styles.dropdownColumn}>
               <Dropdown
                 label={t(
                   "upload.youtube.sourceLanguageLabel",
@@ -301,19 +296,13 @@ export function YouTubeModal({
                 onChange={setSourceLanguage}
                 style={styles.dropdownPicker}
               />
-              <Dropdown
-                label={t(
-                  "upload.youtube.targetLanguageLabel",
-                  "Target Language",
-                )}
-                value={targetLanguage}
-                options={[
-                  { label: "Tiếng Việt (vi)", value: "vi" },
-                  { label: "English (en)", value: "en" },
-                ]}
-                onChange={setTargetLanguage}
-                style={styles.dropdownPicker}
-              />
+              <Text
+                style={[styles.targetHint, { color: theme.colors.textSecondary }]}
+              >
+                {t("upload.youtube.usingTargetLanguage", {
+                  language: defaultTargetLanguage === "en" ? "English" : "Tiếng Việt",
+                })}
+              </Text>
             </View>
           )}
           {/* Quota Warning */}
@@ -364,7 +353,7 @@ export function YouTubeModal({
               {loading ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.btnPrimaryText}>Submit</Text>
+                <Text style={styles.btnPrimaryText}>{t("common.submit")}</Text>
               )}
             </Pressable>
           </View>
@@ -486,14 +475,17 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: 15,
     fontWeight: "700",
   },
-  dropdownRow: {
-    flexDirection: "row",
-    gap: theme.spacing[3],
+  dropdownColumn: {
+    gap: theme.spacing[2],
     marginTop: theme.spacing[4],
     marginBottom: theme.spacing[2],
   },
   dropdownPicker: {
-    flex: 1,
+    width: "100%",
+  },
+  targetHint: {
+    fontSize: 12,
+    lineHeight: 18,
   },
   quotaText: {
     fontSize: 11,

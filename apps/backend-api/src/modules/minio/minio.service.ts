@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Minio from 'minio';
+import type { Readable } from 'stream';
 
 export interface ProcessedArtifactBase {
   objectKey: string;
@@ -189,6 +190,12 @@ export class MinioService {
     this.logger.debug(`Downloaded ${objectKey} → ${localPath}`);
   }
 
+  async readProcessedJson<T>(objectKey: string): Promise<T> {
+    const stream = await this.client.getObject(this.bucketProcessed, objectKey);
+    const raw = await this.streamToString(stream);
+    return JSON.parse(raw) as T;
+  }
+
   async uploadFile(objectKey: string, localPath: string): Promise<void> {
     await this.client.fPutObject(this.bucketRaw, objectKey, localPath);
     this.logger.debug(`Uploaded ${localPath} → ${objectKey}`);
@@ -321,5 +328,15 @@ export class MinioService {
     }
 
     return null;
+  }
+
+  private async streamToString(stream: Readable): Promise<string> {
+    const chunks: Buffer[] = [];
+
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    }
+
+    return Buffer.concat(chunks).toString('utf8');
   }
 }

@@ -25,6 +25,7 @@ interface PlayerState {
 
   mediaMode: PlayerMediaMode;
   playbackSourceKind: PlayerPlaybackSourceKind;
+  explainPlaybackHandler: ((startSec: number) => void) | null;
 
   // Actions
   setCurrentTime: (sec: number) => void;
@@ -38,6 +39,10 @@ interface PlayerState {
   togglePin: () => void;
   setMediaMode: (mode: PlayerMediaMode) => void;
   setPlaybackSourceKind: (kind: PlayerPlaybackSourceKind) => void;
+  registerExplainPlaybackHandler: (
+    handler: ((startSec: number) => void) | null,
+  ) => void;
+  replayExplainSentence: (startSec: number) => void;
   reset: () => void;
 }
 
@@ -54,6 +59,8 @@ const initialState: Omit<
   | "togglePin"
   | "setMediaMode"
   | "setPlaybackSourceKind"
+  | "registerExplainPlaybackHandler"
+  | "replayExplainSentence"
   | "reset"
 > = {
   currentTimeSec: 0,
@@ -71,6 +78,7 @@ const initialState: Omit<
 
   mediaMode: "audio" as const,
   playbackSourceKind: "fallback" as const,
+  explainPlaybackHandler: null,
 };
 
 const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5];
@@ -112,6 +120,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setMediaMode: (mode) => set({ mediaMode: mode }),
   setPlaybackSourceKind: (kind) => set({ playbackSourceKind: kind }),
+  registerExplainPlaybackHandler: (handler) =>
+    set({ explainPlaybackHandler: handler }),
+  replayExplainSentence: (startSec) => {
+    get().explainPlaybackHandler?.(startSec);
+  },
 
   reset: () => set(initialState),
 }));

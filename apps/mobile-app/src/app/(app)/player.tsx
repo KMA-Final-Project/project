@@ -21,7 +21,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   IconButton,
+  ExplainBottomSheet,
   LayerToggle,
+  LookupCardOverlay,
   MediaPane,
   PlayerControls,
   StreamingTailIndicator,
@@ -31,24 +33,59 @@ import {
 import { useActiveSentence } from "@/hooks/useActiveSentence";
 import { useMediaPlayback } from "@/hooks/useMediaPlayback";
 import { usePlaybackSource } from "@/hooks/usePlaybackSource";
+import {
+  extractLookupError,
+  useVocabularyLookup,
+} from "@/hooks/useVocabularyLookup";
 import { usePlayerSubtitles } from "@/hooks/usePlayerSubtitles";
 import { useMediaStatus } from "@/hooks/useMedia";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { ROUTES } from "@/constants/routes";
 import { usePlayerStore } from "@/stores/player.store";
+import type { LookupErrorResponse, LookupResponse } from "@/types/lookup";
 import type { Sentence } from "@/types/subtitle";
+
+interface LookupSelection {
+  segmentIndex: number;
+  sentence: Sentence;
+  wordIndex: number;
+  wordText: string;
+  phonetic: string;
+}
 
 export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { theme } = useUnistyles();
   const { t } = useTranslation("player");
+  const { defaultTargetLanguage } = useOnboarding();
   const insets = useSafeAreaInsets();
   const [layersVisible, setLayersVisible] = useState(false);
+  const [explainVisible, setExplainVisible] = useState(false);
+  const [explainSelection, setExplainSelection] = useState<{
+    segmentIndex: number;
+    sentence: Sentence | null;
+    targetLanguage: string;
+  } | null>(null);
   const [pendingSeekTimeSec, setPendingSeekTimeSec] = useState<number | null>(
     null,
   );
+  const [lookupSelection, setLookupSelection] = useState<LookupSelection | null>(
+    null,
+  );
+  const [lookupResponse, setLookupResponse] = useState<LookupResponse | null>(
+    null,
+  );
+  const [lookupError, setLookupError] = useState<LookupErrorResponse | null>(
+    null,
+  );
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [savingSaveToken, setSavingSaveToken] = useState<string | null>(null);
+  const [footerHeight, setFooterHeight] = useState(164);
   const sentenceListRef = useRef<FlatList<Sentence>>(null);
   const shouldResumeWhenCoverageArrivesRef = useRef(false);
+  const latestLookupRequestIdRef = useRef(0);
+  const activeSaveTokenRef = useRef<string | null>(null);
 
   const { data: mediaItem, isLoading: mediaLoading } = useMediaStatus(
     id ?? null,
@@ -56,6 +93,7 @@ export default function PlayerScreen() {
   const subtitlesQuery = usePlayerSubtitles(id ?? null);
   const playbackSource = usePlaybackSource(mediaItem);
   const playback = useMediaPlayback(playbackSource.source);
+  const { lookupMutation, saveMutation } = useVocabularyLookup(id ?? null);
   const { hasCoverageAt, isFinal, isPartial } = subtitlesQuery;
   const segments = subtitlesQuery.segments;
 
@@ -79,6 +117,7 @@ export default function PlayerScreen() {
     toggleLoop,
     isPinned,
     togglePin,
+    registerExplainPlaybackHandler,
   } = usePlayerStore();
 
   const activeSentenceState = useActiveSentence(segments, currentTimeSec);
@@ -94,8 +133,11 @@ export default function PlayerScreen() {
     [mediaItem?.sourceLanguage, subtitlesQuery.metadata?.source_lang],
   );
   const normalizedTargetLanguage = useMemo(
-    () => normalizeLanguage(subtitlesQuery.metadata?.target_lang),
-    [subtitlesQuery.metadata?.target_lang],
+    () =>
+      normalizeLanguage(
+        subtitlesQuery.metadata?.target_lang ?? mediaItem?.targetLanguage,
+      ),
+    [mediaItem?.targetLanguage, subtitlesQuery.metadata?.target_lang],
   );
   const hasTranslationContent = useMemo(
     () => segments.some((sentence) => Boolean(sentence.translation?.trim())),
@@ -115,6 +157,9 @@ export default function PlayerScreen() {
       pendingSeekTimeSec == null ? null : formatTimeLabel(pendingSeekTimeSec),
     [pendingSeekTimeSec],
   );
+  const lookupBottomOffset = footerHeight + theme.spacing[3];
+  const lookupSelectedWordIndex =
+    lookupSelection?.segmentIndex != null ? lookupSelection.wordIndex : null;
 
   useEffect(() => {
     setCurrentTime(playback.currentTimeSec);
@@ -175,6 +220,13 @@ export default function PlayerScreen() {
 
   const requestSeek = useCallback(
     (nextTimeSec: number) => {
+      latestLookupRequestIdRef.current += 1;
+      setLookupSelection(null);
+      setLookupResponse(null);
+      setLookupError(null);
+      setSaveErrorMessage(null);
+      setSavingSaveToken(null);
+      activeSaveTokenRef.current = null;
       setCurrentTime(nextTimeSec);
       playback.seekTo(nextTimeSec);
 
@@ -227,7 +279,31 @@ export default function PlayerScreen() {
   };
 
   const controlsDisabled = playerDisabled || segments.length === 0;
+  const activeExplainSentence = segments[currentSentenceIndex] ?? null;
   const headerTextColor = theme.colors.text;
+  const clearLookup = useCallback(() => {
+    latestLookupRequestIdRef.current += 1;
+    setLookupSelection(null);
+    setLookupResponse(null);
+    setLookupError(null);
+    setSaveErrorMessage(null);
+    setSavingSaveToken(null);
+    activeSaveTokenRef.current = null;
+  }, []);
+
+  const openExplainSheet = useCallback(
+    (segmentIndex: number, sentence: Sentence | null) => {
+      shouldResumeWhenCoverageArrivesRef.current = false;
+      playback.pause();
+      setExplainSelection({
+        segmentIndex,
+        sentence,
+        targetLanguage: normalizedTargetLanguage ?? defaultTargetLanguage,
+      });
+      setExplainVisible(true);
+    },
+    [defaultTargetLanguage, normalizedTargetLanguage, playback],
+  );
   const handleScrollToIndexFailed = useCallback(
     ({
       averageItemLength,
@@ -325,6 +401,172 @@ export default function PlayerScreen() {
     playback.play();
   }, [currentTimeSec, hasCoverageAt, isPlaying, playback, playerDisabled]);
 
+  const handleOpenExplain = useCallback(() => {
+    clearLookup();
+    openExplainSheet(currentSentenceIndex, activeExplainSentence);
+  }, [activeExplainSentence, clearLookup, currentSentenceIndex, openExplainSheet]);
+
+  const handleCloseExplain = useCallback(() => {
+    setExplainVisible(false);
+    setExplainSelection(null);
+  }, []);
+
+  const handleWordLookup = useCallback(
+    (sentence: Sentence, wordIndex: number) => {
+      if (!id || sentence.segment_index == null) {
+        return;
+      }
+
+      const word = sentence.words[wordIndex];
+      if (!word) {
+        return;
+      }
+
+      shouldResumeWhenCoverageArrivesRef.current = false;
+      playback.pause();
+      setSaveErrorMessage(null);
+      setSavingSaveToken(null);
+      activeSaveTokenRef.current = null;
+      setLookupError(null);
+      setLookupResponse(null);
+      setLookupSelection({
+        segmentIndex: sentence.segment_index,
+        sentence,
+        wordIndex,
+        wordText: word.word,
+        phonetic: word.phoneme ?? "",
+      });
+
+      const requestId = latestLookupRequestIdRef.current + 1;
+      latestLookupRequestIdRef.current = requestId;
+
+      lookupMutation.mutate(
+        {
+          segmentIndex: sentence.segment_index,
+          wordText: word.word,
+          startWordIndex: wordIndex,
+          endWordIndex: wordIndex,
+        },
+        {
+          onSuccess: (response) => {
+            if (latestLookupRequestIdRef.current !== requestId) {
+              return;
+            }
+
+            setLookupResponse(response);
+            setLookupError(null);
+          },
+          onError: (error) => {
+            if (latestLookupRequestIdRef.current !== requestId) {
+              return;
+            }
+
+            setLookupResponse(null);
+            setLookupError(extractLookupError(error));
+          },
+        },
+      );
+    },
+    [id, lookupMutation, playback],
+  );
+
+  const handleOpenLookupExplain = useCallback(() => {
+    if (!lookupSelection) {
+      return;
+    }
+
+    clearLookup();
+    openExplainSheet(lookupSelection.segmentIndex, lookupSelection.sentence);
+  }, [clearLookup, lookupSelection, openExplainSheet]);
+
+  const handleSaveLookup = useCallback(async () => {
+    if (
+      !lookupSelection ||
+      !lookupResponse ||
+      !id ||
+      lookupResponse.meta.alreadySaved
+    ) {
+      return;
+    }
+
+    const saveToken = lookupResponse.meta.saveToken;
+    if (activeSaveTokenRef.current === saveToken) {
+      return;
+    }
+
+    setSaveErrorMessage(null);
+    activeSaveTokenRef.current = saveToken;
+    setSavingSaveToken(saveToken);
+
+    try {
+      const result = await saveMutation.mutateAsync({
+        segmentIndex: lookupSelection.segmentIndex,
+        wordText: lookupSelection.wordText,
+        startWordIndex: lookupSelection.wordIndex,
+        endWordIndex: lookupSelection.wordIndex,
+        saveToken,
+      });
+
+      setLookupResponse((current) =>
+        current && current.meta.saveToken === saveToken
+          ? {
+              ...current,
+              meta: {
+                ...current.meta,
+                alreadySaved: true,
+              },
+            }
+          : current,
+      );
+
+      if (!result.created) {
+        setSaveErrorMessage(null);
+      }
+    } catch (error) {
+      const resolved = extractLookupError(error);
+      if (activeSaveTokenRef.current === saveToken) {
+        setSaveErrorMessage(
+          resolved?.message ??
+            (normalizedTargetLanguage === "vi"
+              ? "Không thể lưu từ này ngay bây giờ."
+              : "Unable to save this word right now."),
+        );
+      }
+    } finally {
+      if (activeSaveTokenRef.current === saveToken) {
+        activeSaveTokenRef.current = null;
+        setSavingSaveToken(null);
+      }
+    }
+  }, [id, lookupResponse, lookupSelection, normalizedTargetLanguage, saveMutation]);
+
+  useEffect(() => {
+    registerExplainPlaybackHandler(
+      playerDisabled
+        ? null
+        : (startSec: number) => {
+            if (isPlaying) {
+              shouldResumeWhenCoverageArrivesRef.current = false;
+              playback.pause();
+              return;
+            }
+
+            shouldResumeWhenCoverageArrivesRef.current = true;
+            requestSeek(startSec);
+          },
+    );
+
+    return () => {
+      registerExplainPlaybackHandler(null);
+    };
+  }, [
+    isPlaying,
+    playback,
+    playerDisabled,
+    registerExplainPlaybackHandler,
+    requestSeek,
+  ]);
+
   const renderSentenceItem = useCallback(
     ({ item, index }: ListRenderItemInfo<Sentence>) => (
       <SubtitleRow
@@ -335,12 +577,28 @@ export default function PlayerScreen() {
         showTranslation={showTranslation && isTranslationLayerAvailable}
         showKaraoke={showKaraoke}
         onPress={() => handleJumpToSentence(index)}
+        onWordPress={
+          index === activeSentenceState.activeSentenceIndex &&
+          item.segment_index != null &&
+          item.words.length > 0
+            ? (wordIndex) => handleWordLookup(item, wordIndex)
+            : undefined
+        }
+        selectedWordIndex={
+          lookupSelection?.segmentIndex != null &&
+          item.segment_index === lookupSelection.segmentIndex
+            ? lookupSelectedWordIndex
+            : null
+        }
       />
     ),
     [
       activeSentenceState.activeSentenceIndex,
       handleJumpToSentence,
+      handleWordLookup,
       currentTimeSec,
+      lookupSelectedWordIndex,
+      lookupSelection?.segmentIndex,
       showKaraoke,
       showPhonetic,
       showTranslation,
@@ -497,6 +755,29 @@ export default function PlayerScreen() {
         </View>
       ) : null}
 
+      <LookupCardOverlay
+        visible={lookupSelection != null}
+        selectedWord={lookupSelection?.wordText ?? ""}
+        selectedPhonetic={lookupSelection?.phonetic ?? ""}
+        response={lookupResponse}
+        isLoading={
+          lookupSelection != null &&
+          lookupResponse == null &&
+          lookupError == null
+        }
+        isSaving={
+          saveMutation.isPending &&
+          savingSaveToken != null &&
+          lookupResponse?.meta.saveToken === savingSaveToken
+        }
+        lookupError={lookupError}
+        saveErrorMessage={saveErrorMessage}
+        bottomOffset={lookupBottomOffset}
+        onClose={clearLookup}
+        onExplain={handleOpenLookupExplain}
+        onSave={handleSaveLookup}
+      />
+
       <View
         style={[
           styles.footerShell,
@@ -505,6 +786,9 @@ export default function PlayerScreen() {
             paddingBottom: Math.max(insets.bottom, theme.spacing[5]),
           },
         ]}
+        onLayout={(event) => {
+          setFooterHeight(event.nativeEvent.layout.height);
+        }}
       >
         <PlayerControls
           currentTimeSec={currentTimeSec}
@@ -528,6 +812,7 @@ export default function PlayerScreen() {
           onChangeSpeed={setPlaybackSpeed}
           onToggleLoop={toggleLoop}
           onTogglePin={togglePin}
+          onExplain={handleOpenExplain}
         />
       </View>
 
@@ -539,6 +824,16 @@ export default function PlayerScreen() {
         showKaraoke={showKaraoke}
         onToggleLayer={toggleLayer}
         translationEnabled={isTranslationLayerAvailable}
+      />
+      <ExplainBottomSheet
+        visible={explainVisible}
+        mediaId={id ?? null}
+        segmentIndex={explainSelection?.segmentIndex ?? -1}
+        sentence={explainSelection?.sentence ?? null}
+        targetLanguage={
+          explainSelection?.targetLanguage ?? defaultTargetLanguage
+        }
+        onClose={handleCloseExplain}
       />
     </LinearGradient>
   );

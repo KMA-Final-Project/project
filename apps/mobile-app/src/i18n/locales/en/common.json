@@ -16,6 +16,7 @@
     "settings": "Settings",
     "cancel": "Cancel",
     "confirm": "Confirm",
+    "submit": "Submit",
     "save": "Save",
     "back": "Back",
     "next": "Next",
@@ -113,6 +114,7 @@
       "sourceLanguageLabel": "Source Language",
       "targetLanguageLabel": "Target Language",
       "autoDetect": "Auto detect",
+      "usingTargetLanguage": "Translation language will follow your Settings preference: {{language}}.",
       "quotaUsage": "Submitting this video will consume from your quota. If processing fails, your quota will be automatically refunded."
     }
   },

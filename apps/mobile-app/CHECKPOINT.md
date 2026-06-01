@@ -1,6 +1,6 @@
 # Mobile App - Checkpoint
 
-> Last updated: 2026-05-06
+> Last updated: 2026-05-25
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -30,11 +30,94 @@ Auth/session
 
 ## 2. Active Work
 
-No single active mobile task is recorded in the imported checkpoint.
-
-Use `Next Candidates` below as the current mobile backlog until a new task file or issue exists.
+- [x] Manually verify Kapter Explain against a running backend/provider, then refine stream error/abort UX from device testing.
+- [ ] Manually verify vocabulary lookup/save on device against the live backend, including active-word tap targets, free-tier limit handling, and Explain handoff.
 
 ## 3. Recently Completed
+
+- 2026-05-27 — Enforce onboarding screen flow after sign in. Status: Working.
+  - Changed: Modified the root layout `_layout.tsx` auth guard to reset onboarding state via `resetOnboarding()` and redirect the user to the onboarding flow whenever they are detected as authenticated inside the auth group (`(auth)`). Commented out the old logic that bypassed onboarding for already-completed sessions.
+  - Why: Simplifies showing/testing the onboarding flow during the demo day.
+  - Validation: `pnpm lint` and `pnpm exec tsc --noEmit` passed.
+  - Follow-up: Verify on the device that logging in triggers the full onboarding flow from step 1 even if previously completed.
+
+- 2026-05-25 — Lookup bookmark tap-guard and visible saving state. Status: Working.
+  - Hardened the player lookup save handler with a synchronous in-flight token guard so repeated taps cannot enqueue parallel bookmark requests before React re-renders the card.
+  - Kept the lookup card save control visibly in its saving state for the active save token and prevented stale save completions from mutating a newer lookup selection.
+  - Why: rapid bookmark taps could bypass the previous render-time-only disable path, which made the button feel not fully loading-safe and triggered duplicate backend save requests.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: verify on device that the save button visibly locks immediately on first tap and stays stable while rapidly tapping.
+
+- 2026-05-25 — Floating vocabulary lookup card and active-word player taps. Status: Working.
+  - Added mobile endpoint constants and typed lookup/save DTOs aligned to the live `POST /media/:id/lookup` and `POST /media/:id/lookup/bookmark` backend contract.
+  - Implemented a dedicated `useVocabularyLookup` hook for atomic lookup fetches and explicit Save Word requests through the authenticated mobile API client.
+  - Reworked the active subtitle row so only the current sentence exposes per-word tap targets, while inactive rows keep the existing row-level seek behavior.
+  - Added a floating lookup card overlay in the player with fixed-height loading skeleton, contextual definition, localized part-of-speech pill, inline save state, and sentence-level Explain handoff.
+  - Why: the player needed a fast single-tap vocabulary surface that stays lighter than Kapter Explain while still matching the approved backend lookup contract.
+  - Contract touchpoints: API, Player UX, Subtitle JSON.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: device verification for overlay placement on small screens, repeated word retaps, saved-state persistence, and free-tier lookup-limit messaging.
+
+- 2026-05-25 — Explain sheet now shows immediate pending state and drains streamed answers without requiring reopen. Status: Working.
+  - Added an optimistic assistant pending bubble in `useExplainStream`, reconciled it with the backend `meta.messageId`, and hardened the SSE parser so any final buffered event block is processed even if the transport flushes late.
+  - Updated `ExplainBottomSheet` to render a visible thinking row with animation (`ActivityIndicator`) instead of a blank waiting state, and tightened `FlatList` interaction props for the chat surface.
+  - Why: opening a fresh Explain session previously showed no clear sending/thinking state, and some replies only became visible after closing and reopening the sheet because the live stream path was not surfacing state reliably enough.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification against a live backend to confirm first-turn thinking visibility, streamed delta rendering, and stop/abort behavior on both Android and iOS.
+
+- 2026-05-25 — Explain sheet initialization no longer self-aborts live streams. Status: Working.
+  - Reworked the Explain sheet bootstrap effect so it no longer depends directly on the `start` callback identity from `useExplainStream`. The latest `loadHistory`, `start`, and seeded initial-message values now flow through refs, so flipping `isStreaming=true` no longer retriggers the effect cleanup and aborts the request immediately after it begins.
+  - Why: the previous effect cleanup path matched the user-visible bug exactly: the sheet showed the thinking indicator, then silently aborted the active stream, while the backend could still finish and persist the answer that only appeared after reopening history.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: live device verification for first-turn explain and follow-up explain on the same open sheet.
+
+- 2026-05-25 — Explain drawer long-sentence context and drag-progress refinement. Status: Working.
+  - Expanded the sentence drawer to show the full selected source sentence and translated layer before the phonetic word strip, so long selections no longer collapse to a single visible line.
+  - Changed the drawer gesture so the pill can be held and dragged upward or downward with continuous open/close progress instead of only snapping at gesture end.
+  - Paused the player when opening Explain so the chat session begins from a stable playback state.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification for drag feel, long-context overflow, and exact expanded-height tuning on smaller screens.
+
+- 2026-05-25 — Explain drawer interaction correction and frozen explain selection. Status: Working.
+  - Moved bottom-sheet drag handling to the top sheet handle only so chat scrolling no longer drags the whole sheet.
+  - Reworked the sentence drawer into a collapsed pill that expands above the input tray, removed the visible "Sentence drawer/Ngăn câu" label, and kept playback/speed controls inside the expanded drawer only.
+  - Froze the selected sentence and segment index when Explain opens so replaying audio no longer rebinds the sheet to the live subtitle cursor or refetches explain history mid-session.
+  - Added the current translation line into the seeded first-turn explain message so the chosen sentence now displays both source and translated context.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification for pill drag feel, expanded drawer spacing, and chat-scroll gesture behavior on iOS/Android.
+
+- 2026-05-24 — Explain drawer correction: native playback controls, horizontal card layout. Status: Working.
+  - Removed the synthetic `expo-speech` drawer path and rebuilt the sentence drawer as an inline floating card above the Explain input tray instead of an intrusive absolute overlay inside the message viewport.
+  - The drawer now renders horizontal word columns (phonetic on top, word below), slides open and closed from the bottom area, and no longer blocks explain-message scrolling.
+  - Wired the drawer controls to player-store-backed transport hooks so replay uses the active native media stream from the sentence start timestamp, while speed cycling reuses the existing global playback-speed action.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification for exact bottom-sheet spacing, animation feel, and partial-coverage replay behavior.
+
+- 2026-05-24 — Kapter Explain UI overhaul, implicit target-language ingestion, and floating sentence drawer. Status: Working.
+  - Replaced the pinned explain context card with a chat-first bottom sheet that seeds the conversation using a localized first user bubble tied to the active media target language.
+  - Added a floating sentence drawer for word-by-word phonetic access above the input tray and kept playback tied to the native player stack.
+  - Removed the YouTube modal target-language picker; the modal now submits only source-language choice plus the persisted onboarding target-language preference in the background request payload.
+  - Updated player/media typing so the Explain UI prefers the media item's canonical `targetLanguage` from backend status/library responses before falling back to onboarding defaults.
+  - Contract touchpoints: API, Language, Player UX.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification for drawer overlap, long markdown scrolling, and pronunciation behavior in a dev build.
+
+- 2026-05-24 — Kapter Explain Phase 1 mobile contract types. Status: In-Progress.
+  - Added mobile endpoint constants for explain stream, history, and feedback API routes.
+  - Added shared mobile Explain request/event/history/feedback types aligned to `CONTRACTS.md`.
+  - The mobile request type intentionally excludes subtitle text, translations, phonetics, words, and language metadata; backend resolves canonical segment context server-side.
+  - Contract touchpoints: API, Quota, Subtitle JSON.
+  - Validation: `pnpm lint`.
+  - Follow-up: add the player Explain button flow, SSE adapter, cached response rendering, and feedback UX.
+
+- 2026-05-24 — Kapter Explain player bottom sheet and SSE client. Status: Partial.
+  - Wired the player Explain control to open a chat bottom sheet for the active subtitle segment.
+  - Added `useExplainStream` using Expo SDK 54 streaming `fetch` with `ReadableStream.getReader()` and `AbortController` to consume backend SSE events.
+  - The mobile request payload sends only `segmentIndex`, optional `sessionId`, and optional `userMessage`; subtitle text is displayed locally but not sent to the backend.
+  - Added chat history loading, streaming assistant bubbles, stop/abort, follow-up input, credits display, and feedback actions.
+  - Contract touchpoints: API, Quota, Subtitle JSON.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit`.
+  - Follow-up: manual device/emulator test against local backend + Redis/MinIO/provider credentials; tune keyboard behavior and long-message rendering from real stream data.
 
 - 2026-05-23 — Subtitle Player Screen Refactoring. Status: Working.
   - Implemented vertical inline word-level phonetic stack layout in `SubtitleRow.tsx` (pinyin/phoneme on top for CJK, below for non-CJK).
@@ -125,8 +208,9 @@ Use `Next Candidates` below as the current mobile backlog until a new task file 
 - [ ] Remove or repurpose unused preview-only helpers from the older processing preview flow.
 - [ ] Add forgot-password flow.
 - [ ] Add social login if still useful for the final product scope.
-- [ ] Add vocabulary/dictionary UI once backend endpoints exist.
+- [ ] Add device-verified polish for vocabulary lookup placement, error copy, and bookmark feedback once the first round of live testing is complete.
 - [ ] Strengthen mobile validation with a typecheck script if the package does not already expose one.
+- [ ] Replace the mobile-side raw explain SSE parser with the same official SDK-backed or typed-stream approach once Expo/runtime constraints and product scope justify it.
 
 ## 6. Contract Touchpoints
 

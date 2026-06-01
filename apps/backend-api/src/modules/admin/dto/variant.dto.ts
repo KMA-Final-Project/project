@@ -46,6 +46,14 @@ export class CreateVariantDto {
   @IsInt()
   @Min(0)
   monthlyQuotaSeconds: number;
+
+  @ApiProperty({
+    example: 100,
+    description: 'Monthly AI credits available for Kapter Explain',
+  })
+  @IsInt()
+  @Min(0)
+  aiCreditsPerMonth: number;
 }
 
 export class UpdateVariantDto {
@@ -77,6 +85,15 @@ export class UpdateVariantDto {
   @IsInt()
   @Min(0)
   monthlyQuotaSeconds?: number;
+
+  @ApiPropertyOptional({
+    example: 150,
+    description: 'Monthly AI credits available for Kapter Explain',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  aiCreditsPerMonth?: number;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()

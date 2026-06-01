@@ -5,6 +5,7 @@ import { AuthLayout } from "@/app/layouts/auth-layout.tsx"
 import { RequireAdmin } from "@/app/guards/require-admin.tsx"
 import { RequireAnonymous } from "@/app/guards/require-anonymous.tsx"
 import { LoginPage } from "@/features/auth/pages/login-page.tsx"
+import { AiExplainPage } from "@/features/ai-explain/pages/ai-explain-page.tsx"
 import { MonitoringFailuresPage } from "@/features/monitoring/pages/monitoring-failures-page.tsx"
 import { MonitoringQueuesPage } from "@/features/monitoring/pages/monitoring-queues-page.tsx"
 import { OverviewPage } from "@/features/overview/pages/overview-page.tsx"
@@ -54,6 +55,10 @@ const router = createBrowserRouter([
           {
             path: "/plans",
             element: <PlansPage />,
+          },
+          {
+            path: "/ai-explain",
+            element: <AiExplainPage />,
           },
           {
             path: "/monitoring/queues",
