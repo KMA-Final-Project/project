@@ -183,25 +183,51 @@ class LLMProvider:
         system_prompt: str | None,
         response_schema: dict[str, Any] | None,
         unwrap_key: str | None,
-    ) -> str:
+        *,
+        keep_alive: str | int | None = None,
+        model_name: str | None = None,
+        options_override: dict[str, Any] | None = None,
+        return_metadata: bool = False,
+    ) -> str | tuple[str, dict[str, Any]]:
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        model = self._provider_model("ollama", capability)
+        model = model_name or self._provider_model("ollama", capability)
         base_kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "options": self._ollama_options(capability),
+            "options": options_override or self._ollama_options(capability),
+            "stream": False,
         }
         if response_schema is not None:
-            base_kwargs["format"] = "json"
+            base_kwargs["format"] = response_schema
+        if keep_alive is not None:
+            base_kwargs["keep_alive"] = keep_alive
+
+        def _finalize_response(
+            response: dict[str, Any],
+        ) -> str | tuple[str, dict[str, Any]]:
+            text = self._coerce_response_text(response["message"]["content"])
+            result = self._maybe_unwrap_json(text, unwrap_key)
+            if not return_metadata:
+                return result
+            metadata = {
+                "model": response.get("model"),
+                "total_duration": response.get("total_duration"),
+                "load_duration": response.get("load_duration"),
+                "prompt_eval_count": response.get("prompt_eval_count"),
+                "prompt_eval_duration": response.get("prompt_eval_duration"),
+                "eval_count": response.get("eval_count"),
+                "eval_duration": response.get("eval_duration"),
+                "done_reason": response.get("done_reason"),
+            }
+            return result, metadata
 
         try:
             response = self._ollama_client.chat(**base_kwargs)
-            text = response["message"]["content"]
-            return self._maybe_unwrap_json(text, unwrap_key)
+            return _finalize_response(response)
         except Exception as exc:
             if not settings.OLLAMA_CPU_FALLBACK_ON_ERROR:
                 raise exc
@@ -212,10 +238,11 @@ class LLMProvider:
                 exc,
             )
             cpu_kwargs = dict(base_kwargs)
-            cpu_kwargs["options"] = self._ollama_options(capability, use_cpu=True)
+            cpu_kwargs["options"] = options_override or self._ollama_options(
+                capability, use_cpu=True
+            )
             response = self._ollama_client.chat(**cpu_kwargs)
-            text = response["message"]["content"]
-            return self._maybe_unwrap_json(text, unwrap_key)
+            return _finalize_response(response)
 
     def _generate_with_openai(
         self,
@@ -509,6 +536,37 @@ class LLMProvider:
                 )
             logger.error(f"LLM Generation Failed: {e}")
             raise e
+
+    def generate_ollama_structured(
+        self,
+        prompt: str,
+        system_prompt: str,
+        response_schema: dict[str, Any],
+        *,
+        model_name: str,
+        num_ctx: int,
+        temperature: float,
+        keep_alive: str | int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Run one local structured Ollama call and return text plus response timings."""
+        result = self._generate_with_ollama(
+            "refinement",
+            prompt,
+            system_prompt,
+            response_schema,
+            None,
+            keep_alive=keep_alive,
+            model_name=model_name,
+            options_override={
+                "temperature": temperature,
+                "num_ctx": num_ctx,
+            },
+            return_metadata=True,
+        )
+        assert isinstance(result, tuple), (
+            "generate_ollama_structured must return (content, metadata)"
+        )
+        return result
 
     # ------------------------------------------------------------------
     # Phase 4: NMT refinement

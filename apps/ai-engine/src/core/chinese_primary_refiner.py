@@ -75,15 +75,17 @@ def refine_chinese_primary_transcript(
     clauses = _drop_adjacent_duplicate_clauses(clauses, dropped_spans)
     refined_sentences = _assemble_segments(clauses)
     deduped_sentences, deduped_spans = _dedupe_nearby_segments(refined_sentences)
+    repaired_sentences, repair_hits = _repair_dialogue_segments(deduped_sentences)
+    normalization_hits.extend(repair_hits)
 
-    metrics = [_segment_metrics(sentence) for sentence in deduped_sentences]
+    metrics = [_segment_metrics(sentence) for sentence in repaired_sentences]
     logger.info(
         "Chinese-primary post-ASR refine: "
-        f"{len(sentences)} -> {len(deduped_sentences)} segments | "
+        f"{len(sentences)} -> {len(repaired_sentences)} segments | "
         f"dropped={len(dropped_spans)} deduped={len(deduped_spans)}"
     )
     return ChinesePrimaryRefineResult(
-        sentences=deduped_sentences,
+        sentences=repaired_sentences,
         dropped_spans=dropped_spans,
         deduped_spans=deduped_spans,
         segment_metrics=[asdict(metric) for metric in metrics],
@@ -307,6 +309,71 @@ def _dedupe_nearby_segments(
     return kept, deduped
 
 
+def _repair_dialogue_segments(
+    sentences: list[Sentence],
+) -> tuple[list[Sentence], list[str]]:
+    if not sentences:
+        return [], []
+
+    repaired = [sentence.model_copy(deep=True) for sentence in sentences]
+    hits: list[str] = []
+    previous_text = ""
+
+    for index, sentence in enumerate(repaired):
+        updated_text = sentence.text
+
+        updated_text, changed = _replace_pattern(
+            updated_text,
+            re.compile(r"^(对|是的|嗯|没错)[，,、 ]*是我(?=第一次见面)"),
+            r"\1，是我。",
+        )
+        if changed:
+            hits.append(f"segment_{index}:confirmation_turn_boundary_inserted")
+
+        updated_text, changed = _replace_pattern(
+            updated_text,
+            re.compile(r"(第一次见面)(?=幸会)"),
+            r"\1，",
+        )
+        if changed:
+            hits.append(f"segment_{index}:first_meeting_politeness_boundary_inserted")
+
+        updated_text, changed = _normalize_polite_wait_question(updated_text)
+        if changed:
+            hits.append(f"segment_{index}:polite_wait_question_normalized")
+
+        updated_text, changed = _replace_pattern(
+            updated_text,
+            re.compile(r"(你是[^。！？!?]{0,10}吧)[。.!]?$"),
+            r"\1？",
+        )
+        if changed:
+            hits.append(f"segment_{index}:identity_question_mark_restored")
+
+        updated_text, changed = _replace_pattern(
+            updated_text,
+            re.compile(r"((?:等(?:很)?久了?吗|久等了?吗|等久了吗))[。.!]?$"),
+            r"\1？",
+        )
+        if changed:
+            hits.append(f"segment_{index}:wait_question_mark_restored")
+
+        if previous_text.rstrip("。！？?!") == "幸会":
+            updated_text, changed = _replace_pattern(
+                updated_text,
+                re.compile(r"^信会(?=(?:等(?:很)?久了?吗|久等了?吗|等久了吗))"),
+                "幸会",
+            )
+            if changed:
+                hits.append(f"segment_{index}:greeting_lexeme_corrected_from_context")
+
+        if updated_text != sentence.text:
+            sentence.text = updated_text
+        previous_text = sentence.text
+
+    return repaired, hits
+
+
 def _segment_metrics(sentence: Sentence) -> ChinesePrimarySegmentMetrics:
     text = sentence.text
     normalized = _normalized_text(text)
@@ -348,6 +415,30 @@ def _token_script(token: str) -> str:
     if token in _MAJOR_PUNCT or token in _MINOR_PUNCT or not _ALNUM_RE.search(token):
         return "punct"
     return "other"
+
+
+def _replace_pattern(text: str, pattern: re.Pattern[str], replacement: str) -> tuple[str, bool]:
+    updated = pattern.sub(replacement, text)
+    return updated, updated != text
+
+
+def _normalize_polite_wait_question(text: str) -> tuple[str, bool]:
+    pattern = re.compile(
+        r"(?P<lemma>信会|幸会)(?P<separator>[，,、 ]*)(?=(?:等(?:很)?久了?吗|久等了?吗|等久了吗))"
+    )
+
+    def replacement(match: re.Match[str]) -> str:
+        separator = match.group("separator")
+        cleaned = separator.strip()
+        if cleaned in {"，", ",", "、"}:
+            joiner = cleaned
+        else:
+            joiner = "，"
+        return f"幸会{joiner}"
+
+    updated = pattern.sub(replacement, text)
+    return updated, updated != text
+
 
 def _latin_tokens(text: str) -> list[str]:
     return re.findall(r"[A-Za-z]+(?:['’-][A-Za-z]+)?", text)

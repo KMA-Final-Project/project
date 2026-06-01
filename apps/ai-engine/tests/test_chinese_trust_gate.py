@@ -193,9 +193,9 @@ class _TrustGateAligner:
         provider_id = "whisper"
         model_id = "distil-large-v3.5"
         if normalized in {"zh", "yue"}:
-            route_id = route_override or "sensevoice_small"
-            provider_id = "sensevoice"
-            model_id = "SenseVoiceSmall"
+            route_id = route_override or async_mod.settings.asr_default_route_zh
+            provider_id = _provider_id_for_route(route_id)
+            model_id = _model_id_for_route(route_id)
         if route_override == "whisper_full":
             route_id = "whisper_full"
             provider_id = "whisper"
@@ -211,7 +211,11 @@ class _TrustGateAligner:
 
     def route_for_language(self, language: str | None) -> str:
         normalized = async_mod.settings.normalize_language_tag(language)
-        return "sensevoice_small" if normalized in {"zh", "yue"} else "distil_whisper_en"
+        return (
+            async_mod.settings.asr_default_route_zh
+            if normalized in {"zh", "yue"}
+            else "distil_whisper_en"
+        )
 
     def resolve_route(self, route: str) -> str:
         return route
@@ -275,8 +279,8 @@ class _TrustGateAligner:
         self.last_route_usage = {
             "requested_route": route,
             "actual_route": route,
-            "provider_id": "sensevoice" if route == "sensevoice_small" else "whisper",
-            "model_id": "SenseVoiceSmall" if route == "sensevoice_small" else "large-v3",
+            "provider_id": _provider_id_for_route(route),
+            "model_id": _model_id_for_route(route),
             "fallback_chain": (route,),
             "fallback_used": False,
             "during_asr_certified": route == "sensevoice_small",
@@ -297,6 +301,24 @@ class _TrustGatePipeline:
         self.merger = FakeMerger()
         self.llm = FakeLLM()
         self.last_run_metrics: dict[str, Any] = {}
+
+
+def _provider_id_for_route(route: str) -> str:
+    if route == "sensevoice_small":
+        return "sensevoice"
+    if route == "paraformer_zh":
+        return "paraformer"
+    return "whisper"
+
+
+def _model_id_for_route(route: str) -> str:
+    if route == "sensevoice_small":
+        return "SenseVoiceSmall"
+    if route == "paraformer_zh":
+        return "paraformer-zh"
+    if route == "whisper_full":
+        return "large-v3"
+    return "distil-large-v3.5"
 
 
 def test_pipeline_holds_untrusted_chinese_chunks_until_recovery_succeeds(
@@ -376,3 +398,55 @@ def test_pipeline_holds_untrusted_chinese_chunks_until_recovery_succeeds(
         == "suspicious_recover"
     )
     assert pipeline.last_run_metrics["trust_decision"]["ownership_trusted"] is True
+
+
+def test_pipeline_can_start_from_paraformer_default_route(monkeypatch, tmp_path) -> None:
+    chunk_events: list[int] = []
+
+    monkeypatch.setattr(async_mod, "update_media_status", _noop)
+    monkeypatch.setattr(async_mod, "publish_progress", _noop)
+    monkeypatch.setattr(
+        async_mod,
+        "publish_chunk_ready",
+        lambda **kwargs: chunk_events.append(int(kwargs["chunk_index"])),
+    )
+    monkeypatch.setattr(async_mod, "publish_batch_ready", _noop)
+    monkeypatch.setattr(async_mod, "NMTTranslator", _TrustGateNMTHolder)
+    monkeypatch.setattr(async_mod.settings, "AI_ENABLE_LLM_REFINEMENT", False)
+    monkeypatch.setattr(async_mod.settings, "AI_TRANSLATION_START_POLICY", "during_asr")
+    monkeypatch.setattr(async_mod.settings, "AI_ENABLE_NMT_PREFETCH", True)
+    monkeypatch.setattr(async_mod.settings, "AI_ASR_DEFAULT_ROUTE_ZH", "paraformer_zh")
+    monkeypatch.setattr(async_mod.settings, "AI_CHINESE_RECOVERY_ROUTE_IDS", "")
+    _TrustGateNMTHolder.translator = _TrustGateNMT()
+
+    audio_path = tmp_path / "input.wav"
+    audio_path.write_bytes(b"fake-audio")
+    pipeline = _TrustGatePipeline()
+    minio = _TrustGateRecordingMinio()
+
+    output = asyncio.run(
+        async_mod.run_v2_pipeline_async(
+            pipeline,
+            minio,
+            audio_path,
+            "media-zh-paraformer",
+            user_id="user-123",
+            started_at=time.time(),
+            target_lang="vi",
+            media_context={
+                "title": "Mandarin Chinese lesson for beginners",
+                "audioS3Key": "uploads/dialogue_sample.mp3",
+            },
+        )
+    )
+
+    assert [call["route_override"] for call in pipeline.aligner.process_calls] == [
+        "distil_whisper_en",
+        "paraformer_zh",
+    ]
+    assert pipeline.last_run_metrics["route"] == "paraformer_zh"
+    assert pipeline.last_run_metrics["translation_start_policy"] == "after_asr"
+    assert pipeline.last_run_metrics["trust_gate_active"] is True
+    assert chunk_events == [0]
+    assert output.metadata.source_lang == "zh"
+    assert output.metadata.model_used == "paraformer-zh"

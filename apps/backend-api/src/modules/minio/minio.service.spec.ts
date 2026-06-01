@@ -33,7 +33,7 @@ jest.mock('minio', () => {
 });
 
 describe('MinioService', () => {
-  const config = {
+  const config: Record<string, string> = {
     MINIO_ENDPOINT: 'localhost',
     MINIO_PORT: '9000',
     MINIO_USE_SSL: 'false',

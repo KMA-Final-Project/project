@@ -20,7 +20,12 @@ import {
 import { Role } from 'prisma/generated/client';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RolesGuard } from 'src/common/guards/roles.guard';
-import { OverviewService, PlanService, VariantService, UserAdminService } from './services';
+import {
+  OverviewService,
+  PlanService,
+  VariantService,
+  UserAdminService,
+} from './services';
 import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
 import { AdminOverviewDto } from './dto/overview.dto';
@@ -63,7 +68,9 @@ export class AdminController {
   }
 
   @Get('users/:id')
-  @ApiOperation({ summary: 'User detail: profile + subscription + usage history' })
+  @ApiOperation({
+    summary: 'User detail: profile + subscription + usage history',
+  })
   @ApiResponse({ status: 200, type: AdminUserDetailDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
   async findUserById(@Param('id') id: string): Promise<AdminUserDetailDto> {

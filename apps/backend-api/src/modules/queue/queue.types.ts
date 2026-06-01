@@ -32,6 +32,9 @@ export interface TranscriptionJobPayload {
 
   /** Target language for translation (defaults to 'vi' if omitted) */
   targetLanguage?: string;
+
+  /** Manually selected source language for skipping auto-probe */
+  sourceLanguage?: string;
 }
 
 /**
@@ -53,4 +56,7 @@ export interface AiProcessingJobPayload {
 
   /** Target language for translation (defaults to 'vi' if omitted) */
   targetLanguage?: string;
+
+  /** Manually selected source language for skipping auto-probe */
+  sourceLanguage?: string;
 }

@@ -55,7 +55,12 @@ export default function UploadModals({ visible, onClose }: UploadModalsProps) {
   };
 
   /** Submits the YouTube URL and navigates to processing screen */
-  const handleSubmitYT = async (payload: { url: string; title?: string }) => {
+  const handleSubmitYT = async (payload: {
+    url: string;
+    title?: string;
+    sourceLanguage?: string;
+    targetLanguage?: string;
+  }) => {
     try {
       const newItem = await submitYouTube(payload);
 

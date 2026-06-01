@@ -21,6 +21,7 @@ interface PlayerState {
 
   playbackSpeed: number; // 0.5 | 0.75 | 1.0 | 1.25 | 1.5
   loopSentence: boolean;
+  isPinned: boolean;
 
   mediaMode: PlayerMediaMode;
   playbackSourceKind: PlayerPlaybackSourceKind;
@@ -32,7 +33,9 @@ interface PlayerState {
   setActiveSentenceIndex: (i: number) => void;
   toggleLayer: (layer: PlayerLayer) => void;
   cycleSpeed: () => void;
+  setPlaybackSpeed: (speed: number) => void;
   toggleLoop: () => void;
+  togglePin: () => void;
   setMediaMode: (mode: PlayerMediaMode) => void;
   setPlaybackSourceKind: (kind: PlayerPlaybackSourceKind) => void;
   reset: () => void;
@@ -46,7 +49,9 @@ const initialState: Omit<
   | "setActiveSentenceIndex"
   | "toggleLayer"
   | "cycleSpeed"
+  | "setPlaybackSpeed"
   | "toggleLoop"
+  | "togglePin"
   | "setMediaMode"
   | "setPlaybackSourceKind"
   | "reset"
@@ -62,6 +67,7 @@ const initialState: Omit<
 
   playbackSpeed: 1.0,
   loopSentence: false,
+  isPinned: false,
 
   mediaMode: "audio" as const,
   playbackSourceKind: "fallback" as const,
@@ -98,7 +104,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ playbackSpeed: nextSpeed });
   },
 
+  setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
+
   toggleLoop: () => set((s) => ({ loopSentence: !s.loopSentence })),
+
+  togglePin: () => set((s) => ({ isPinned: !s.isPinned })),
 
   setMediaMode: (mode) => set({ mediaMode: mode }),
   setPlaybackSourceKind: (kind) => set({ playbackSourceKind: kind }),

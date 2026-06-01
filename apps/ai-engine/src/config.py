@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     )
     AI_ASR_DEFAULT_ROUTE_ZH: str = Field(
         default="sensevoice_small",
+        # default="paraformer_zh",
         description="Default ASR route id for Chinese-family audio.",
     )
     AI_ASR_EXPERIMENTAL_ROUTE_ZH: str = Field(
@@ -225,6 +226,15 @@ class Settings(BaseSettings):
         default=True,
         description="Allow whisper_full as the final Chinese-family recovery route.",
     )
+    AI_CHINESE_RECOVERY_ROUTE_IDS: str = Field(
+        default="",
+        description=(
+            "Optional comma-separated internal ASR route ids attempted after the "
+            "initially selected Chinese-family route when trust-gated recovery is "
+            "needed. Leave empty to derive the chain from the current Chinese "
+            "default route plus enabled safe fallbacks."
+        ),
+    )
     AI_CHINESE_TRUST_EARLY_WINDOW_SENTENCES: int = Field(
         default=8,
         description="Number of leading transcript sentences used for early-window Chinese trust heuristics.",
@@ -333,6 +343,133 @@ class Settings(BaseSettings):
         default="王靖=>王静;感觉想完成任务=>感觉像完成任务;当回吧=>当回报;选你做的菜=>学你做的菜",
         description="Semicolon-separated equal-length Chinese text normalization rules applied before translation in Chinese-primary mode.",
     )
+    AI_CHINESE_LLM_RESCUE_ENABLED: bool = Field(
+        default=True,
+        description="Enable selective local LLM rescue for structurally risky Chinese translation batches.",
+    )
+    AI_CHINESE_LINGUISTIC_RADAR_ENABLED: bool = Field(
+        default=True,
+        description="Enable the SenseVoice-focused Chinese linguistic radar that detects structural jamming patterns before LLM rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_SPLIT_HINTS_ENABLED: bool = Field(
+        default=True,
+        description="Allow prompt-only [split_hint] insertions for radar-detected Chinese structural jams.",
+    )
+    AI_CHINESE_LLM_RESCUE_SPLIT_HINT_ROUTE_IDS: str = Field(
+        default="sensevoice_small",
+        description="Comma-separated ASR route ids eligible for Chinese [split_hint] radar injection.",
+    )
+    AI_CHINESE_LLM_RESCUE_SPLIT_HINT_MAX_PER_SEGMENT: int = Field(
+        default=2,
+        description="Maximum number of [split_hint] markers the Chinese radar may inject into one target segment.",
+    )
+    AI_CHINESE_LLM_RESCUE_SPLIT_HINT_MAX_PER_BATCH: int = Field(
+        default=3,
+        description="Maximum number of [split_hint] markers the Chinese radar may inject across one LLM rescue batch.",
+    )
+    AI_CHINESE_LLM_RESCUE_MODEL: str = Field(
+        default="qwen2.5:7b-instruct",
+        description="Ollama model used for Chinese batch punctuation+translation rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_KEEP_ALIVE: str = Field(
+        default="5m",
+        description="Ollama keep_alive value used to keep the Chinese rescue model resident between batch calls.",
+    )
+    AI_CHINESE_LLM_RESCUE_MAX_SEGMENTS: int = Field(
+        default=6,
+        description="Maximum number of target subtitle segments sent in one Chinese LLM rescue request.",
+    )
+    AI_CHINESE_LLM_RESCUE_MAX_SECONDS: float = Field(
+        default=18.0,
+        description="Maximum total target-audio duration sent in one Chinese LLM rescue request.",
+    )
+    AI_CHINESE_LLM_RESCUE_MAX_SOURCE_CHARS: int = Field(
+        default=180,
+        description="Maximum total source characters sent in one Chinese LLM rescue request.",
+    )
+    AI_CHINESE_LLM_RESCUE_SHADOW_SEGMENTS: int = Field(
+        default=1,
+        description="Number of context-only subtitle segments included before and after each Chinese rescue target window when available.",
+    )
+    AI_CHINESE_LLM_RESCUE_MIN_HAN_CHARS: int = Field(
+        default=40,
+        description="Minimum total Han-character count before a Chinese batch becomes eligible for LLM rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_MIN_SOURCE_CHARS: int = Field(
+        default=30,
+        description="Minimum total source character count before a Chinese batch becomes eligible for LLM rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_TERMINAL_RUN: int = Field(
+        default=3,
+        description="Number of consecutive punctuationless Chinese segments that triggers LLM rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_MIN_PUNCT_DENSITY: float = Field(
+        default=0.015,
+        description="Minimum terminal punctuation density expected from a healthy Chinese subtitle batch.",
+    )
+    AI_CHINESE_LLM_RESCUE_OVERLONG_SECONDS: float = Field(
+        default=6.5,
+        description="Segment duration threshold above which an unpunctuated Chinese segment becomes structurally risky.",
+    )
+    AI_CHINESE_LLM_RESCUE_OVERLONG_HAN_CHARS: int = Field(
+        default=28,
+        description="Han-character threshold above which an unpunctuated Chinese segment becomes structurally risky.",
+    )
+    AI_CHINESE_LLM_RESCUE_SHORT_SEGMENT_MAX_SECONDS: float = Field(
+        default=4.2,
+        description="Maximum segment duration considered a compact dialogue turn for Chinese LLM rescue heuristics.",
+    )
+    AI_CHINESE_LLM_RESCUE_COMPACT_DIALOGUE_MAX_SECONDS: float = Field(
+        default=18.0,
+        description="Maximum total duration of a compact Chinese dialogue block eligible for proactive LLM rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_COMPACT_DIALOGUE_MAX_SEGMENTS: int = Field(
+        default=6,
+        description="Maximum segment count of a compact Chinese dialogue block eligible for proactive LLM rescue.",
+    )
+    AI_CHINESE_LLM_RESCUE_COMPACT_DIALOGUE_MIN_SHORT_SEGMENTS: int = Field(
+        default=2,
+        description="Minimum short dialogue turns required before the compact Chinese dialogue rescue heuristic can trigger.",
+    )
+    AI_CHINESE_LLM_RESCUE_TEMPERATURE: float = Field(
+        default=0.1,
+        description="Temperature used for Chinese batch LLM rescue prompts.",
+    )
+    AI_CHINESE_LLM_RESCUE_NUM_CTX: int = Field(
+        default=8192,
+        description="Ollama context window used for Chinese batch LLM rescue prompts.",
+    )
+    AI_CHINESE_ALIGNMENT_STRATEGY: str = Field(
+        default="linear_smeared",
+        description=(
+            "Chinese timing post-processing strategy. "
+            "Use qwen3_forced_after_llm only for the narrow CPU forced-align experiment."
+        ),
+    )
+    AI_QWEN3_FORCE_ALIGNER_MODEL: str = Field(
+        default="Qwen/Qwen3-ForcedAligner-0.6B",
+        description="Model id used by the internal CPU-only Qwen3 forced aligner.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_DEVICE: str = Field(
+        default="cpu",
+        description="Execution device for the internal Qwen3 forced aligner. V1 normalizes to cpu.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_ROUTE_IDS: str = Field(
+        default="sensevoice_small",
+        description="Comma-separated ASR route ids eligible for post-LLM Qwen3 forced alignment.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_MAX_SEGMENT_SECONDS: float = Field(
+        default=20.0,
+        description="Maximum sentence duration eligible for CPU Qwen3 forced alignment.",
+    )
+    AI_QWEN3_FORCE_ALIGNER_NUM_THREADS: int = Field(
+        default=0,
+        description="Torch CPU thread count for Qwen3 forced alignment. 0 auto-resolves to min(8, cpu_count).",
+    )
+    AI_QWEN3_FORCE_ALIGNER_CACHE_DIR: Path = Field(
+        default=Path("temp/models/qwen3-forced-aligner"),
+        description="Cache directory for the internal Qwen3 forced-aligner assets.",
+    )
     AI_TRANSLATION_START_POLICY: str = Field(
         default="during_asr",
         description=(
@@ -341,7 +478,7 @@ class Settings(BaseSettings):
         ),
     )
     AI_ENABLE_NMT_PREFETCH: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Load the NMT model before translation starts. Disabled by default "
             "for the single-GPU hybrid path."
@@ -589,6 +726,7 @@ class Settings(BaseSettings):
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
         os.makedirs(self.AI_ASR_PROVIDER_CACHE_DIR, exist_ok=True)
         os.makedirs(self.AI_AUDIO_INSPECTOR_CACHE_DIR, exist_ok=True)
+        os.makedirs(self.AI_QWEN3_FORCE_ALIGNER_CACHE_DIR, exist_ok=True)
 
     @staticmethod
     def normalize_language_tag(language: str | None) -> str:
@@ -674,6 +812,85 @@ class Settings(BaseSettings):
     @property
     def asr_force_route(self) -> str:
         return self.normalize_route_id(self.AI_ASR_FORCE_ROUTE)
+
+    @property
+    def chinese_recovery_route_ids(self) -> tuple[str, ...]:
+        routes: list[str] = []
+        configured_routes = [
+            self.normalize_route_id(route)
+            for route in self.parse_csv_tokens(self.AI_CHINESE_RECOVERY_ROUTE_IDS)
+            if self.normalize_route_id(route)
+        ]
+        if configured_routes:
+            candidates = configured_routes
+        else:
+            candidates = [self.asr_default_route_zh]
+            if self.AI_CHINESE_RECOVERY_ENABLE_SENSEVOICE:
+                candidates.append("sensevoice_small")
+            if self.AI_CHINESE_RECOVERY_ENABLE_WHISPER_FULL:
+                candidates.append(self.asr_fallback_route_zh)
+
+        for normalized in candidates:
+            if (
+                normalized == "sensevoice_small"
+                and not self.AI_CHINESE_RECOVERY_ENABLE_SENSEVOICE
+            ):
+                continue
+            if (
+                normalized == "whisper_full"
+                and not self.AI_CHINESE_RECOVERY_ENABLE_WHISPER_FULL
+            ):
+                continue
+            if normalized and normalized not in routes:
+                routes.append(normalized)
+        return tuple(routes)
+
+    @property
+    def chinese_llm_rescue_split_hint_route_ids(self) -> frozenset[str]:
+        routes = {
+            self.normalize_route_id(route)
+            for route in self.parse_csv_tokens(
+                self.AI_CHINESE_LLM_RESCUE_SPLIT_HINT_ROUTE_IDS
+            )
+            if self.normalize_route_id(route)
+        }
+        if not routes:
+            routes = {"sensevoice_small"}
+        return frozenset(routes)
+
+    @property
+    def chinese_alignment_strategy(self) -> str:
+        value = (
+            str(self.AI_CHINESE_ALIGNMENT_STRATEGY or "linear_smeared").strip().lower()
+        )
+        if value not in {"linear_smeared", "qwen3_forced_after_llm"}:
+            return "linear_smeared"
+        return value
+
+    @property
+    def qwen3_force_aligner_device(self) -> str:
+        value = str(self.AI_QWEN3_FORCE_ALIGNER_DEVICE or "cpu").strip().lower()
+        if value != "cpu":
+            return "cpu"
+        return value
+
+    @property
+    def qwen3_force_aligner_route_ids(self) -> frozenset[str]:
+        routes = {
+            self.normalize_route_id(route)
+            for route in self.parse_csv_tokens(self.AI_QWEN3_FORCE_ALIGNER_ROUTE_IDS)
+            if self.normalize_route_id(route)
+        }
+        if not routes:
+            routes = {"sensevoice_small"}
+        return frozenset(routes)
+
+    @property
+    def qwen3_force_aligner_num_threads(self) -> int:
+        configured = int(self.AI_QWEN3_FORCE_ALIGNER_NUM_THREADS or 0)
+        if configured > 0:
+            return configured
+        return min(8, os.cpu_count() or 1)
 
     @property
     def translation_start_policy(self) -> str:

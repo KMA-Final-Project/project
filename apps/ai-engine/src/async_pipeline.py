@@ -14,14 +14,19 @@ from __future__ import annotations
 
 import asyncio
 import time as _time
+import unicodedata
 from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
 from typing import Any, List
 
+import numpy as np
 from loguru import logger
 
 from src.config import settings
+from src.core.chinese_batch_llm_translator import (
+    ChineseBatchLLMTranslator,
+)
 from src.core.chinese_candidate_normalizer import (
     ChineseCandidateNormalizeResult,
     normalize_chinese_candidate_sentences,
@@ -40,6 +45,7 @@ from src.core.chinese_window_repairer import (
 from src.core.chinese_prior import ChineseRoutePrior, build_chinese_route_prior
 from src.core.nmt_translator import NMTTranslator
 from src.core.pipeline import PipelineOrchestrator
+from src.core.qwen3_forced_aligner import Qwen3ForcedAlignerProvider
 from src.core.semantic_merger import OVERLAP_LINES, SemanticMerger
 from src.core.transcript_trust_gate import (
     ChineseTrustGateError,
@@ -55,6 +61,7 @@ from src.schemas import (
     SubtitleMetadata,
     SubtitleOutput,
     TranslatedBatch,
+    Word,
 )
 
 # ---------------------------------------------------------------------------
@@ -71,6 +78,7 @@ _CJK_LANGUAGES: frozenset[str] = frozenset({"zh", "ja", "ko", "yue"})
 # when CHUNK_SIZE=8.
 CJK_MERGE_MULTIPLIER: int = 3
 NON_CJK_LOOKAHEAD_LINES: int = OVERLAP_LINES
+_MIN_QWEN3_CHAR_MATCH_RATE: float = 0.6
 
 _PIPELINE_STAGE_ORDER: dict[str, int] = {
     "AUDIO_PREP": 0,
@@ -125,6 +133,502 @@ def _batch_sentences(sentences: list[Sentence], chunk_size: int) -> list[list[Se
         list(sentences[index : index + size])
         for index in range(0, len(sentences), size)
     ]
+
+
+def _empty_forced_alignment_metrics() -> dict[str, Any]:
+    return {
+        "attempted_segments": 0,
+        "aligned_segments": 0,
+        "skipped_segments": 0,
+        "downgraded_segments": 0,
+        "failure_reasons": {},
+        "model_load_seconds": 0.0,
+        "total_forced_align_seconds": 0.0,
+    }
+
+
+def _increment_forced_alignment_reason(
+    metrics: dict[str, Any],
+    reason: str,
+    *,
+    count: int = 1,
+) -> None:
+    reasons = metrics.setdefault("failure_reasons", {})
+    reasons[reason] = int(reasons.get(reason, 0)) + count
+
+
+def _is_latin_alnum_character(char: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", str(char or ""))
+    return len(normalized) == 1 and normalized.isascii() and normalized.isalnum()
+
+
+def _alignment_text_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    raw = str(text or "")
+    index = 0
+    while index < len(raw):
+        char = raw[index]
+        category = unicodedata.category(char)
+        if category.startswith(("Z", "C")):
+            index += 1
+            continue
+        if _is_latin_alnum_character(char):
+            run: list[str] = [char]
+            index += 1
+            while index < len(raw) and _is_latin_alnum_character(raw[index]):
+                run.append(raw[index])
+                index += 1
+            tokens.append("".join(run))
+            continue
+        tokens.append(char)
+        index += 1
+    return tokens
+
+
+def _alignment_token_key(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    meaningful = "".join(
+        char
+        for char in normalized
+        if not unicodedata.category(char).startswith(("Z", "C"))
+    )
+    if not meaningful:
+        return ""
+    if all(unicodedata.category(char).startswith("P") for char in meaningful):
+        return meaningful
+    return _normalize_alignment_characters(meaningful)
+
+
+def _merge_latin_character_words(sentence: Sentence) -> None:
+    if len(sentence.words) < 2:
+        return
+
+    text_tokens = _alignment_text_tokens(sentence.text)
+    if not text_tokens:
+        return
+
+    source_words = [word.model_copy(deep=True) for word in sentence.words]
+    merged_words: list[Word] = []
+    word_index = 0
+
+    for token in text_tokens:
+        token_key = _alignment_token_key(token)
+        if not token_key:
+            continue
+
+        consumed_words: list[Word] = []
+        accumulated_key = ""
+        while word_index < len(source_words) and len(accumulated_key) < len(token_key):
+            next_word = source_words[word_index]
+            word_index += 1
+            word_key = _alignment_token_key(next_word.word)
+            if not word_key:
+                continue
+            consumed_words.append(next_word)
+            accumulated_key += word_key
+            if accumulated_key == token_key:
+                break
+
+        if not consumed_words or accumulated_key != token_key:
+            return
+
+        if len(consumed_words) == 1 and consumed_words[0].word == token:
+            merged_words.append(consumed_words[0])
+            continue
+
+        merged_words.append(
+            Word(
+                word=token,
+                start=consumed_words[0].start,
+                end=consumed_words[-1].end,
+                confidence=min(word.confidence for word in consumed_words),
+                phoneme=(
+                    consumed_words[0].phoneme
+                    if len(consumed_words) == 1
+                    else None
+                ),
+            )
+        )
+
+    remaining_words = source_words[word_index:]
+    if any(_alignment_token_key(word.word) for word in remaining_words):
+        return
+    if not merged_words:
+        return
+
+    sentence.words = merged_words
+    sentence.start = merged_words[0].start
+    sentence.end = merged_words[-1].end
+
+
+def _slice_sentence_audio(
+    audio_array: np.ndarray | None,
+    sentence: Sentence,
+    *,
+    sample_rate: int = 16000,
+) -> tuple[np.ndarray | None, str | None]:
+    if audio_array is None or audio_array.size == 0:
+        return None, "audio_unavailable"
+
+    start_index = max(0, int(round(sentence.start * sample_rate)))
+    end_index = min(audio_array.shape[0], int(round(sentence.end * sample_rate)))
+    if end_index <= start_index:
+        return None, "audio_slice_empty"
+
+    clipped = np.asarray(audio_array[start_index:end_index], dtype=np.float32)
+    if clipped.size == 0:
+        return None, "audio_slice_empty"
+    return clipped, None
+
+
+def _restore_sentence_timing(sentence: Sentence, baseline: Sentence) -> None:
+    sentence.start = baseline.start
+    sentence.end = baseline.end
+    sentence.words = [word.model_copy(deep=True) for word in baseline.words]
+
+
+def _is_punctuation_only_token(text: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    meaningful = [
+        char
+        for char in normalized
+        if not unicodedata.category(char).startswith(("Z", "C"))
+    ]
+    return bool(meaningful) and all(
+        unicodedata.category(char).startswith("P") for char in meaningful
+    )
+
+
+def _normalize_alignment_characters(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    compact = "".join(
+        char
+        for char in normalized
+        if not unicodedata.category(char).startswith(("P", "Z", "C"))
+    )
+    return compact.casefold()
+
+
+def _spoken_word_entries(words: list[Word]) -> list[tuple[int, Word, str]]:
+    return [
+        (index, word, normalized_chars)
+        for index, word in enumerate(words)
+        if (normalized_chars := _normalize_alignment_characters(word.word))
+    ]
+
+
+def _aligned_char_timing_map(
+    aligned_units: list[Any],
+    *,
+    segment_start: float,
+) -> tuple[str, list[tuple[float, float]]]:
+    canonical_chars: list[str] = []
+    char_timings: list[tuple[float, float]] = []
+
+    for item in aligned_units:
+        normalized_chars = _normalize_alignment_characters(item.text)
+        if not normalized_chars:
+            continue
+
+        unit_start = segment_start + float(item.start)
+        unit_end = segment_start + float(item.end)
+
+        for char in normalized_chars:
+            canonical_chars.append(char)
+            char_timings.append((unit_start, unit_end))
+
+    return "".join(canonical_chars).casefold(), char_timings
+
+
+def _baseline_char_timing_map(
+    baseline_spoken_words: list[tuple[int, Word, str]],
+) -> tuple[str, list[tuple[float, float]], list[tuple[int, int, int]]]:
+    canonical_chars: list[str] = []
+    char_timings: list[tuple[float, float]] = []
+    word_ranges: list[tuple[int, int, int]] = []
+
+    for word_index, word, normalized_chars in baseline_spoken_words:
+        start_char = len(canonical_chars)
+        char_count = len(normalized_chars)
+        word_duration = max(0.0, float(word.end) - float(word.start))
+        for char_index, char in enumerate(normalized_chars):
+            char_start = float(word.start) + (word_duration * char_index / char_count)
+            char_end = float(word.start) + (
+                word_duration * (char_index + 1) / char_count
+            )
+            canonical_chars.append(char)
+            char_timings.append((char_start, char_end))
+        word_ranges.append((word_index, start_char, len(canonical_chars)))
+
+    return "".join(canonical_chars).casefold(), char_timings, word_ranges
+
+
+def _lcs_character_matches(
+    baseline_text: str,
+    aligned_text: str,
+) -> list[tuple[int, int]]:
+    if not baseline_text or not aligned_text:
+        return []
+
+    baseline_len = len(baseline_text)
+    aligned_len = len(aligned_text)
+    dp = [[0] * (aligned_len + 1) for _ in range(baseline_len + 1)]
+
+    for baseline_index in range(baseline_len - 1, -1, -1):
+        for aligned_index in range(aligned_len - 1, -1, -1):
+            if baseline_text[baseline_index] == aligned_text[aligned_index]:
+                dp[baseline_index][aligned_index] = (
+                    1 + dp[baseline_index + 1][aligned_index + 1]
+                )
+            else:
+                dp[baseline_index][aligned_index] = max(
+                    dp[baseline_index + 1][aligned_index],
+                    dp[baseline_index][aligned_index + 1],
+                )
+
+    matches: list[tuple[int, int]] = []
+    baseline_index = 0
+    aligned_index = 0
+    while baseline_index < baseline_len and aligned_index < aligned_len:
+        if baseline_text[baseline_index] == aligned_text[aligned_index]:
+            matches.append((baseline_index, aligned_index))
+            baseline_index += 1
+            aligned_index += 1
+            continue
+        if dp[baseline_index + 1][aligned_index] >= dp[baseline_index][aligned_index + 1]:
+            baseline_index += 1
+        else:
+            aligned_index += 1
+
+    return matches
+
+
+def _matched_char_timings_are_monotonic(
+    aligned_char_timings: list[tuple[float, float]],
+    matched_pairs: list[tuple[int, int]],
+) -> bool:
+    last_start: float | None = None
+    last_end: float | None = None
+    for _baseline_index, aligned_index in matched_pairs:
+        start, end = aligned_char_timings[aligned_index]
+        if end < start:
+            return False
+        if last_start is not None and start < (last_start - 1e-6):
+            return False
+        if last_end is not None and end < (last_end - 1e-6):
+            return False
+        last_start = start
+        last_end = end
+    return True
+
+
+def _preview_text(text: str, *, limit: int = 120) -> str:
+    compact = str(text or "").replace("\n", " ").strip()
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."
+
+
+def _forced_alignment_unit_preview(aligned_units: list[Any]) -> list[str]:
+    preview: list[str] = []
+    for item in aligned_units[:12]:
+        raw_text = str(getattr(item, "text", ""))
+        preview.append(raw_text)
+    return preview
+
+
+def _log_forced_alignment_diagnostics(
+    *,
+    sentence: Sentence,
+    baseline_words: list[Word],
+    baseline_canonical: str,
+    aligned_units: list[Any],
+    aligned_canonical: str,
+    matched_pairs: list[tuple[int, int]],
+    reason: str,
+) -> None:
+    baseline_tokens = [word.word for word in baseline_words]
+    logger.warning(
+        "Qwen3 forced-alignment diagnostic | segment={} | reason={} | match_rate={:.3f} | baseline_chars={} | aligned_chars={} | text='{}' | baseline_tokens={} | aligned_units={} | baseline_canonical='{}' | aligned_canonical='{}'",
+        sentence.segment_index,
+        reason,
+        len(matched_pairs) / max(len(baseline_canonical), 1),
+        len(baseline_canonical),
+        len(aligned_canonical),
+        _preview_text(sentence.text),
+        baseline_tokens,
+        _forced_alignment_unit_preview(aligned_units),
+        _preview_text(baseline_canonical, limit=200),
+        _preview_text(aligned_canonical, limit=200),
+    )
+
+
+def _apply_qwen3_forced_alignment(
+    sentences: list[Sentence],
+    *,
+    source_lang: str,
+    actual_route: str,
+    audio_array: np.ndarray | None,
+    metrics: dict[str, Any],
+    eligibility_reasons: list[str | None] | None = None,
+) -> None:
+    if settings.chinese_alignment_strategy != "qwen3_forced_after_llm":
+        return
+    if source_lang not in {"zh", "yue"}:
+        return
+
+    for sentence in sentences:
+        _merge_latin_character_words(sentence)
+
+    eligibility = list(eligibility_reasons or [])
+    if len(eligibility) < len(sentences):
+        eligibility.extend([None] * (len(sentences) - len(eligibility)))
+
+    if actual_route not in settings.qwen3_force_aligner_route_ids:
+        for reason in eligibility[: len(sentences)]:
+            metrics["skipped_segments"] += 1
+            _increment_forced_alignment_reason(
+                metrics,
+                "route_not_allowlisted" if reason is None else reason,
+            )
+        return
+
+    provider = Qwen3ForcedAlignerProvider.get_instance()
+    max_duration = float(settings.AI_QWEN3_FORCE_ALIGNER_MAX_SEGMENT_SECONDS)
+
+    for index, sentence in enumerate(sentences):
+        baseline = sentence.model_copy(deep=True)
+        eligibility_reason = (
+            eligibility[index] if index < len(eligibility) else None
+        )
+        if eligibility_reason is not None:
+            metrics["skipped_segments"] += 1
+            _increment_forced_alignment_reason(metrics, eligibility_reason)
+            continue
+        if not sentence.words:
+            metrics["skipped_segments"] += 1
+            _increment_forced_alignment_reason(metrics, "no_baseline_words")
+            continue
+        if (sentence.end - sentence.start) > max_duration:
+            metrics["skipped_segments"] += 1
+            _increment_forced_alignment_reason(metrics, "segment_too_long")
+            continue
+
+        segment_audio, audio_error = _slice_sentence_audio(audio_array, sentence)
+        if audio_error is not None or segment_audio is None:
+            metrics["skipped_segments"] += 1
+            _increment_forced_alignment_reason(metrics, audio_error or "audio_unavailable")
+            continue
+
+        metrics["attempted_segments"] += 1
+        load_elapsed = provider.ensure_loaded()
+        metrics["model_load_seconds"] += load_elapsed
+        align_started_at = _time.perf_counter()
+        try:
+            aligned_units = provider.align_sentence(
+                audio=segment_audio,
+                sample_rate=16000,
+                reference_text=sentence.text,
+                source_lang=source_lang,
+                baseline_words=sentence.words,
+            )
+        except Exception as exc:
+            metrics["downgraded_segments"] += 1
+            metrics["total_forced_align_seconds"] += load_elapsed + (
+                _time.perf_counter() - align_started_at
+            )
+            _increment_forced_alignment_reason(metrics, "provider_error")
+            _restore_sentence_timing(sentence, baseline)
+            logger.warning(
+                "Qwen3 forced alignment failed for segment {} on route {}: {}",
+                sentence.segment_index,
+                actual_route,
+                exc,
+            )
+            continue
+
+        metrics["total_forced_align_seconds"] += load_elapsed + (
+            _time.perf_counter() - align_started_at
+        )
+        if not aligned_units:
+            metrics["downgraded_segments"] += 1
+            _increment_forced_alignment_reason(metrics, "no_items_returned")
+            _restore_sentence_timing(sentence, baseline)
+            continue
+
+        baseline_words = list(baseline.words)
+        baseline_spoken_words = _spoken_word_entries(baseline_words)
+
+        if not baseline_spoken_words:
+            metrics["downgraded_segments"] += 1
+            _increment_forced_alignment_reason(metrics, "no_spoken_baseline_words")
+            _restore_sentence_timing(sentence, baseline)
+            continue
+
+        baseline_canonical, baseline_char_timings, word_char_ranges = (
+            _baseline_char_timing_map(baseline_spoken_words)
+        )
+        aligned_canonical, char_timings = _aligned_char_timing_map(
+            aligned_units,
+            segment_start=baseline.start,
+        )
+        matched_pairs = _lcs_character_matches(baseline_canonical, aligned_canonical)
+        if not _matched_char_timings_are_monotonic(char_timings, matched_pairs):
+            metrics["downgraded_segments"] += 1
+            _increment_forced_alignment_reason(metrics, "timeline_inversion")
+            _log_forced_alignment_diagnostics(
+                sentence=sentence,
+                baseline_words=baseline_words,
+                baseline_canonical=baseline_canonical,
+                aligned_units=aligned_units,
+                aligned_canonical=aligned_canonical,
+                matched_pairs=matched_pairs,
+                reason="timeline_inversion",
+            )
+            _restore_sentence_timing(sentence, baseline)
+            continue
+        match_rate = len(matched_pairs) / max(len(baseline_canonical), 1)
+        if match_rate < _MIN_QWEN3_CHAR_MATCH_RATE:
+            metrics["downgraded_segments"] += 1
+            _increment_forced_alignment_reason(metrics, "match_rate_too_low")
+            _log_forced_alignment_diagnostics(
+                sentence=sentence,
+                baseline_words=baseline_words,
+                baseline_canonical=baseline_canonical,
+                aligned_units=aligned_units,
+                aligned_canonical=aligned_canonical,
+                matched_pairs=matched_pairs,
+                reason="match_rate_too_low",
+            )
+            _restore_sentence_timing(sentence, baseline)
+            continue
+
+        merged_char_timings = list(baseline_char_timings)
+        for baseline_char_index, aligned_char_index in matched_pairs:
+            merged_char_timings[baseline_char_index] = char_timings[aligned_char_index]
+
+        spoken_timing_by_index: dict[int, tuple[float, float]] = {}
+        for word_index, start_char, end_char in word_char_ranges:
+            spoken_timing_by_index[word_index] = (
+                merged_char_timings[start_char][0],
+                merged_char_timings[end_char - 1][1],
+            )
+
+        last_spoken_timing: tuple[float, float] | None = None
+        for word_index, word in enumerate(sentence.words):
+            spoken_timing = spoken_timing_by_index.get(word_index)
+            if spoken_timing is not None:
+                word.start, word.end = spoken_timing
+                last_spoken_timing = spoken_timing
+                continue
+            if _is_punctuation_only_token(word.word) and last_spoken_timing is not None:
+                word.start, word.end = last_spoken_timing
+
+        first_spoken_index = baseline_spoken_words[0][0]
+        last_spoken_index = baseline_spoken_words[-1][0]
+        sentence.start = sentence.words[first_spoken_index].start
+        sentence.end = sentence.words[last_spoken_index].end
+        metrics["aligned_segments"] += 1
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +698,7 @@ async def run_v2_pipeline_async(
         "producer_wait": 0.0,
         "consumer_merge": 0.0,
         "consumer_nmt": 0.0,
+        "consumer_llm": 0.0,
         "consumer_upload": 0.0,
         "consumer_idle": 0.0,
     }
@@ -319,6 +824,8 @@ async def run_v2_pipeline_async(
     chinese_refine_result = ChinesePrimaryRefineResult([], [], [], [], [])
     chinese_repair_result = ChineseWindowRepairResult([], [])
     skip_cjk_semantic_merge = False
+    chinese_llm_metrics: list[dict[str, Any]] = []
+    chinese_forced_alignment_metrics = _empty_forced_alignment_metrics()
 
     if configured_source_hint:
         selected_source_lang = configured_source_hint
@@ -357,14 +864,19 @@ async def run_v2_pipeline_async(
         selected_source_lang = chinese_prior.suspected_family
         routing_strategy = "chinese_prior"
 
+    route_override_zh = None
+    if local_source_hint and local_source_hint.startswith("zh"):
+        route_override_zh = "sensevoice_small"
+
     if hasattr(pipeline.aligner, "route_decision_for_language"):
         route_decision = pipeline.aligner.route_decision_for_language(
             selected_source_lang or None,
             requested_policy=translation_start_policy,
+            route_override=route_override_zh,
         )
     else:
         legacy_route = pipeline.aligner.resolve_route(
-            pipeline.aligner.route_for_language(selected_source_lang or None)
+            route_override_zh or pipeline.aligner.route_for_language(selected_source_lang or None)
         )
         legacy_model_name = (
             settings.WHISPER_MODEL_FULL
@@ -559,6 +1071,7 @@ async def run_v2_pipeline_async(
         )
         merger = pipeline.merger
         llm = pipeline.llm
+        chinese_llm_translator = ChineseBatchLLMTranslator(llm)
 
         all_sentences: list[Sentence] = []
         cjk_buffer: list[Sentence] = []
@@ -569,6 +1082,7 @@ async def run_v2_pipeline_async(
         context_analyzed: bool = False
         upload_semaphore = asyncio.Semaphore(2)
         upload_tasks: list[asyncio.Task[None]] = []
+        pending_cjk_translation_batch: list[Sentence] | None = None
 
         def _source_lang() -> str:
             return source_lang_holder[0] or "en"
@@ -640,6 +1154,9 @@ async def run_v2_pipeline_async(
 
         def _translate_batch(
             sentences: list[Sentence],
+            *,
+            context_before: list[Sentence] | None = None,
+            context_after: list[Sentence] | None = None,
         ) -> tuple[list[Sentence], int, str, str, float]:
             """Translate via NMT and optional LLM refinement."""
             nonlocal context_result, context_analyzed, nmt
@@ -652,22 +1169,51 @@ async def run_v2_pipeline_async(
             src = _source_lang()
             tgt = target_lang
             texts = [s.text for s in sentences]
+            nmt_time_spent = 0.0
 
-            nmt_started_at = _time.perf_counter()
+            def _translate_with_nmt(batch_texts: list[str]) -> list[str]:
+                nonlocal nmt, nmt_time_spent
+                nmt_call_started_at = _time.perf_counter()
+                if nmt is None:
+                    nmt = NMTTranslator.get_instance()
+                result = nmt.translate_batch(batch_texts, src, tgt)
+                nmt_time_spent += _time.perf_counter() - nmt_call_started_at
+                return result
+
             if src == tgt:
                 nmt_translations = list(texts)
                 logger.debug(
                     f"⏭️ NMT skipped (source == target): {len(sentences)} segments"
                 )
+            elif src in {"zh", "yue"} and settings.AI_CHINESE_LLM_RESCUE_ENABLED:
+                llm_started_at = _time.perf_counter()
+                llm_rescue_result = chinese_llm_translator.translate_batch(
+                    sentences,
+                    target_lang=tgt,
+                    fallback_translate=_translate_with_nmt,
+                    context_before=context_before,
+                    context_after=context_after,
+                    source_lang=src,
+                    actual_route=str(route_usage.get("actual_route") or selected_route),
+                )
+                _add_timing("consumer_llm", _time.perf_counter() - llm_started_at)
+                chinese_llm_metrics.append(llm_rescue_result.as_metrics())
+                llm_batches_used = llm_rescue_result.as_metrics()["llm_batches_used"]
+                fallback_batches = llm_rescue_result.as_metrics()["fallback_batches"]
+                nmt_translations = [sentence.translation for sentence in llm_rescue_result.sentences]
+                sentences = [sentence.model_copy(deep=True) for sentence in llm_rescue_result.sentences]
+                logger.info(
+                    f"🈶 Chinese batch translation {batch_index}: {len(sentences)} segments "
+                    f"(llm_batches={llm_batches_used}, llm_fallbacks={fallback_batches})"
+                )
             else:
-                if nmt is None:
-                    nmt = NMTTranslator.get_instance()
-                nmt_translations = nmt.translate_batch(texts, src, tgt)
+                nmt_started_at = _time.perf_counter()
+                nmt_translations = _translate_with_nmt(texts)
                 logger.info(
                     f"🌐 NMT batch {batch_index}: {len(sentences)} segments "
                     f"{src}→{tgt} in {_time.perf_counter() - nmt_started_at:.2f}s"
                 )
-            _add_timing("consumer_nmt", _time.perf_counter() - nmt_started_at)
+            _add_timing("consumer_nmt", nmt_time_spent)
 
             if (
                 settings.AI_ENABLE_LLM_REFINEMENT
@@ -692,6 +1238,7 @@ async def run_v2_pipeline_async(
                 settings.AI_ENABLE_LLM_REFINEMENT
                 and context_result is not None
                 and src != tgt
+                and src not in {"zh", "yue"}
             ):
                 try:
                     t1 = _time.time()
@@ -720,6 +1267,14 @@ async def run_v2_pipeline_async(
 
             for i, s in enumerate(sentences):
                 s.segment_index = batch_start_index + i
+
+            _apply_qwen3_forced_alignment(
+                sentences,
+                source_lang=src,
+                actual_route=str(route_usage.get("actual_route") or selected_route),
+                audio_array=audio_array,
+                metrics=chinese_forced_alignment_metrics,
+            )
 
             return sentences, batch_start_index, src, tgt, batch_started_at
 
@@ -781,6 +1336,9 @@ async def run_v2_pipeline_async(
 
         async def _schedule_translated_batch(
             sentences: list[Sentence],
+            *,
+            context_before: list[Sentence] | None = None,
+            context_after: list[Sentence] | None = None,
         ) -> list[Sentence]:
             nonlocal batch_index, upload_tasks
             if not sentences:
@@ -790,6 +1348,8 @@ async def run_v2_pipeline_async(
                 await asyncio.to_thread(
                     _translate_batch,
                     sentences,
+                    context_before=context_before,
+                    context_after=context_after,
                 )
             )
             if not translated:
@@ -817,6 +1377,62 @@ async def run_v2_pipeline_async(
             upload_tasks = [task for task in upload_tasks if not task.done()]
             return translated
 
+        def _zh_llm_rescue_active() -> bool:
+            return (
+                settings.AI_CHINESE_LLM_RESCUE_ENABLED
+                and _source_lang() in {"zh", "yue"}
+            )
+
+        async def _schedule_with_context(
+            sentences: list[Sentence],
+            *,
+            final: bool = False,
+        ) -> None:
+            nonlocal pending_cjk_translation_batch
+            if not sentences and not final:
+                return
+            if not _zh_llm_rescue_active():
+                if sentences:
+                    await _schedule_translated_batch(sentences)
+                return
+
+            shadow = max(0, settings.AI_CHINESE_LLM_RESCUE_SHADOW_SEGMENTS)
+            if pending_cjk_translation_batch is None:
+                if final:
+                    if sentences:
+                        await _schedule_translated_batch(
+                            sentences,
+                            context_before=all_sentences[-shadow:] if shadow else None,
+                            context_after=[],
+                        )
+                    return
+                pending_cjk_translation_batch = list(sentences)
+                return
+
+            if sentences:
+                await _schedule_translated_batch(
+                    pending_cjk_translation_batch,
+                    context_before=all_sentences[-shadow:] if shadow else None,
+                    context_after=list(sentences[:shadow]) if shadow else None,
+                )
+                if final:
+                    await _schedule_translated_batch(
+                        sentences,
+                        context_before=all_sentences[-shadow:] if shadow else None,
+                        context_after=[],
+                    )
+                    pending_cjk_translation_batch = None
+                else:
+                    pending_cjk_translation_batch = list(sentences)
+                return
+
+            await _schedule_translated_batch(
+                pending_cjk_translation_batch,
+                context_before=all_sentences[-shadow:] if shadow else None,
+                context_after=[],
+            )
+            pending_cjk_translation_batch = None
+
         while True:
             queue_wait_started_at = _time.perf_counter()
             chunk = await queue.get()
@@ -835,7 +1451,9 @@ async def run_v2_pipeline_async(
                     _add_timing(
                         "consumer_merge", _time.perf_counter() - merge_started_at
                     )
-                    await _schedule_translated_batch(flushed)
+                    await _schedule_with_context(flushed, final=True)
+                elif pending_cjk_translation_batch is not None:
+                    await _schedule_with_context([], final=True)
                 if non_cjk_buffer:
                     _trace(
                         "batch_processing_started",
@@ -880,7 +1498,7 @@ async def run_v2_pipeline_async(
                     _add_timing(
                         "consumer_merge", _time.perf_counter() - merge_started_at
                     )
-                    await _schedule_translated_batch(flushed)
+                    await _schedule_with_context(flushed)
                     chunks_since_cjk_flush = 0
             else:
                 non_cjk_buffer.extend(chunk)
@@ -900,6 +1518,7 @@ async def run_v2_pipeline_async(
             "⏱️ Consumer: "
             f"merge={timing_state['consumer_merge']:.3f}s, "
             f"nmt={timing_state['consumer_nmt']:.3f}s, "
+            f"llm={timing_state['consumer_llm']:.3f}s, "
             f"upload={timing_state['consumer_upload']:.3f}s, "
             f"idle={timing_state['consumer_idle']:.3f}s, "
             f"total={consumer_total:.3f}s"
@@ -928,16 +1547,10 @@ async def run_v2_pipeline_async(
 
     if trust_gate_active:
         trust_candidate_routes: list[str] = [selected_route]
-        if (
-            settings.AI_CHINESE_RECOVERY_ENABLE_SENSEVOICE
-            and "sensevoice_small" not in trust_candidate_routes
-        ):
-            trust_candidate_routes.append("sensevoice_small")
-        if (
-            settings.AI_CHINESE_RECOVERY_ENABLE_WHISPER_FULL
-            and "whisper_full" not in trust_candidate_routes
-        ):
-            trust_candidate_routes.append("whisper_full")
+        for recovery_route in settings.chinese_recovery_route_ids:
+            resolved_recovery_route = pipeline.aligner.resolve_route(recovery_route)
+            if resolved_recovery_route not in trust_candidate_routes:
+                trust_candidate_routes.append(resolved_recovery_route)
 
         trusted_candidate_sentences: list[Sentence] | None = None
         trusted_candidate_batches = None
@@ -949,10 +1562,13 @@ async def run_v2_pipeline_async(
         for route_index, candidate_route in enumerate(trust_candidate_routes):
             if route_index == 0:
                 trust_stage = "first_pass"
-            elif candidate_route == "sensevoice_small":
-                trust_stage = "sensevoice_recovery"
             else:
-                trust_stage = "whisper_full_recovery"
+                stage_prefix = settings.normalize_route_id(candidate_route) or "recovery"
+                trust_stage = (
+                    "final_recovery"
+                    if route_index == len(trust_candidate_routes) - 1
+                    else f"{stage_prefix}_recovery"
+                )
 
             candidate_sentences, candidate_batches, candidate_usage = await _run_candidate_asr(
                 candidate_route,
@@ -1068,7 +1684,7 @@ async def run_v2_pipeline_async(
                     route_id=selected_route,
                     diagnostics={},
                     probe_details=probe_details,
-                    stage="whisper_full_recovery",
+                    stage="final_recovery",
                     duration_seconds=duration_seconds,
                     windows=[],
                 ).signals,
@@ -1266,6 +1882,7 @@ async def run_v2_pipeline_async(
         "consumer": {
             "merge": round(timing_state["consumer_merge"], 3),
             "nmt": round(timing_state["consumer_nmt"], 3),
+            "llm_rescue": round(timing_state["consumer_llm"], 3),
             "upload": round(timing_state["consumer_upload"], 3),
             "idle": round(timing_state["consumer_idle"], 3),
         },
@@ -1289,6 +1906,31 @@ async def run_v2_pipeline_async(
         "chinese_normalize": chinese_normalize_result.as_metrics(),
         "chinese_repair": chinese_repair_result.as_metrics(),
         "chinese_refine": chinese_refine_result.as_metrics(),
+        "chinese_llm_rescue": chinese_llm_metrics,
+        "chinese_forced_alignment": {
+            "attempted_segments": int(
+                chinese_forced_alignment_metrics["attempted_segments"]
+            ),
+            "aligned_segments": int(
+                chinese_forced_alignment_metrics["aligned_segments"]
+            ),
+            "skipped_segments": int(
+                chinese_forced_alignment_metrics["skipped_segments"]
+            ),
+            "downgraded_segments": int(
+                chinese_forced_alignment_metrics["downgraded_segments"]
+            ),
+            "failure_reasons": dict(
+                chinese_forced_alignment_metrics["failure_reasons"]
+            ),
+            "model_load_seconds": round(
+                float(chinese_forced_alignment_metrics["model_load_seconds"]), 3
+            ),
+            "total_forced_align_seconds": round(
+                float(chinese_forced_alignment_metrics["total_forced_align_seconds"]),
+                3,
+            ),
+        },
         "chinese_prior": {
             "prior_score": chinese_prior.prior_score,
             "suspected_family": chinese_prior.suspected_family,

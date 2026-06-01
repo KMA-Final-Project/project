@@ -3,6 +3,7 @@ export { Button } from "./Button";
 export { SegmentedControl } from "./SegmentedControl";
 export { OtpInput } from "./OtpInput";
 export { KeyboardAvoidingWrapper } from "./KeyboardAvoidingWrapper";
+export { Dropdown } from "./Dropdown";
 // Foundation components (Phase 0)
 export { StatusBadge } from "./StatusBadge";
 export { Card } from "./Card";
