@@ -34,7 +34,12 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { width: screenWidth } = useWindowDimensions();
 
   const segments = useSegments();
-  const hiddenTabRoutes = new Set(["processing", "player", "media-picker"]);
+  const hiddenTabRoutes = new Set([
+    "processing",
+    "player",
+    "media-picker",
+    "word-bank",
+  ]);
   const activeLeafSegment = segments[segments.length - 1];
   const shouldHideTabBar =
     (typeof activeLeafSegment === "string" &&
@@ -196,6 +201,7 @@ export default function AppLayout() {
         <Tabs.Screen name="processing" options={{ href: null }} />
         <Tabs.Screen name="player" options={{ href: null }} />
         <Tabs.Screen name="media-picker" options={{ href: null }} />
+        <Tabs.Screen name="word-bank" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
       </Tabs>
 

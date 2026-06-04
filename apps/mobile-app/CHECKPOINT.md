@@ -1,6 +1,6 @@
 # Mobile App - Checkpoint
 
-> Last updated: 2026-05-25
+> Last updated: 2026-06-04
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -34,6 +34,15 @@ Auth/session
 - [ ] Manually verify vocabulary lookup/save on device against the live backend, including active-word tap targets, free-tier limit handling, and Explain handoff.
 
 ## 3. Recently Completed
+
+- 2026-06-04 — Grouped Word Bank screen and Settings entry. Status: Working.
+  - Added a new hidden app route `/(app)/word-bank` and a Settings entry that opens a grouped saved-vocabulary screen backed by the new authenticated backend `GET /vocabulary` contract.
+  - Implemented TanStack Query Word Bank fetching, typed grouped response models, and a single-open inline accordion list that renders unique vocabulary rows with expandable historical save contexts.
+  - Each expanded context now shows media identity, saved contextual definition, original subtitle line, saved translation, saved date, and a deep link back into the player when the media item is still available.
+  - Why: the saved vocabulary surface needed to stay clean for repeated saves of the same word across different videos while preserving the exact learning snapshots.
+  - Contract touchpoints: API, Player UX, Mobile navigation.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification for accordion feel, long-list performance, thumbnail rendering, and player deep-link behavior.
 
 - 2026-05-27 — Enforce onboarding screen flow after sign in. Status: Working.
   - Changed: Modified the root layout `_layout.tsx` auth guard to reset onboarding state via `resetOnboarding()` and redirect the user to the onboarding flow whenever they are detected as authenticated inside the auth group (`(auth)`). Commented out the old logic that bypassed onboarding for already-completed sessions.

@@ -11,4 +11,5 @@ export const ROUTES = {
   PLAYER: "/(app)/player",
   MEDIA_PICKER: "/(app)/media-picker",
   SETTINGS: "/(app)/settings",
+  WORD_BANK: "/(app)/word-bank",
 } as const;

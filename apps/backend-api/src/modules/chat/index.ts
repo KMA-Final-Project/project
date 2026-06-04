@@ -1,6 +1,7 @@
 export * from './chat.module';
 export * from './chat.service';
 export * from './lookup.service';
+export * from './vocabulary.service';
 export * from './chat-config.service';
 export * from './ai-credit-ledger.service';
 export * from './chat-context.service';
@@ -8,4 +9,5 @@ export * from './chat-provider.service';
 export * from './chat-provider.constants';
 export * from './chat-provider.errors';
 export * from './lookup.controller';
+export * from './vocabulary.controller';
 export * from './dto';

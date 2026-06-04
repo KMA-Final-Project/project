@@ -21,4 +21,5 @@ export const ENDPOINTS = {
   MEDIA_EXPLAIN_FEEDBACK: (id: string) => `/media/${id}/explain/feedback`,
   MEDIA_LOOKUP: (id: string) => `/media/${id}/lookup`,
   MEDIA_LOOKUP_BOOKMARK: (id: string) => `/media/${id}/lookup/bookmark`,
+  WORD_BANK_LIST: "/vocabulary",
 };

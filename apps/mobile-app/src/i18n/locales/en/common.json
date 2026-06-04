@@ -132,6 +132,20 @@
     "interfaceLanguage": "Interface Language",
     "current": "Current: {{value}}"
   },
+  "wordBank": {
+    "title": "Word Bank",
+    "settingsEntry": "Saved vocabulary",
+    "settingsHint": "Review saved words and the moments you bookmarked them.",
+    "emptyTitle": "No saved words yet",
+    "emptySubtitle": "Save a word from the player to build your personal vocabulary bank.",
+    "loadError": "We couldn't load your saved vocabulary right now.",
+    "mediaUnavailable": "Media unavailable",
+    "originYoutube": "YouTube",
+    "originLocal": "Local",
+    "contextCount": "{{count}} contexts",
+    "latestSaved": "Latest save {{date}}",
+    "savedOn": "Saved {{date}}"
+  },
   "welcome": {
     "title": "Welcome to Kapter",
     "description": "Turn any media into an interactive learning environment with synchronized translations, phonetics, and interactive play.",
