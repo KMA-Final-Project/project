@@ -2,7 +2,7 @@ import os
 from enum import Enum
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import DirectoryPath, Field
+from pydantic import DirectoryPath, Field, model_validator
 
 
 # Performance Profiles
@@ -10,6 +10,17 @@ class AIProfile(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+
+
+def _detect_device() -> str:
+    """Auto-detect the best available compute device."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
+    return "cpu"
 
 
 class Settings(BaseSettings):
@@ -21,9 +32,23 @@ class Settings(BaseSettings):
     BASE_DIR: DirectoryPath = Path(__file__).resolve().parent.parent
     TEMP_DIR: Path = Field(default=Path("temp"), description="Temp audio files")
     OUTPUT_DIR: Path = Field(default=Path("outputs"), description="JSON result files")
+    HF_TOKEN: str = Field(
+        default="",
+        description="Optional Hugging Face access token propagated to model download clients.",
+    )
+    HF_HUB_DISABLE_XET: bool = Field(
+        default=False,
+        description="Disable the hf-xet transfer backend and fall back to standard HTTP downloads.",
+    )
+    HF_HUB_DOWNLOAD_TIMEOUT: int = Field(
+        default=0,
+        description="Optional Hugging Face Hub download timeout in seconds (0 keeps the library default).",
+    )
 
     # --- Hardware Configuration ---
-    DEVICE: str = Field(default="cuda", description="cuda or cpu")
+    # Auto-falls back to "cpu" when CUDA is unavailable (e.g., Apple Silicon Mac).
+    # Set DEVICE=cpu explicitly in .env to skip the detection check.
+    DEVICE: str = Field(default="", description="cuda or cpu (auto-detected if empty)")
     DEVICE_INDEX: int = 0  # GPU index
 
     # --- AI Performance Mode ---
@@ -516,7 +541,10 @@ class Settings(BaseSettings):
 
     @property
     def whisper_compute_type(self) -> str:
-        """Quantization type"""
+        """Quantization type. On CPU, float16/int8_float16 are not supported —
+        CTranslate2 falls back to int8 automatically."""
+        if self.DEVICE == "cpu":
+            return "int8"
         if self.AI_PERF_MODE == AIProfile.HIGH:
             return "float16"
         elif self.AI_PERF_MODE == AIProfile.MEDIUM:
@@ -726,6 +754,22 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    @model_validator(mode="after")
+    def _resolve_device(self) -> "Settings":
+        """Auto-detect device when DEVICE is not explicitly set."""
+        if not self.DEVICE:
+            self.DEVICE = _detect_device()
+        if self.HF_TOKEN:
+            os.environ.setdefault("HF_TOKEN", self.HF_TOKEN)
+            os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", self.HF_TOKEN)
+        if self.HF_HUB_DISABLE_XET:
+            os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+        if self.HF_HUB_DOWNLOAD_TIMEOUT > 0:
+            os.environ.setdefault(
+                "HF_HUB_DOWNLOAD_TIMEOUT", str(self.HF_HUB_DOWNLOAD_TIMEOUT)
+            )
+        return self
 
     def create_dirs(self):
         """Initialize directories"""
