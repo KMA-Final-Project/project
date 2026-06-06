@@ -48,6 +48,13 @@
   "notificationHint": "Bạn sẽ nhận được thông báo khi hoàn tất",
   "openPlayer": "Mở trình phát",
   "backLibrary": "Về Thư viện",
+  "failure": {
+    "subscriptionInactive": "Bạn cần có gói đang hoạt động trước khi media này có thể được xử lý.",
+    "quotaExceeded": "Media này không thể tiếp tục vì bạn đã dùng hết quota của tháng hiện tại.",
+    "durationLimitExceeded": "Media này dài hơn giới hạn mỗi tệp của gói hiện tại.",
+    "viewPlans": "Xem các gói",
+    "chooseAnotherFile": "Chọn tệp khác"
+  },
   "untitled": "Chưa có tiêu đề",
   "originYoutube": "YouTube",
   "originLocal": "Tệp cục bộ",

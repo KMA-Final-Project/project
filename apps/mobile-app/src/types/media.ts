@@ -21,6 +21,13 @@ export type MediaPipelineStage =
   | "TRANSLATING"
   | "EXPORTING";
 
+export type MediaFailureCode =
+  | "subscriptionInactive"
+  | "quotaExceeded"
+  | "durationLimitExceeded"
+  | "validationFailed"
+  | "processingFailed";
+
 export interface MediaArtifactsSummary {
   chunkCount: number;
   translatedBatchCount: number;
@@ -64,6 +71,7 @@ export interface MediaItem {
   currentStep: MediaPipelineStage | null;
   createdAt: string;
   estimatedTimeRemaining?: number | null;
+  failCode?: MediaFailureCode | null;
   failReason?: string | null;
   sourceLanguage?: string | null;
   targetLanguage?: string | null;
@@ -125,6 +133,7 @@ export interface SubmitYouTubeResponse {
 
 export interface MediaStatusResponse extends MediaItem {
   estimatedTimeRemaining: number | null;
+  failCode: MediaFailureCode | null;
   failReason: string | null;
   sourceLanguage: string | null;
   targetLanguage: string | null;

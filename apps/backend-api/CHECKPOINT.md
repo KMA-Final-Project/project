@@ -24,6 +24,15 @@ Current completed surfaces:
 
 ## 3. Recently Completed
 
+- 2026-06-06 — Mobile subscription status contract and failure-code upload gating. Status: Working.
+  - Added authenticated `GET /user/subscription-status` under the user module so mobile can read the current plan snapshot, current-month quota usage window, per-file duration limit, AI credits, and active plan catalog from one backend source of truth.
+  - Replaced pre-submit upload blockers with distinct machine-readable error codes for inactive subscription vs exhausted quota, instead of collapsing both into one generic quota message.
+  - Added persisted `MediaItem.failCode` support and worker-side validation-code mapping so mobile can distinguish `subscriptionInactive`, `quotaExceeded`, and `durationLimitExceeded` without parsing human-readable `failReason`.
+  - Why: the mobile app needed truthful subscription visibility and deterministic entitlement UX before upload and on failed validation states.
+  - Contract touched: API, Quota, Progress, Mobile impact.
+  - Validation: `pnpm pgen`; `pnpm build`; `pnpm lint`; `pnpm test`.
+  - Follow-up: if AI-engine-originated failures later need the same UX treatment, propagate a machine-readable processing failure code through the status/socket path as well.
+
 - 2026-06-04 — Grouped Word Bank read endpoint. Status: Working.
   - Added authenticated `GET /vocabulary` under a user-owned route so mobile can fetch grouped saved vocabulary across all media items without reconstructing canonical groups client-side.
   - The backend now groups `UserVocabulary` rows by canonical `Vocabulary` identity, enriches each saved context with media title/origin/thumbnail state, and keeps soft-deleted media visible as historical contexts with `mediaAvailable=false`.

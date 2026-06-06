@@ -237,6 +237,25 @@ export function useExplainStream({
           }
 
           if (event.event === "error") {
+            if (
+              event.data.code === "INSUFFICIENT_CREDITS" &&
+              activeAssistantId
+            ) {
+              setError(null);
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === activeAssistantId
+                    ? {
+                        ...message,
+                        content: event.data.message,
+                        status: "sent",
+                      }
+                    : message,
+                ),
+              );
+              return;
+            }
+
             setError(event.data.message);
             setMessages((current) =>
               activeAssistantId

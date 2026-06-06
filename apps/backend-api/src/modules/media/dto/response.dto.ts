@@ -263,6 +263,13 @@ export class MediaStatusResponseDto {
   durationSeconds: number;
 
   @ApiProperty({
+    description: 'Machine-readable failure code (only when status=FAILED)',
+    example: 'quotaExceeded',
+    nullable: true,
+  })
+  failCode: string | null;
+
+  @ApiProperty({
     description: 'Human-readable error (only when status=FAILED)',
     example: null,
     nullable: true,
@@ -358,6 +365,13 @@ export class MediaListItemDto {
 
   @ApiProperty({ example: 'vi', nullable: true })
   targetLanguage: string | null;
+
+  @ApiProperty({
+    description: 'Machine-readable failure code (only when status=FAILED)',
+    example: 'quotaExceeded',
+    nullable: true,
+  })
+  failCode: string | null;
 
   @ApiProperty({
     type: MediaArtifactsSummaryDto,

@@ -10,6 +10,7 @@ import { MinioService } from 'src/modules/minio/minio.service';
 import { QueueService } from 'src/modules/queue/queue.service';
 import { MEDIA_ERRORS } from 'src/common/constants/error-messages';
 import type { ProcessedArtifactSummary } from 'src/modules/minio/minio.service';
+import { UserSubscriptionStatusService } from 'src/modules/user/services';
 import { YtDlpService } from './yt-dlp.service';
 import {
   RequestPresignedUrlDto,
@@ -24,7 +25,6 @@ import type {
   MediaArtifactsResponseDto,
   StreamUrlResponseDto,
 } from './dto';
-import { Role } from 'prisma/generated/client';
 import { MediaOriginType } from 'prisma/generated/enums';
 import {
   artifactSummariesEqual,
@@ -48,6 +48,7 @@ export class MediaService {
     private readonly minioService: MinioService,
     private readonly queueService: QueueService,
     private readonly ytDlpService: YtDlpService,
+    private readonly subscriptionStatusService: UserSubscriptionStatusService,
   ) {}
 
   // ==================== PRESIGNED URL FLOW ====================
@@ -56,7 +57,7 @@ export class MediaService {
     userId: string,
     dto: RequestPresignedUrlDto,
   ): Promise<PresignedUrlResponseDto> {
-    await this.assertQuotaNotExceeded(userId);
+    await this.subscriptionStatusService.assertUploadAllowed(userId);
 
     const mediaId = randomUUID();
     const objectKey = `audio/${userId}/${mediaId}/${dto.fileName}`;
@@ -136,7 +137,7 @@ export class MediaService {
     userId: string,
     dto: SubmitYoutubeDto,
   ): Promise<SubmitYoutubeResponseDto> {
-    await this.assertQuotaNotExceeded(userId);
+    await this.subscriptionStatusService.assertUploadAllowed(userId);
 
     const placeholderKey = `audio/${userId}/${randomUUID()}/youtube-pending`;
     const title = dto.title?.trim() || this.extractYoutubeTitle(dto.url);
@@ -313,6 +314,7 @@ export class MediaService {
         progress: true,
         sourceLanguage: true,
         targetLanguage: true,
+        failCode: true,
         durationSeconds: true,
         failReason: true,
         originType: true,
@@ -363,6 +365,7 @@ export class MediaService {
         durationSeconds: true,
         sourceLanguage: true,
         targetLanguage: true,
+        failCode: true,
         currentStep: true,
         artifactSummary: true,
         createdAt: true,
@@ -433,51 +436,6 @@ export class MediaService {
   }
 
   // ==================== PRIVATE HELPERS ====================
-
-  private async assertQuotaNotExceeded(userId: string): Promise<void> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: {
-        role: true,
-        currentSubscription: {
-          select: {
-            monthlyQuotaSecondsSnapshot: true,
-          },
-        },
-      },
-    });
-
-    if (user.role === Role.ADMIN) {
-      return;
-    }
-
-    if (!user.currentSubscription) {
-      throw new BadRequestException(MEDIA_ERRORS.QUOTA_EXCEEDED);
-    }
-
-    const quota = user.currentSubscription.monthlyQuotaSecondsSnapshot;
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const usageResult = await this.prisma.mediaItem.aggregate({
-      where: {
-        userId,
-        countedInQuota: true,
-        createdAt: { gte: monthStart },
-        deletedAt: null,
-      },
-      _sum: { durationSeconds: true },
-    });
-
-    const usedSeconds = usageResult._sum.durationSeconds || 0;
-
-    if (usedSeconds >= quota) {
-      this.logger.warn(
-        `Quota exceeded for user ${userId}: ${usedSeconds}/${quota} seconds`,
-      );
-      throw new BadRequestException(MEDIA_ERRORS.QUOTA_EXCEEDED);
-    }
-  }
 
   private extractYoutubeTitle(url: string): string {
     try {

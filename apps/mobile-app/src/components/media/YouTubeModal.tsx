@@ -25,10 +25,12 @@ import * as Clipboard from "expo-clipboard";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Dropdown } from "../Dropdown";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { useSubscriptionStatus } from "@/hooks";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useQuery } from "@tanstack/react-query";
+import { extractApiError } from "@/utils/api-error";
 import {
   extractYouTubeId,
   getYouTubeThumbnailUrl,
@@ -44,6 +46,7 @@ interface YouTubeModalProps {
     sourceLanguage?: string;
     targetLanguage?: string;
   }) => Promise<void>;
+  onViewPlans: () => void;
   loading?: boolean;
 }
 
@@ -51,16 +54,21 @@ export function YouTubeModal({
   visible,
   onClose,
   onSubmit,
+  onViewPlans,
   loading = false,
 }: YouTubeModalProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const { defaultTargetLanguage } = useOnboarding();
+  const { data: subscriptionStatus, isLoading: subscriptionLoading } =
+    useSubscriptionStatus();
   const [url, setUrl] = useState("");
   const debouncedUrl = useDebounce(url, 500); // 500ms debounce
   // loading state now derived from props
   const [error, setError] = useState<string | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("auto");
+  const blockerCode = subscriptionStatus?.quota.uploadBlockerCode ?? "none";
+  const isBlocked = blockerCode !== "none";
 
   useEffect(() => {
     if (visible) {
@@ -120,6 +128,15 @@ export function YouTubeModal({
     }
     setError(null);
     try {
+      if (isBlocked) {
+        setError(
+          blockerCode === "subscriptionInactive"
+            ? t("apiErrors.subscriptionInactive")
+            : t("apiErrors.quotaExceeded"),
+        );
+        return;
+      }
+
       await onSubmit({
         url: url.trim(),
         title: metadata?.title?.trim() || undefined,
@@ -128,8 +145,8 @@ export function YouTubeModal({
       });
       setUrl("");
       onClose();
-    } catch (e: any) {
-      setError(e?.message ?? t("common.error"));
+    } catch (e: unknown) {
+      setError(extractApiError(e));
     }
   };
 
@@ -305,6 +322,86 @@ export function YouTubeModal({
               </Text>
             </View>
           )}
+          <View
+            style={[
+              styles.entitlementCard,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <Text
+              style={[styles.entitlementTitle, { color: theme.colors.text }]}
+            >
+              {t("upload.youtube.planSummaryTitle")}
+            </Text>
+            <Text
+              style={[
+                styles.entitlementText,
+                { color: theme.colors.textSecondary },
+              ]}
+            >
+              {subscriptionLoading
+                ? t("common.loading")
+                : subscriptionStatus?.currentPlan?.planName
+                  ? t("upload.currentPlan", {
+                      plan: subscriptionStatus.currentPlan.planName,
+                    })
+                  : t("upload.planUnavailable")}
+            </Text>
+            <Text
+              style={[
+                styles.entitlementText,
+                { color: theme.colors.textSecondary },
+              ]}
+            >
+              {subscriptionStatus?.quota.remainingSeconds == null ||
+              subscriptionStatus?.quota.totalSeconds == null
+                ? t("upload.quotaRemainingUnknown")
+                : t("upload.quotaRemaining", {
+                    remaining: Math.max(
+                      0,
+                      Math.floor(subscriptionStatus.quota.remainingSeconds / 60),
+                    ),
+                    total: Math.max(
+                      0,
+                      Math.floor(subscriptionStatus.quota.totalSeconds / 60),
+                    ),
+                  })}
+            </Text>
+            {isBlocked ? (
+              <>
+                <Text
+                  style={[
+                    styles.blockedText,
+                    { color: theme.colors.error },
+                  ]}
+                >
+                  {blockerCode === "subscriptionInactive"
+                    ? t("upload.blockedSubscriptionInactive")
+                    : t("upload.blockedQuotaExceeded")}
+                </Text>
+                <Pressable
+                  style={[
+                    styles.inlinePlansButton,
+                    { backgroundColor: theme.colors.primary },
+                  ]}
+                  onPress={onViewPlans}
+                >
+                  <Text
+                    style={[
+                      styles.inlinePlansButtonText,
+                      { color: theme.colors.textOnPrimary },
+                    ]}
+                  >
+                    {t("upload.viewPlans")}
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+
           {/* Quota Warning */}
           <Text
             style={[styles.quotaText, { color: theme.colors.textTertiary }]}
@@ -342,13 +439,13 @@ export function YouTubeModal({
                 styles.btnPrimary,
                 {
                   backgroundColor:
-                    loading || !url
+                    loading || !url || isBlocked
                       ? theme.colors.border
                       : theme.colors.primary,
                 },
               ]}
               onPress={handleSubmit}
-              disabled={loading || !url}
+              disabled={loading || !url || isBlocked}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -492,5 +589,37 @@ const styles = StyleSheet.create((theme) => ({
     lineHeight: 15,
     marginTop: theme.spacing[1],
     marginBottom: theme.spacing[2],
+  },
+  entitlementCard: {
+    borderWidth: 1,
+    borderRadius: theme.radii.xl,
+    padding: theme.spacing[3],
+    gap: theme.spacing[1],
+    marginTop: theme.spacing[4],
+    marginBottom: theme.spacing[1],
+  },
+  entitlementTitle: {
+    fontSize: 14,
+    fontWeight: theme.typography.weights.bold,
+  },
+  entitlementText: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  blockedText: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: theme.spacing[1],
+  },
+  inlinePlansButton: {
+    alignSelf: "flex-start",
+    borderRadius: theme.radii.lg,
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    marginTop: theme.spacing[2],
+  },
+  inlinePlansButtonText: {
+    fontSize: 13,
+    fontWeight: theme.typography.weights.semibold,
   },
 }));

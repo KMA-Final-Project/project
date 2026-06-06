@@ -57,6 +57,42 @@ function formatLanguageLabel(
   return language ? language.toUpperCase() : t("artifactSummary.unknown");
 }
 
+function getFailureState(
+  failCode: string | null | undefined,
+  failReason: string | null | undefined,
+  t: any,
+) {
+  if (failCode === "subscriptionInactive") {
+    return {
+      message: t("failure.subscriptionInactive"),
+      actionLabel: t("failure.viewPlans"),
+      actionRoute: ROUTES.SUBSCRIPTION,
+    };
+  }
+
+  if (failCode === "quotaExceeded") {
+    return {
+      message: t("failure.quotaExceeded"),
+      actionLabel: t("failure.viewPlans"),
+      actionRoute: ROUTES.SUBSCRIPTION,
+    };
+  }
+
+  if (failCode === "durationLimitExceeded") {
+    return {
+      message: t("failure.durationLimitExceeded"),
+      actionLabel: t("failure.chooseAnotherFile"),
+      actionRoute: ROUTES.MEDIA_PICKER,
+    };
+  }
+
+  return {
+    message: failReason ?? t("common.error", { defaultValue: "Something went wrong" }),
+    actionLabel: null,
+    actionRoute: null,
+  };
+}
+
 // ─── Circular Progress Ring (SVG) ────────────────────────────────
 
 // ─── Main Screen ──────────────────────────────────────────────────
@@ -93,6 +129,7 @@ export default function ProcessingScreen() {
   const status = media?.status;
   const isDone = status === "COMPLETED";
   const isFailed = status === "FAILED";
+  const failureState = getFailureState(media?.failCode, media?.failReason, t);
   const hasTranslatedOutput =
     (artifacts?.summary.translatedBatchCount ?? 0) > 0;
   const hasFinalArtifact = Boolean(artifacts?.final?.url);
@@ -378,7 +415,7 @@ export default function ProcessingScreen() {
               color={theme.colors.error}
             />
             <Text style={[styles.errorText, { color: theme.colors.error }]}>
-              {media?.failReason}
+              {failureState.message}
             </Text>
           </View>
         )}
@@ -451,17 +488,50 @@ export default function ProcessingScreen() {
             </Pressable>
           </>
         ) : isFailed ? (
-          <Pressable
-            style={[
-              styles.btnPrimary,
-              { backgroundColor: theme.colors.border },
-            ]}
-            onPress={goToLibrary}
-          >
-            <Text style={[styles.btnPrimaryText, { color: theme.colors.text }]}>
-              {t("backLibrary")}
-            </Text>
-          </Pressable>
+          <>
+            {failureState.actionRoute && failureState.actionLabel ? (
+              <Pressable
+                style={[
+                  styles.btnPrimary,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+                onPress={() => router.push(failureState.actionRoute as never)}
+              >
+                <Text
+                  style={[
+                    styles.btnPrimaryText,
+                    { color: theme.colors.textOnPrimary },
+                  ]}
+                >
+                  {failureState.actionLabel}
+                </Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={[
+                failureState.actionRoute ? styles.btnSecondary : styles.btnPrimary,
+                failureState.actionRoute
+                  ? { borderColor: theme.colors.border }
+                  : { backgroundColor: theme.colors.border },
+              ]}
+              onPress={goToLibrary}
+            >
+              <Text
+                style={[
+                  failureState.actionRoute
+                    ? styles.btnSecondaryText
+                    : styles.btnPrimaryText,
+                  {
+                    color: failureState.actionRoute
+                      ? theme.colors.textSecondary
+                      : theme.colors.text,
+                  },
+                ]}
+              >
+                {t("backLibrary")}
+              </Text>
+            </Pressable>
+          </>
         ) : (
           <>
             {media?.estimatedTimeRemaining != null && (

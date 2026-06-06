@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { socketService } from "@/services/socket.service";
 import { useAuthStore } from "@/stores/auth.store";
 import { mediaKeys } from "./useMedia";
+import { subscriptionKeys } from "./useSubscriptionStatus";
 import type {
   MediaArtifactsResponse,
   MediaItem,
@@ -338,6 +339,7 @@ export function useSocketSync() {
       queryClient.invalidateQueries({
         queryKey: mediaKeys.artifacts(event.mediaId),
       });
+      queryClient.invalidateQueries({ queryKey: subscriptionKeys.status });
     });
 
     // 5. media_failed — instant, bypasses throttle

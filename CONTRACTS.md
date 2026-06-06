@@ -156,9 +156,10 @@ The backend is the only stable HTTP boundary for the mobile app.
 | `POST /media/presigned-url` | Performs optimistic quota check and returns a presigned PUT URL for direct upload to MinIO. |
 | `POST /media/confirm-upload` | Verifies uploaded object, creates `MediaItem`, and dispatches a `transcription` job. |
 | `POST /media/youtube` | Creates `MediaItem` for a YouTube submission and dispatches the validation worker flow. |
-| `GET /media/:id/status` | Returns processing status, progress, `currentStep`, ETA, and failure reason state. |
+| `GET /user/subscription-status` | Returns the authenticated user's current plan, current-month quota usage, per-file duration limit, AI credits, and available plan catalog for mobile subscription UX. |
+| `GET /media/:id/status` | Returns processing status, progress, `currentStep`, ETA, machine-readable `failCode`, and human-readable failure reason state. |
 | `GET /media/:id/artifacts` | Returns durable inventory for `chunks/`, `translated_batches/`, and `final.json`. |
-| `GET /media` | Returns the authenticated user's media library and artifact summaries for readiness UI. |
+| `GET /media` | Returns the authenticated user's media library and artifact summaries for readiness UI, including persisted `failCode` when present. |
 | `GET /vocabulary` | Returns the authenticated user's grouped saved-word bank with expandable historical contexts across media items. |
 | `POST /media/:id/explain` | Streams Kapter Explain responses for one canonical subtitle segment. |
 | `GET /media/:id/explain/history` | Returns the authenticated user's chat history for one media segment. |
@@ -173,6 +174,7 @@ Rules:
 - YouTube submissions may carry a client title; when absent, the worker may use metadata from `yt-dlp` before falling back to a generic placeholder.
 - Request DTO changes must update backend validation, mobile API types/schemas, and checkpoints.
 - `GET /media/:id/status` and `GET /media` should expose the canonical persisted `targetLanguage` when available so the mobile player and Explain UI can stay aligned with the media's translation profile even after onboarding preferences change.
+- `GET /media/:id/status` and `GET /media` should expose `failCode` as the machine-readable source of truth for entitlement-related failures; `failReason` remains human-readable diagnostics only.
 
 ### 5.1 Kapter Explain API
 
@@ -707,6 +709,65 @@ Rules:
 - Backend worker must re-check quota/duration after validation because client-provided metadata is not trusted.
 - Usage data must remain audit-ready.
 - Users and media use soft deletes rather than hard deletion in normal user flows.
+- Mobile reads one authenticated subscription source of truth from `GET /user/subscription-status`; auth/login payloads are not the subscription contract.
+- The user-facing quota window currently matches backend enforcement for the current calendar month: `windowStartAt = first day of month`, `windowEndAt = first day of next month`.
+- Obvious blockers such as inactive subscription or exhausted monthly quota should be surfaced before upload begins when the mobile app has fresh status data.
+- Worker-side failures must persist a machine-readable `failCode` for mobile UX; Phase 1 codes are:
+
+```ts
+type MediaFailCode =
+  | "subscriptionInactive"
+  | "quotaExceeded"
+  | "durationLimitExceeded"
+  | "validationFailed"
+  | "processingFailed";
+```
+
+`GET /user/subscription-status` response contract:
+
+```ts
+interface SubscriptionStatusResponse {
+  currentPlan: {
+    planCode: string;
+    planName: string;
+    variantId: string;
+    variantName: string;
+    status: "ACTIVE" | "INACTIVE" | "EXPIRED";
+    priceSnapshot: string;
+    currency: string;
+    billingCycleType: "MONTHLY" | "SIX_MONTHS" | "YEARLY" | "LIFETIME";
+  } | null;
+  quota: {
+    usedSeconds: number;
+    totalSeconds: number | null;
+    remainingSeconds: number | null;
+    maxDurationPerFileSeconds: number | null;
+    windowStartAt: string;
+    windowEndAt: string;
+    uploadBlockerCode: "none" | "subscriptionInactive" | "quotaExceeded";
+  };
+  aiCredits: {
+    remaining: number;
+    includedPerCycle: number;
+  };
+  availablePlans: Array<{
+    planCode: string;
+    planName: string;
+    description: string | null;
+    features: string[];
+    tierLevel: number | null;
+    variantId: string;
+    variantName: string;
+    price: string;
+    currency: string;
+    billingCycleType: "MONTHLY" | "SIX_MONTHS" | "YEARLY" | "LIFETIME";
+    monthlyQuotaSeconds: number | null;
+    maxDurationPerFileSeconds: number | null;
+    aiCreditsPerMonth: number;
+    isCurrent: boolean;
+  }>;
+}
+```
 
 ### 11.1 AI Credit Quota Contract
 

@@ -14,22 +14,46 @@ import { View, Text, Pressable } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
-import { useSubscriptionQuota } from "@/hooks";
+import type { UploadBlockerCode } from "@/types/subscription";
 
 interface UploadSheetProps {
   onSelectDevice: () => void;
   onSelectYouTube: () => void;
+  onViewPlans: () => void;
+  remainingMinutes: number | null;
+  totalMinutes: number | null;
+  currentPlanName?: string | null;
+  blockerCode?: UploadBlockerCode;
+  isLoading?: boolean;
   disabled?: boolean;
 }
 
 export function UploadSheet({
   onSelectDevice,
   onSelectYouTube,
+  onViewPlans,
+  remainingMinutes,
+  totalMinutes,
+  currentPlanName,
+  blockerCode = "none",
+  isLoading = false,
   disabled = false,
 }: UploadSheetProps) {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
-  const { remainingMinutes, totalMinutes } = useSubscriptionQuota();
+  const isBlocked = blockerCode !== "none";
+  const effectiveDisabled = disabled || isBlocked;
+  const quotaSummary =
+    remainingMinutes == null || totalMinutes == null
+      ? t("upload.quotaRemainingUnknown")
+      : t(
+          "upload.quotaRemaining",
+          "Remaining quota: {{remaining}}/{{total}} mins",
+          {
+            remaining: remainingMinutes,
+            total: totalMinutes,
+          },
+        );
 
   return (
     <View style={styles.container}>
@@ -41,20 +65,76 @@ export function UploadSheet({
         {t("upload.subtitle")}
       </Text>
 
-      {/* Quota Indicator */}
-      <View style={styles.quotaContainer}>
-        <Ionicons name="time-outline" size={16} color={theme.colors.primary} />
-        <Text style={[styles.quotaText, { color: theme.colors.textSecondary }]}>
-          {t(
-            "upload.quotaRemaining",
-            "Remaining quota: {{remaining}}/{{total}} mins",
+      {isBlocked ? (
+        <View
+          style={[
+            styles.blockerCard,
             {
-              remaining: remainingMinutes,
-              total: totalMinutes,
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.border,
             },
-          )}
-        </Text>
-      </View>
+          ]}
+        >
+          <View style={styles.blockerHeader}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={18}
+              color={theme.colors.primary}
+            />
+            <Text style={[styles.blockerTitle, { color: theme.colors.text }]}>
+              {t("upload.blockedTitle")}
+            </Text>
+          </View>
+          <Text
+            style={[styles.blockerMessage, { color: theme.colors.textSecondary }]}
+          >
+            {blockerCode === "subscriptionInactive"
+              ? t("upload.blockedSubscriptionInactive")
+              : t("upload.blockedQuotaExceeded")}
+          </Text>
+          <Pressable
+            style={[
+              styles.viewPlansButton,
+              { backgroundColor: theme.colors.primary },
+            ]}
+            onPress={onViewPlans}
+          >
+            <Text
+              style={[
+                styles.viewPlansButtonText,
+                { color: theme.colors.textOnPrimary },
+              ]}
+            >
+              {t("upload.viewPlans")}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.quotaContainer}>
+          <Ionicons
+            name="time-outline"
+            size={16}
+            color={theme.colors.primary}
+          />
+          <View style={styles.quotaCopy}>
+            <Text
+              style={[styles.quotaText, { color: theme.colors.textSecondary }]}
+            >
+              {isLoading ? t("common.loading") : quotaSummary}
+            </Text>
+            {currentPlanName ? (
+              <Text
+                style={[
+                  styles.planLabel,
+                  { color: theme.colors.textTertiary },
+                ]}
+              >
+                {t("upload.currentPlan", { plan: currentPlanName })}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      )}
 
       {/* Option Cards */}
       <View style={styles.cards}>
@@ -65,11 +145,11 @@ export function UploadSheet({
             {
               backgroundColor: theme.colors.card,
               borderColor: theme.colors.border,
-              opacity: pressed || disabled ? 0.7 : 1,
+              opacity: pressed || effectiveDisabled ? 0.7 : 1,
             },
           ]}
           onPress={onSelectDevice}
-          disabled={disabled}
+          disabled={effectiveDisabled}
         >
           <View
             style={[
@@ -109,11 +189,11 @@ export function UploadSheet({
             {
               backgroundColor: theme.colors.card,
               borderColor: theme.colors.border,
-              opacity: pressed || disabled ? 0.7 : 1,
+              opacity: pressed || effectiveDisabled ? 0.7 : 1,
             },
           ]}
           onPress={onSelectYouTube}
-          disabled={disabled}
+          disabled={effectiveDisabled}
         >
           <View
             style={[
@@ -200,17 +280,53 @@ const styles = StyleSheet.create((theme) => ({
   },
   quotaContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 6,
     marginBottom: theme.spacing[4],
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
     borderRadius: theme.radii.md,
-    alignSelf: "flex-start",
+  },
+  quotaCopy: {
+    flex: 1,
   },
   quotaText: {
     fontSize: 12,
     fontWeight: theme.typography.weights.medium,
+  },
+  planLabel: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  blockerCard: {
+    borderWidth: 1,
+    borderRadius: theme.radii.xl,
+    padding: theme.spacing[4],
+    gap: theme.spacing[3],
+    marginBottom: theme.spacing[4],
+  },
+  blockerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  blockerTitle: {
+    fontSize: 15,
+    fontWeight: theme.typography.weights.bold,
+  },
+  blockerMessage: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  viewPlansButton: {
+    alignSelf: "flex-start",
+    borderRadius: theme.radii.lg,
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+  },
+  viewPlansButtonText: {
+    fontSize: 13,
+    fontWeight: theme.typography.weights.semibold,
   },
 }));

@@ -38,8 +38,12 @@ export const SUBSCRIPTION_ERRORS = {
 export type SubscriptionErrorKey = keyof typeof SUBSCRIPTION_ERRORS;
 
 export const MEDIA_ERRORS = {
+  // No active subscription. Please choose a plan before processing media.
+  SUBSCRIPTION_INACTIVE: 'subscriptionInactive',
   // Monthly quota exceeded. Please upgrade your plan.
   QUOTA_EXCEEDED: 'quotaExceeded',
+  // File duration exceeds the current plan limit.
+  DURATION_LIMIT_EXCEEDED: 'durationLimitExceeded',
   // Uploaded file not found. Please try uploading again.
   FILE_NOT_FOUND: 'fileNotFound',
   // Please provide a valid YouTube URL.

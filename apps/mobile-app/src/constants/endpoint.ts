@@ -5,6 +5,7 @@ export const ENDPOINTS = {
   VERIFY_OTP: "/auth/verify",
   REFRESH_TOKENS: "/auth/refresh",
   LOGOUT: "/auth/logout",
+  USER_SUBSCRIPTION_STATUS: "/user/subscription-status",
 
   // Media
   MEDIA_LIST: "/media",
