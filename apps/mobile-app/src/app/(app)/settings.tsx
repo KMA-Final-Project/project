@@ -5,7 +5,14 @@
  * and view their subscription usage/quota. Includes log out and app state reset.
  */
 import React from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+} from "react-native";
+import { useRouter } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,12 +24,14 @@ import {
 import type { ThemePreference } from "@/hooks";
 import type { SupportedLanguage } from "@/i18n";
 import { Button, ScreenHeader } from "@/components";
+import { ROUTES } from "@/constants/routes";
 import { useAuthStore } from "@/stores/auth.store";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function SettingsTab() {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
+  const router = useRouter();
   const { preference, setThemePreference } = useThemePreference();
   const { currentLanguage, setLanguage } = useLanguagePreference();
   const { defaultTargetLanguage, setTargetLanguage, resetOnboarding } = useOnboarding();
@@ -88,6 +97,37 @@ export default function SettingsTab() {
         </View>
 
         {/* Translation Default Target Language Section */}
+        <View style={styles.section}>
+          <Pressable
+            onPress={() => router.push(ROUTES.WORD_BANK as never)}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+          >
+            <View style={styles.linkRowIdentity}>
+              <View
+                style={[
+                  styles.linkIcon,
+                  { backgroundColor: theme.colors.surface },
+                ]}
+              >
+                <Ionicons
+                  name="bookmark-outline"
+                  size={18}
+                  color={theme.colors.primary}
+                />
+              </View>
+              <View style={styles.linkTextBlock}>
+                <Text style={styles.sectionTitle}>{t("wordBank.settingsEntry")}</Text>
+                <Text style={styles.linkHint}>{t("wordBank.settingsHint")}</Text>
+              </View>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={theme.colors.textSecondary}
+            />
+          </Pressable>
+        </View>
+
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="language" size={20} color={theme.colors.primary} />
@@ -213,6 +253,36 @@ const styles = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[4],
     borderWidth: 1,
     borderColor: theme.colors.border,
+  },
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[3],
+  },
+  linkRowPressed: {
+    opacity: 0.88,
+  },
+  linkRowIdentity: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+  },
+  linkIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: theme.radii.lg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkTextBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  linkHint: {
+    fontSize: theme.typography.sizes.sm,
+    color: theme.colors.textTertiary,
   },
   sectionHeader: {
     flexDirection: "row",

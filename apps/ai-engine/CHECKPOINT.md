@@ -38,6 +38,11 @@ Deprecated V1 paths must not be reintroduced.
 
 ## 3. Recently Completed
 
+- 2026-06-05 — Added macOS-usable process-tree profiling and validated the Kim vocal-isolation model cache.
+  - Status: Working
+  - Changed: Extended `src/utils/hardware_profiler.py` so reports now include execution context (`DEVICE`, host platform, NVML/MPS availability) plus process-tree CPU, RSS, thread-count, and child-process metrics that work on macOS even when NVML is unavailable. Updated `src/scripts/benchmark_suite.py` to export the richer hardware metrics. Also explicitly warmed the configured `audio-separator` vocal-isolation path and confirmed `temp/models/Kim_Vocal_2.onnx` is downloaded and loadable from the AI engine model cache.
+  - Why: The previous profiler produced misleading Apple-Silicon output (`GPU underutilized`, `0 MB VRAM free`) because it only knew how to read NVIDIA NVML telemetry. That made Mac-vs-PC performance comparisons harder than they needed to be. Separately, the music-mode code really was configured for `Kim_Vocal_2.onnx`, so the cache needed to be verified instead of assumed.
+
 - 2026-05-25 — Integrated early Chinese word segmentation into the live Tier 2 batch path.
   - Status: Working
   - Changed: Added `src/core/chinese_word_segmenter.py` using `jieba` precise-mode tokenization to regroup character-level Chinese and mixed-script `sentence.words` into lexical tokens during `_translate_batch()` in `src/async_pipeline.py`, before `TranslatedBatch` upload and before final export reuse. Added `AI_CHINESE_WORD_SEGMENTATION_ENABLED` as a kill switch, refreshed Chinese phonetics after regrouping so `word.phoneme` / `sentence.phonetic` stay aligned with the new tokens, and added focused coverage in `tests/test_chinese_word_segmenter.py` plus a Tier 2 regression in `tests/test_qwen3_forced_alignment.py`.
@@ -448,6 +453,7 @@ Update this checkpoint when:
 - A validation result changes the known state.
 
 Do not add long migration history here. Move stable architecture to `INSTRUCTION.md`, cross-module contracts to a future `CONTRACTS.md`, and historical migration details to `docs/archive/`.
+
 - 2026-05-22 — Deterministic Chinese trust-gate refactor, sentence-level window repair, and structured trust-failure dumps landed.
   - Status: Working
   - Changed: Added `src/core/chinese_candidate_normalizer.py`, `src/core/chinese_window_profiler.py`, and `src/core/chinese_window_repairer.py`; rewrote `src/core/transcript_trust_gate.py` so Chinese trust is evaluated on deterministic windows bounded by VAD-like silence gaps, window duration, sentence count, and code-switch density shift instead of brittle semantic phase detection; updated `src/async_pipeline.py` so Chinese-prior candidates are normalized before trust, can be repaired only by whole sentence-window swaps, and are refined only after ownership trust is established; and updated `src/main.py` to emit a structured `ChineseTrustGateError` dump under `outputs/trust_gate_failures/` when the Chinese path still fails closed.

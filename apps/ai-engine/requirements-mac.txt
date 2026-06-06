@@ -1,0 +1,80 @@
+# ==========================================
+# AI ENGINE REQUIREMENTS — macOS (Apple Silicon)
+# Environment: Python 3.12+ | ARM64 | CPU inference
+# ==========================================
+#
+# Differences from requirements.txt (Windows/CUDA):
+#   - PyTorch: standard install (includes MPS backend for Apple Silicon)
+#   - onnxruntime: CPU-only (no CUDA dependency)
+#   - audio-separator: no [gpu] extras
+#   - nvidia-ml-py: excluded (NVIDIA-only)
+#
+# Install:
+#   source .venv/bin/activate
+#   pip install -r requirements-mac.txt
+# ==========================================
+
+# --- PyTorch (Apple Silicon — includes MPS backend) ---
+# Install FIRST before the rest. On Mac, the default PyTorch wheel
+# includes MPS (Metal Performance Shaders) support.
+torch
+torchvision
+
+# --- Core AI & ASR (Speech Recognition) ---
+faster-whisper>=1.2.1
+funasr>=1.2.4
+modelscope>=1.18.0
+
+# Timestamp Alignment & Hallucination Fixes
+stable-ts>=2.19.1
+
+# Voice Activity Detection (VAD)
+# silero-vad works on CPU via onnxruntime (no GPU extras needed)
+silero-vad>=5.1.2
+onnxruntime>=1.23.0
+
+# --- Audio Processing ---
+librosa>=0.11.0
+soundfile>=0.12.1
+numpy>=1.26.0
+# No [gpu] extras — runs on CPU
+audio-separator>=0.30.0
+
+# FFmpeg wrapper (requires: brew install ffmpeg)
+ffmpeg-python>=0.2.0
+
+# --- Translation ---
+deep-translator>=1.11.4
+ollama>=0.1.6
+openai>=1.99.0
+google-genai>=1.36.0
+
+# --- Translation (NMT via NLLB-200 + CTranslate2) ---
+# CTranslate2 prebuilt wheels support ARM64 macOS (CPU, Accelerate)
+sentencepiece>=0.2.0
+transformers>=4.40.0
+qwen-asr>=0.0.6
+
+# --- Phonetics (G2P) ---
+pypinyin>=0.50.0
+jieba>=0.42.1
+eng-to-ipa>=0.0.2
+
+# --- System, Config & Logging ---
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+
+# --- Queue & Infrastructure ---
+bullmq>=1.0.0
+minio>=7.2.0
+psycopg2-binary>=2.9.9
+
+# --- Hardware Profiling ---
+# nvidia-ml-py excluded — not available on Mac
+# The profiler already handles ImportError gracefully
+psutil>=5.9.0
+
+# --- Development Utilities ---
+types-requests

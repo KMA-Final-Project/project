@@ -140,6 +140,20 @@
     "interfaceLanguage": "Ngôn ngữ ứng dụng",
     "current": "Hiện tại: {{value}}"
   },
+  "wordBank": {
+    "title": "Tủ từ vựng",
+    "settingsEntry": "Từ vựng đã lưu",
+    "settingsHint": "Xem lại các từ đã lưu và đúng ngữ cảnh bạn đã đánh dấu.",
+    "emptyTitle": "Bạn chưa lưu từ nào",
+    "emptySubtitle": "Lưu từ ngay trong trình phát để xây dựng tủ từ vựng cá nhân.",
+    "loadError": "Hiện chưa thể tải danh sách từ đã lưu.",
+    "mediaUnavailable": "Media không còn khả dụng",
+    "originYoutube": "YouTube",
+    "originLocal": "Tệp cục bộ",
+    "contextCount": "{{count}} ngữ cảnh",
+    "latestSaved": "Lần lưu gần nhất {{date}}",
+    "savedOn": "Đã lưu {{date}}"
+  },
   "welcome": {
     "title": "Chào mừng đến với Kapter",
     "description": "Biến mọi phương tiện truyền thông thành môi trường học tập tương tác với bản dịch đồng bộ, phiên âm và trình phát thông minh.",

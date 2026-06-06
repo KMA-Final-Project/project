@@ -5,7 +5,9 @@ Handles downloading input audio and uploading result chunks/final outputs.
 """
 
 import json
+import time
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from urllib.parse import urlparse
 
 from loguru import logger
 from minio import Minio
+from minio.error import S3Error
 
 from src.config import settings
 from src.schemas import SubtitleOutput, TranslatedBatch
@@ -37,16 +40,23 @@ class MinioClient:
         return f"{media_id}/final.json"
 
     def __init__(self):
-        self.client = Minio(
+        self.client = self._build_internal_client()
+        self.public_presign_client = self._build_public_presign_client()
+        self.bucket_raw = settings.MINIO_BUCKET_RAW
+        self.bucket_processed = settings.MINIO_BUCKET_PROCESSED
+        self._ensure_buckets()
+
+    def _build_internal_client(self) -> Minio:
+        return Minio(
             endpoint=f"{settings.MINIO_ENDPOINT}:{settings.MINIO_PORT}",
             access_key=settings.MINIO_ACCESS_KEY,
             secret_key=settings.MINIO_SECRET_KEY,
             secure=settings.MINIO_USE_SSL,
         )
+
+    def _refresh_clients(self):
+        self.client = self._build_internal_client()
         self.public_presign_client = self._build_public_presign_client()
-        self.bucket_raw = settings.MINIO_BUCKET_RAW
-        self.bucket_processed = settings.MINIO_BUCKET_PROCESSED
-        self._ensure_buckets()
 
     def _build_public_presign_client(self) -> Minio:
         """Build a dedicated presign client for the public MinIO endpoint.
@@ -82,6 +92,47 @@ class MinioClient:
             if not self.client.bucket_exists(bucket):
                 self.client.make_bucket(bucket)
                 logger.info(f"Created MinIO bucket: {bucket}")
+
+    def _put_processed_object(
+        self, object_key: str, payload: bytes, content_type: str
+    ) -> None:
+        for attempt in range(1, 3):
+            try:
+                self.client.put_object(
+                    self.bucket_processed,
+                    object_key,
+                    BytesIO(payload),
+                    length=len(payload),
+                    content_type=content_type,
+                )
+                return
+            except S3Error as exc:
+                if exc.code != "RequestTimeTooSkewed" or attempt == 2:
+                    raise
+
+                server_date = exc.response.headers.get("Date", "unknown")
+                local_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                skew_seconds = "unknown"
+
+                try:
+                    parsed = parsedate_to_datetime(server_date)
+                    skew = parsed.timestamp() - time.time()
+                    skew_seconds = f"{skew:+.3f}s"
+                except (TypeError, ValueError, OverflowError):
+                    pass
+
+                logger.warning(
+                    "MinIO upload hit RequestTimeTooSkewed for {} "
+                    "(attempt {} of 2). local_utc={} server_date={} "
+                    "approx_skew={} — rebuilding clients and retrying once.",
+                    object_key,
+                    attempt,
+                    local_utc,
+                    server_date,
+                    skew_seconds,
+                )
+                self._refresh_clients()
+                time.sleep(1)
 
     def get_presigned_url(self, object_key: str, expires: int = 3600) -> str:
         """
@@ -133,13 +184,7 @@ class MinioClient:
         object_key = self.chunk_object_key(media_id, chunk_index)
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        self.client.put_object(
-            self.bucket_processed,
-            object_key,
-            BytesIO(json_bytes),
-            length=len(json_bytes),
-            content_type="application/json",
-        )
+        self._put_processed_object(object_key, json_bytes, "application/json")
         logger.debug(f"Uploaded chunk: {object_key} ({len(data)} sentences)")
         return object_key, self.get_presigned_url(object_key)
 
@@ -160,13 +205,7 @@ class MinioClient:
         data = output.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        self.client.put_object(
-            self.bucket_processed,
-            object_key,
-            BytesIO(json_bytes),
-            length=len(json_bytes),
-            content_type="application/json",
-        )
+        self._put_processed_object(object_key, json_bytes, "application/json")
         logger.info(
             f"Uploaded final result: {object_key} ({len(output.segments)} segments)"
         )
@@ -189,13 +228,7 @@ class MinioClient:
         data = batch.model_dump()
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        self.client.put_object(
-            self.bucket_processed,
-            object_key,
-            BytesIO(json_bytes),
-            length=len(json_bytes),
-            content_type="application/json",
-        )
+        self._put_processed_object(object_key, json_bytes, "application/json")
         logger.debug(
             f"Uploaded translated batch: {object_key} ({len(batch.segments)} segments)"
         )
@@ -214,11 +247,5 @@ class MinioClient:
         """
         json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
-        self.client.put_object(
-            self.bucket_processed,
-            object_key,
-            BytesIO(json_bytes),
-            length=len(json_bytes),
-            content_type="application/json",
-        )
+        self._put_processed_object(object_key, json_bytes, "application/json")
         return object_key

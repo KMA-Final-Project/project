@@ -159,6 +159,7 @@ The backend is the only stable HTTP boundary for the mobile app.
 | `GET /media/:id/status` | Returns processing status, progress, `currentStep`, ETA, and failure reason state. |
 | `GET /media/:id/artifacts` | Returns durable inventory for `chunks/`, `translated_batches/`, and `final.json`. |
 | `GET /media` | Returns the authenticated user's media library and artifact summaries for readiness UI. |
+| `GET /vocabulary` | Returns the authenticated user's grouped saved-word bank with expandable historical contexts across media items. |
 | `POST /media/:id/explain` | Streams Kapter Explain responses for one canonical subtitle segment. |
 | `GET /media/:id/explain/history` | Returns the authenticated user's chat history for one media segment. |
 | `POST /media/:id/explain/feedback` | Records authenticated feedback on an assistant chat message. |
@@ -393,6 +394,74 @@ Rules:
 - Bookmark persistence must snapshot the server-returned lookup data from Redis, never trust client-sent meaning or part-of-speech text.
 - Canonical vocabulary identity is `normalizedWord + sourceLanguage`.
 - User saves are unique per `userId + mediaItemId + segmentIndex + startWordIndex + endWordIndex`.
+
+#### `GET /vocabulary`
+
+Response:
+
+```ts
+interface WordBankContextItemDto {
+  id: string;
+  mediaItemId: string;
+  mediaTitle: string;
+  mediaOriginType: "LOCAL" | "YOUTUBE";
+  mediaThumbnailUrl: string | null;
+  mediaAvailable: boolean;
+  segmentIndex: number;
+  startWordIndex: number;
+  endWordIndex: number;
+  selectedText: string;
+  phonetic: string;
+  partOfSpeech:
+    | "noun"
+    | "pronoun"
+    | "verb"
+    | "adjective"
+    | "adverb"
+    | "particle"
+    | "classifier"
+    | "preposition"
+    | "conjunction"
+    | "interjection"
+    | "phrase"
+    | "idiom"
+    | "proper_noun"
+    | "other";
+  savedContextualDefinition: string;
+  savedExampleText: string;
+  savedExampleTranslation: string;
+  savedAt: string;
+}
+
+interface WordBankGroupItemDto {
+  vocabularyId: string;
+  word: string;
+  sourceLanguage: string;
+  phonetic: string;
+  contextCount: number;
+  latestSavedAt: string;
+  contexts: WordBankContextItemDto[];
+}
+
+interface WordBankListResponseDto {
+  data: WordBankGroupItemDto[];
+  meta: {
+    totalGroups: number;
+    totalContexts: number;
+  };
+}
+```
+
+Rules:
+
+- The route is authenticated and user-owned; mobile must not pass `userId`.
+- The backend groups saves by canonical `vocabularyId`, not by client-side string normalization.
+- Group ordering is newest-first by `latestSavedAt`.
+- Context ordering inside each group is newest-first by `savedAt`.
+- The backend enriches each context with media identity data from the related `MediaItem`.
+- Local thumbnails are presigned server-side; YouTube thumbnails use the canonical `youtubeVideoId` path when available.
+- Soft-deleted media contexts remain visible as historical saves, but must return `mediaAvailable=false` and `mediaThumbnailUrl=null`.
+- V1 of this route has no pagination, search, filters, or mutation behavior.
 
 ### 5.3 Kapter Explain Admin API
 

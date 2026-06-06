@@ -54,6 +54,10 @@ def main() -> None:
 
     converter_path = shutil.which("ct2-transformers-converter")
     if converter_path is None:
+        candidate = Path(sys.executable).parent / "ct2-transformers-converter"
+        if candidate.exists():
+            converter_path = str(candidate)
+    if converter_path is None:
         logger.error(
             "ct2-transformers-converter not found on PATH. "
             "Make sure ctranslate2 is installed (comes with faster-whisper)."
@@ -64,7 +68,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     cmd: list[str] = [
-        "ct2-transformers-converter",
+        converter_path,
         "--model",
         args.model,
         "--output_dir",

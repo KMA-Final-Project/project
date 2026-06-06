@@ -40,13 +40,14 @@ const testMediaMarkdownPath = resolve(
   'ai-engine',
   'test_medias.md',
 );
+const isWin = process.platform === 'win32';
 const aiEnginePythonPath = resolve(
   repoRoot,
   'apps',
   'ai-engine',
   'venv',
-  'Scripts',
-  'python.exe',
+  isWin ? 'Scripts' : 'bin',
+  isWin ? 'python.exe' : 'python',
 );
 const aiEngineWorkingDirectory = resolve(repoRoot, 'apps', 'ai-engine');
 

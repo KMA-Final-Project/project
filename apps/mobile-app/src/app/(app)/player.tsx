@@ -15,6 +15,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
 import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -59,6 +60,7 @@ export default function PlayerScreen() {
   const { theme } = useUnistyles();
   const { t } = useTranslation("player");
   const { defaultTargetLanguage } = useOnboarding();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const [layersVisible, setLayersVisible] = useState(false);
   const [explainVisible, setExplainVisible] = useState(false);
@@ -83,6 +85,7 @@ export default function PlayerScreen() {
   const [savingSaveToken, setSavingSaveToken] = useState<string | null>(null);
   const [footerHeight, setFooterHeight] = useState(164);
   const sentenceListRef = useRef<FlatList<Sentence>>(null);
+  const wasFocusedRef = useRef(false);
   const shouldResumeWhenCoverageArrivesRef = useRef(false);
   const latestLookupRequestIdRef = useRef(0);
   const activeSaveTokenRef = useRef<string | null>(null);
@@ -93,6 +96,16 @@ export default function PlayerScreen() {
   const subtitlesQuery = usePlayerSubtitles(id ?? null);
   const playbackSource = usePlaybackSource(mediaItem);
   const playback = useMediaPlayback(playbackSource.source);
+  const {
+    currentTimeSec: playbackCurrentTimeSec,
+    durationSec: playbackDurationSec,
+    isPlaying: playbackIsPlaying,
+    play: playMedia,
+    pause: pauseMedia,
+    seekTo: seekMedia,
+    setRate: setPlaybackRate,
+    videoPlayer,
+  } = playback;
   const { lookupMutation, saveMutation } = useVocabularyLookup(id ?? null);
   const { hasCoverageAt, isFinal, isPartial } = subtitlesQuery;
   const segments = subtitlesQuery.segments;
@@ -162,15 +175,19 @@ export default function PlayerScreen() {
     lookupSelection?.segmentIndex != null ? lookupSelection.wordIndex : null;
 
   useEffect(() => {
-    setCurrentTime(playback.currentTimeSec);
-    setDuration(playback.durationSec);
-    setIsPlaying(playback.isPlaying);
+    if (!isFocused) {
+      return;
+    }
+
+    setCurrentTime(playbackCurrentTimeSec);
+    setDuration(playbackDurationSec);
+    setIsPlaying(playbackIsPlaying);
     setMediaMode(playbackSource.source.kind === "video" ? "video" : "audio");
     setPlaybackSourceKind(playbackSource.source.sourceKind);
   }, [
-    playback.currentTimeSec,
-    playback.durationSec,
-    playback.isPlaying,
+    playbackCurrentTimeSec,
+    playbackDurationSec,
+    playbackIsPlaying,
     playbackSource.source.kind,
     playbackSource.source.sourceKind,
     setCurrentTime,
@@ -178,41 +195,68 @@ export default function PlayerScreen() {
     setIsPlaying,
     setMediaMode,
     setPlaybackSourceKind,
+    isFocused,
   ]);
 
   useEffect(() => {
-    setActiveSentenceIndex(activeSentenceState.activeSentenceIndex);
-  }, [activeSentenceState.activeSentenceIndex, setActiveSentenceIndex]);
-
-  useEffect(() => {
-    playback.setRate(playbackSpeed);
-  }, [playback, playbackSpeed]);
-
-  useEffect(() => {
-    if (!subtitlesQuery.isLoading && !mediaLoading && !isTranslationLayerAvailable && showTranslation) {
-      toggleLayer("translation");
+    if (!isFocused) {
+      return;
     }
-  }, [subtitlesQuery.isLoading, mediaLoading, isTranslationLayerAvailable, showTranslation, toggleLayer]);
+
+    setActiveSentenceIndex(activeSentenceState.activeSentenceIndex);
+  }, [activeSentenceState.activeSentenceIndex, isFocused, setActiveSentenceIndex]);
+
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+
+    setPlaybackRate(playbackSpeed);
+  }, [isFocused, playbackSpeed, setPlaybackRate]);
 
   useEffect(() => {
     if (
+      !isFocused ||
+      subtitlesQuery.isLoading ||
+      mediaLoading ||
+      isTranslationLayerAvailable ||
+      !showTranslation
+    ) {
+      return;
+    }
+
+    toggleLayer("translation");
+  }, [
+    subtitlesQuery.isLoading,
+    mediaLoading,
+    isFocused,
+    isTranslationLayerAvailable,
+    showTranslation,
+    toggleLayer,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isFocused ||
       !loopSentence ||
       !activeSentenceState.activeSentence ||
-      !playback.isPlaying
+      !playbackIsPlaying
     ) {
       return;
     }
 
     if (currentTimeSec >= activeSentenceState.activeSentence.end) {
-      playback.seekTo(activeSentenceState.activeSentence.start);
-      playback.play();
+      seekMedia(activeSentenceState.activeSentence.start);
+      playMedia();
     }
   }, [
     activeSentenceState.activeSentence,
     currentTimeSec,
+    isFocused,
     loopSentence,
-    playback,
-    playback.isPlaying,
+    playbackIsPlaying,
+    playMedia,
+    seekMedia,
   ]);
 
   const title = mediaItem?.title || t("title");
@@ -228,30 +272,38 @@ export default function PlayerScreen() {
       setSavingSaveToken(null);
       activeSaveTokenRef.current = null;
       setCurrentTime(nextTimeSec);
-      playback.seekTo(nextTimeSec);
+      seekMedia(nextTimeSec);
 
       if (hasCoverageAt(nextTimeSec)) {
         const shouldResume =
-          playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
+          playbackIsPlaying || shouldResumeWhenCoverageArrivesRef.current;
 
         setPendingSeekTimeSec(null);
         shouldResumeWhenCoverageArrivesRef.current = false;
 
         if (shouldResume && !playerDisabled) {
-          playback.play();
+          playMedia();
           return;
         }
 
-        playback.pause();
+        pauseMedia();
         return;
       }
 
       shouldResumeWhenCoverageArrivesRef.current =
-        playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
-      playback.pause();
+        playbackIsPlaying || shouldResumeWhenCoverageArrivesRef.current;
+      pauseMedia();
       setPendingSeekTimeSec(nextTimeSec);
     },
-    [hasCoverageAt, playback, playerDisabled, setCurrentTime],
+    [
+      hasCoverageAt,
+      pauseMedia,
+      playbackIsPlaying,
+      playMedia,
+      playerDisabled,
+      seekMedia,
+      setCurrentTime,
+    ],
   );
 
   const handleBack = () => {
@@ -291,10 +343,29 @@ export default function PlayerScreen() {
     activeSaveTokenRef.current = null;
   }, []);
 
+  useEffect(() => {
+    if (isFocused) {
+      wasFocusedRef.current = true;
+      return;
+    }
+
+    if (!wasFocusedRef.current) {
+      return;
+    }
+
+    wasFocusedRef.current = false;
+    shouldResumeWhenCoverageArrivesRef.current = false;
+    pauseMedia();
+    setPendingSeekTimeSec(null);
+    setExplainVisible(false);
+    setExplainSelection(null);
+    clearLookup();
+  }, [clearLookup, isFocused, pauseMedia]);
+
   const openExplainSheet = useCallback(
     (segmentIndex: number, sentence: Sentence | null) => {
       shouldResumeWhenCoverageArrivesRef.current = false;
-      playback.pause();
+      pauseMedia();
       setExplainSelection({
         segmentIndex,
         sentence,
@@ -302,7 +373,7 @@ export default function PlayerScreen() {
       });
       setExplainVisible(true);
     },
-    [defaultTargetLanguage, normalizedTargetLanguage, playback],
+    [defaultTargetLanguage, normalizedTargetLanguage, pauseMedia],
   );
   const handleScrollToIndexFailed = useCallback(
     ({
@@ -328,7 +399,12 @@ export default function PlayerScreen() {
   );
 
   useEffect(() => {
-    if (activeSentenceState.activeSentenceIndex < 0 || segments.length === 0 || isPinned) {
+    if (
+      !isFocused ||
+      activeSentenceState.activeSentenceIndex < 0 ||
+      segments.length === 0 ||
+      isPinned
+    ) {
       return;
     }
 
@@ -339,10 +415,14 @@ export default function PlayerScreen() {
         viewPosition: 0.35,
       });
     });
-  }, [activeSentenceState.activeSentenceIndex, segments.length, isPinned]);
+  }, [activeSentenceState.activeSentenceIndex, isFocused, isPinned, segments.length]);
 
   useEffect(() => {
-    if (pendingSeekTimeSec == null || !hasCoverageAt(pendingSeekTimeSec)) {
+    if (
+      !isFocused ||
+      pendingSeekTimeSec == null ||
+      !hasCoverageAt(pendingSeekTimeSec)
+    ) {
       return;
     }
 
@@ -350,15 +430,22 @@ export default function PlayerScreen() {
 
     if (shouldResumeWhenCoverageArrivesRef.current && !playerDisabled) {
       shouldResumeWhenCoverageArrivesRef.current = false;
-      playback.play();
+      playMedia();
       return;
     }
 
     shouldResumeWhenCoverageArrivesRef.current = false;
-  }, [hasCoverageAt, pendingSeekTimeSec, playback, playerDisabled]);
+  }, [
+    hasCoverageAt,
+    isFocused,
+    pendingSeekTimeSec,
+    playMedia,
+    playerDisabled,
+  ]);
 
   useEffect(() => {
     if (
+      !isFocused ||
       playerDisabled ||
       isFinal ||
       segments.length === 0 ||
@@ -368,16 +455,18 @@ export default function PlayerScreen() {
     }
 
     shouldResumeWhenCoverageArrivesRef.current =
-      playback.isPlaying || shouldResumeWhenCoverageArrivesRef.current;
-    playback.pause();
+      playbackIsPlaying || shouldResumeWhenCoverageArrivesRef.current;
+    pauseMedia();
     setPendingSeekTimeSec(currentTimeSec);
   }, [
     currentTimeSec,
     hasCoverageAt,
     isFinal,
-    playback,
+    playbackIsPlaying,
     playerDisabled,
     segments.length,
+    isFocused,
+    pauseMedia,
   ]);
 
   const handleTogglePlayback = useCallback(() => {
@@ -385,21 +474,28 @@ export default function PlayerScreen() {
       return;
     }
 
-    if (isPlaying) {
+    if (playbackIsPlaying) {
       shouldResumeWhenCoverageArrivesRef.current = false;
-      playback.pause();
+      pauseMedia();
       return;
     }
 
     if (!hasCoverageAt(currentTimeSec)) {
       shouldResumeWhenCoverageArrivesRef.current = true;
       setPendingSeekTimeSec(currentTimeSec);
-      playback.pause();
+      pauseMedia();
       return;
     }
 
-    playback.play();
-  }, [currentTimeSec, hasCoverageAt, isPlaying, playback, playerDisabled]);
+    playMedia();
+  }, [
+    currentTimeSec,
+    hasCoverageAt,
+    pauseMedia,
+    playbackIsPlaying,
+    playMedia,
+    playerDisabled,
+  ]);
 
   const handleOpenExplain = useCallback(() => {
     clearLookup();
@@ -423,7 +519,7 @@ export default function PlayerScreen() {
       }
 
       shouldResumeWhenCoverageArrivesRef.current = false;
-      playback.pause();
+      pauseMedia();
       setSaveErrorMessage(null);
       setSavingSaveToken(null);
       activeSaveTokenRef.current = null;
@@ -467,7 +563,7 @@ export default function PlayerScreen() {
         },
       );
     },
-    [id, lookupMutation, playback],
+    [id, lookupMutation, pauseMedia],
   );
 
   const handleOpenLookupExplain = useCallback(() => {
@@ -542,12 +638,12 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     registerExplainPlaybackHandler(
-      playerDisabled
+      !isFocused || playerDisabled
         ? null
         : (startSec: number) => {
-            if (isPlaying) {
+            if (playbackIsPlaying) {
               shouldResumeWhenCoverageArrivesRef.current = false;
-              playback.pause();
+              pauseMedia();
               return;
             }
 
@@ -560,8 +656,9 @@ export default function PlayerScreen() {
       registerExplainPlaybackHandler(null);
     };
   }, [
-    isPlaying,
-    playback,
+    isFocused,
+    pauseMedia,
+    playbackIsPlaying,
     playerDisabled,
     registerExplainPlaybackHandler,
     requestSeek,
@@ -710,7 +807,7 @@ export default function PlayerScreen() {
                 thumbnailUrl={mediaItem.thumbnailUrl}
                 originType={mediaItem.originType}
                 source={playbackSource.source}
-                videoPlayer={playback.videoPlayer}
+                videoPlayer={videoPlayer}
               />
             ) : null}
 

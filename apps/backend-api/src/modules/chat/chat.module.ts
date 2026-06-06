@@ -11,13 +11,16 @@ import { OPENAI_CLIENT } from './chat-provider.constants';
 import { openAiClientProvider } from './openai-client.provider';
 import { LookupController } from './lookup.controller';
 import { LookupService } from './lookup.service';
+import { VocabularyController } from './vocabulary.controller';
+import { VocabularyService } from './vocabulary.service';
 
 @Module({
   imports: [PrismaModule, MinioModule],
-  controllers: [ChatController, LookupController],
+  controllers: [ChatController, LookupController, VocabularyController],
   providers: [
     ChatService,
     LookupService,
+    VocabularyService,
     ChatConfigService,
     AiCreditLedgerService,
     ChatContextService,
@@ -27,6 +30,7 @@ import { LookupService } from './lookup.service';
   exports: [
     ChatService,
     LookupService,
+    VocabularyService,
     ChatConfigService,
     AiCreditLedgerService,
     ChatContextService,

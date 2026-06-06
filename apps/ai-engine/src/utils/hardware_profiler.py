@@ -27,6 +27,9 @@ from typing import List, Optional
 
 import psutil
 from loguru import logger
+import platform
+
+from src.config import settings
 
 try:
     import pynvml
@@ -44,6 +47,10 @@ class Sample:
     ram_used_gb: float           # RAM used (GB)
     ram_total_gb: float          # RAM total (GB)
     ram_percent: float           # RAM usage %
+    process_cpu_percent: float   # AI-engine process-tree CPU usage %
+    process_rss_gb: float        # AI-engine process-tree RSS (GB)
+    process_thread_count: int    # AI-engine process-tree thread count
+    process_child_count: int     # direct+indirect child process count
     gpu_util_percent: float      # GPU compute utilization %
     gpu_mem_used_mb: float       # GPU VRAM used (MB)
     gpu_mem_total_mb: float      # GPU VRAM total (MB)
@@ -66,6 +73,12 @@ class ProfileReport:
     max_cpu: float = 0.0
     avg_ram_gb: float = 0.0
     max_ram_gb: float = 0.0
+    avg_process_cpu: float = 0.0
+    max_process_cpu: float = 0.0
+    avg_process_rss_gb: float = 0.0
+    max_process_rss_gb: float = 0.0
+    max_process_thread_count: int = 0
+    max_process_child_count: int = 0
     avg_gpu_util: float = 0.0
     max_gpu_util: float = 0.0
     avg_gpu_mem_mb: float = 0.0
@@ -75,6 +88,10 @@ class ProfileReport:
     max_gpu_temp: float = 0.0
     avg_gpu_power: float = 0.0
     max_gpu_power: float = 0.0
+    host_platform: str = ""
+    configured_device: str = ""
+    nvml_available: bool = False
+    mps_available: bool = False
 
 
 class HardwareProfiler:
@@ -101,6 +118,7 @@ class HardwareProfiler:
         self._job_id: str = ""
         self._media_id: str = ""
         self._nvml_handle = None
+        self._root_process: Optional[psutil.Process] = None
         self.last_report: Optional[ProfileReport] = None
         self.last_txt_path: Optional[Path] = None
         self.last_csv_path: Optional[Path] = None
@@ -116,7 +134,7 @@ class HardwareProfiler:
                 logger.warning(f"HardwareProfiler: Failed to init NVML — {e}")
                 self._nvml_handle = None
 
-    def start(self, job_id: str = "", media_id: str = ""):
+    def start(self, job_id: str = "", media_id: str = "", pid: int | None = None):
         """Begin sampling in background thread."""
         if self._thread and self._thread.is_alive():
             logger.warning("Profiler already running, stopping previous session")
@@ -127,6 +145,15 @@ class HardwareProfiler:
         self._start_time = time.monotonic()
         self._job_id = job_id
         self._media_id = media_id
+        target_pid = pid or os.getpid()
+        try:
+            self._root_process = psutil.Process(target_pid)
+            self._root_process.cpu_percent(interval=None)
+            for child in self._root_process.children(recursive=True):
+                child.cpu_percent(interval=None)
+        except psutil.Error as exc:
+            logger.warning(f"Profiler: failed to bind process tree for PID {target_pid}: {exc}")
+            self._root_process = None
         self.last_report = None
         self.last_txt_path = None
         self.last_csv_path = None
@@ -178,6 +205,15 @@ class HardwareProfiler:
         mem = psutil.virtual_memory()
         ram_used_gb = mem.used / (1024 ** 3)
         ram_total_gb = mem.total / (1024 ** 3)
+        process_cpu_percent = 0.0
+        process_rss_gb = 0.0
+        process_thread_count = 0
+        process_child_count = 0
+
+        if self._root_process is not None:
+            process_cpu_percent, process_rss_gb, process_thread_count, process_child_count = (
+                self._collect_process_tree_metrics(self._root_process)
+            )
 
         # GPU
         gpu_util = 0.0
@@ -211,12 +247,51 @@ class HardwareProfiler:
             ram_used_gb=round(ram_used_gb, 2),
             ram_total_gb=round(ram_total_gb, 2),
             ram_percent=round(mem.percent, 1),
+            process_cpu_percent=round(process_cpu_percent, 1),
+            process_rss_gb=round(process_rss_gb, 2),
+            process_thread_count=process_thread_count,
+            process_child_count=process_child_count,
             gpu_util_percent=round(gpu_util, 1),
             gpu_mem_used_mb=round(gpu_mem_used, 0),
             gpu_mem_total_mb=round(gpu_mem_total, 0),
             gpu_mem_percent=round(gpu_mem_percent, 1),
             gpu_temp_c=round(gpu_temp, 0),
             gpu_power_w=round(gpu_power, 1),
+        )
+
+    def _collect_process_tree_metrics(
+        self, root_process: psutil.Process
+    ) -> tuple[float, float, int, int]:
+        """Collect CPU/RSS/thread metrics for the worker process and its children."""
+        try:
+            processes = [root_process] + root_process.children(recursive=True)
+        except psutil.Error:
+            processes = [root_process]
+
+        alive: list[psutil.Process] = []
+        for proc in processes:
+            try:
+                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                    alive.append(proc)
+            except psutil.Error:
+                continue
+
+        total_cpu = 0.0
+        total_rss_bytes = 0
+        total_threads = 0
+        for proc in alive:
+            try:
+                total_cpu += proc.cpu_percent(interval=None)
+                total_rss_bytes += proc.memory_info().rss
+                total_threads += proc.num_threads()
+            except psutil.Error:
+                continue
+
+        return (
+            total_cpu,
+            total_rss_bytes / (1024 ** 3),
+            total_threads,
+            max(0, len(alive) - 1),
         )
 
     def _build_report(self, duration: float) -> ProfileReport:
@@ -234,6 +309,24 @@ class HardwareProfiler:
         report.max_cpu = round(max(s.cpu_percent for s in self._samples), 1)
         report.avg_ram_gb = round(sum(s.ram_used_gb for s in self._samples) / n, 2)
         report.max_ram_gb = round(max(s.ram_used_gb for s in self._samples), 2)
+        report.avg_process_cpu = round(
+            sum(s.process_cpu_percent for s in self._samples) / n, 1
+        )
+        report.max_process_cpu = round(
+            max(s.process_cpu_percent for s in self._samples), 1
+        )
+        report.avg_process_rss_gb = round(
+            sum(s.process_rss_gb for s in self._samples) / n, 2
+        )
+        report.max_process_rss_gb = round(
+            max(s.process_rss_gb for s in self._samples), 2
+        )
+        report.max_process_thread_count = max(
+            s.process_thread_count for s in self._samples
+        )
+        report.max_process_child_count = max(
+            s.process_child_count for s in self._samples
+        )
         report.avg_gpu_util = round(sum(s.gpu_util_percent for s in self._samples) / n, 1)
         report.max_gpu_util = round(max(s.gpu_util_percent for s in self._samples), 1)
         report.avg_gpu_mem_mb = round(sum(s.gpu_mem_used_mb for s in self._samples) / n, 0)
@@ -243,6 +336,18 @@ class HardwareProfiler:
         report.max_gpu_temp = round(max(s.gpu_temp_c for s in self._samples), 0)
         report.avg_gpu_power = round(sum(s.gpu_power_w for s in self._samples) / n, 1)
         report.max_gpu_power = round(max(s.gpu_power_w for s in self._samples), 1)
+        report.host_platform = platform.platform()
+        report.configured_device = settings.DEVICE
+        report.nvml_available = self._nvml_handle is not None
+        try:
+            import torch
+
+            report.mps_available = bool(
+                getattr(torch.backends, "mps", None)
+                and torch.backends.mps.is_available()
+            )
+        except Exception:
+            report.mps_available = False
 
         return report
 
@@ -267,6 +372,13 @@ class HardwareProfiler:
             f.write(f"  Samples:      {report.sample_count} (every {self._interval}s)\n")
             f.write(f"  Generated:    {datetime.now().isoformat()}\n")
             f.write("\n" + "-" * 70 + "\n")
+            f.write("  EXECUTION CONTEXT\n")
+            f.write("-" * 70 + "\n")
+            f.write(f"  Host:         {report.host_platform}\n")
+            f.write(f"  Device:       {report.configured_device}\n")
+            f.write(f"  NVML GPU:     {'available' if report.nvml_available else 'unavailable'}\n")
+            f.write(f"  MPS Runtime:  {'available' if report.mps_available else 'unavailable'}\n")
+            f.write("\n" + "-" * 70 + "\n")
             f.write("  CPU\n")
             f.write("-" * 70 + "\n")
             f.write(f"  Average:      {report.avg_cpu}%\n")
@@ -278,30 +390,55 @@ class HardwareProfiler:
             f.write(f"  Peak:         {report.max_ram_gb:.2f} GB\n")
             f.write(f"  Total:        {report.samples[0].ram_total_gb:.2f} GB\n")
             f.write("\n" + "-" * 70 + "\n")
+            f.write("  AI ENGINE PROCESS TREE\n")
+            f.write("-" * 70 + "\n")
+            f.write(f"  Avg CPU:      {report.avg_process_cpu}%\n")
+            f.write(f"  Peak CPU:     {report.max_process_cpu}%\n")
+            f.write(f"  Avg RSS:      {report.avg_process_rss_gb:.2f} GB\n")
+            f.write(f"  Peak RSS:     {report.max_process_rss_gb:.2f} GB\n")
+            f.write(f"  Peak Threads: {report.max_process_thread_count}\n")
+            f.write(f"  Peak Children:{report.max_process_child_count}\n")
+            f.write("\n" + "-" * 70 + "\n")
             f.write("  GPU COMPUTE\n")
             f.write("-" * 70 + "\n")
-            f.write(f"  Average:      {report.avg_gpu_util}%\n")
-            f.write(f"  Peak:         {report.max_gpu_util}%\n")
+            if report.nvml_available:
+                f.write(f"  Average:      {report.avg_gpu_util}%\n")
+                f.write(f"  Peak:         {report.max_gpu_util}%\n")
+            else:
+                f.write("  Unavailable for this host/runtime.\n")
             f.write("\n" + "-" * 70 + "\n")
             f.write("  GPU VRAM\n")
             f.write("-" * 70 + "\n")
-            f.write(f"  Average:      {report.avg_gpu_mem_mb:.0f} MB\n")
-            f.write(f"  Peak:         {report.max_gpu_mem_mb:.0f} MB\n")
-            f.write(f"  Total:        {report.gpu_mem_total_mb:.0f} MB\n")
-            f.write(f"  Free at peak: {vram_free:.0f} MB\n")
+            if report.nvml_available:
+                f.write(f"  Average:      {report.avg_gpu_mem_mb:.0f} MB\n")
+                f.write(f"  Peak:         {report.max_gpu_mem_mb:.0f} MB\n")
+                f.write(f"  Total:        {report.gpu_mem_total_mb:.0f} MB\n")
+                f.write(f"  Free at peak: {vram_free:.0f} MB\n")
+            else:
+                f.write("  Unavailable for this host/runtime.\n")
             f.write("\n" + "-" * 70 + "\n")
             f.write("  GPU THERMAL & POWER\n")
             f.write("-" * 70 + "\n")
-            f.write(f"  Avg Temp:     {report.avg_gpu_temp:.0f}°C\n")
-            f.write(f"  Peak Temp:    {report.max_gpu_temp:.0f}°C\n")
-            f.write(f"  Avg Power:    {report.avg_gpu_power:.1f}W\n")
-            f.write(f"  Peak Power:   {report.max_gpu_power:.1f}W\n")
+            if report.nvml_available:
+                f.write(f"  Avg Temp:     {report.avg_gpu_temp:.0f}°C\n")
+                f.write(f"  Peak Temp:    {report.max_gpu_temp:.0f}°C\n")
+                f.write(f"  Avg Power:    {report.avg_gpu_power:.1f}W\n")
+                f.write(f"  Peak Power:   {report.max_gpu_power:.1f}W\n")
+            else:
+                f.write("  Unavailable for this host/runtime.\n")
             f.write("\n" + "=" * 70 + "\n")
             f.write("  SCALING ANALYSIS\n")
             f.write("=" * 70 + "\n\n")
 
             # Auto-analysis
-            if report.avg_gpu_util < 30:
+            if not report.nvml_available:
+                f.write("  ℹ️ NVML-compatible GPU telemetry is unavailable on this host.\n")
+                f.write("     → Treat this report as CPU/process-oriented, not GPU-oriented.\n")
+                f.write(
+                    f"     → The active AI engine is configured for DEVICE={report.configured_device}, "
+                    "so CPU-heavy ASR/NMT latency is expected on this machine.\n"
+                )
+            elif report.avg_gpu_util < 30:
                 f.write("  ⚡ GPU compute is UNDERUTILIZED (avg <30%).\n")
                 f.write("     → Batched inference (batch_size=4-8) could significantly help.\n")
                 f.write("     → A second worker MAY be feasible if VRAM allows.\n")
@@ -316,7 +453,13 @@ class HardwareProfiler:
 
             f.write("\n")
 
-            if vram_free > 4000:
+            if not report.nvml_available:
+                f.write(
+                    f"  🧠 Process peak RSS reached {report.max_process_rss_gb:.2f} GB "
+                    f"with peak process CPU {report.max_process_cpu}%.\n"
+                )
+                f.write("     → Compare these numbers across machines to separate compute limits from I/O waits.\n")
+            elif vram_free > 4000:
                 f.write(f"  💾 VRAM headroom: {vram_free:.0f} MB free at peak.\n")
                 f.write("     → Enough for a second lightweight model (turbo/medium).\n")
             elif vram_free > 2000:
@@ -334,12 +477,14 @@ class HardwareProfiler:
             writer = csv.writer(f)
             writer.writerow([
                 "timestamp_s", "cpu_%", "ram_used_gb", "ram_%",
+                "process_cpu_%", "process_rss_gb", "process_threads", "process_children",
                 "gpu_util_%", "gpu_mem_used_mb", "gpu_mem_%",
                 "gpu_temp_c", "gpu_power_w",
             ])
             for s in report.samples:
                 writer.writerow([
                     s.timestamp, s.cpu_percent, s.ram_used_gb, s.ram_percent,
+                    s.process_cpu_percent, s.process_rss_gb, s.process_thread_count, s.process_child_count,
                     s.gpu_util_percent, s.gpu_mem_used_mb, s.gpu_mem_percent,
                     s.gpu_temp_c, s.gpu_power_w,
                 ])

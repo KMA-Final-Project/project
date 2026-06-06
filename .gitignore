@@ -1,6 +1,9 @@
 prompt.md
 .agent
+.agents
 .github/prompts
+.opencode
+.codex
 
 response_*.*
 test_results.txt

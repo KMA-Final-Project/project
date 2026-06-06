@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-05-27
+> Last updated: 2026-06-04
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -23,6 +23,15 @@ Current completed surfaces:
 - [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
 
 ## 3. Recently Completed
+
+- 2026-06-04 — Grouped Word Bank read endpoint. Status: Working.
+  - Added authenticated `GET /vocabulary` under a user-owned route so mobile can fetch grouped saved vocabulary across all media items without reconstructing canonical groups client-side.
+  - The backend now groups `UserVocabulary` rows by canonical `Vocabulary` identity, enriches each saved context with media title/origin/thumbnail state, and keeps soft-deleted media visible as historical contexts with `mediaAvailable=false`.
+  - Added Swagger DTOs and service coverage for group ordering, context ordering, thumbnail enrichment, and soft-delete visibility behavior.
+  - Why: the upcoming mobile Word Bank screen needed one clean read contract that avoids duplicate cards for the same word while still preserving the exact saved subtitle snapshots.
+  - Contract touched: API, Mobile impact.
+  - Validation: `pnpm build`; `pnpm lint`; `pnpm test -- vocabulary.service.spec.ts lookup.service.spec.ts`.
+  - Follow-up: manually verify the new route against a seeded local database and confirm thumbnail/sign-in behavior from the mobile screen.
 
 - 2026-05-27 — End-to-end YouTube WER benchmark suite. Status: Working.
   - Rebuilt `scripts/e2e-youtube-pipeline-eval.ts` into a modular benchmark harness under `scripts/e2e-youtube-benchmark/` with helper modules for fixture loading, benchmark-user bootstrap, Axios API access, `yt-dlp` manual subtitle acquisition, English/Chinese tokenization, Levenshtein WER, and suite reporting.
@@ -233,6 +242,7 @@ Stable documented endpoints:
 - `POST /media/:id/explain/feedback`
 - `POST /media/:id/lookup`
 - `POST /media/:id/lookup/bookmark`
+- `GET /vocabulary`
 
 ### Queue
 

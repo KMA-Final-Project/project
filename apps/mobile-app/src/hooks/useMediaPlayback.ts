@@ -96,15 +96,9 @@ export const useMediaPlayback = (source: PlaybackSource): PlaybackControls => {
   }, [audioPlayer, source.kind, videoPlayer]);
 
   const pause = useCallback(() => {
-    if (source.kind === "audio") {
-      audioPlayer.pause();
-      return;
-    }
-
-    if (source.kind === "video") {
-      videoPlayer.pause();
-    }
-  }, [audioPlayer, source.kind, videoPlayer]);
+    audioPlayer.pause();
+    videoPlayer.pause();
+  }, [audioPlayer, videoPlayer]);
 
   const seekTo = useCallback(
     (sec: number) => {
