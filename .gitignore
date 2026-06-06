@@ -3,6 +3,7 @@ prompt.md
 .agents
 .github/prompts
 .opencode
+.codex
 
 response_*.*
 test_results.txt

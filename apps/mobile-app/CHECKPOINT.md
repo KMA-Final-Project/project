@@ -1,6 +1,6 @@
 # Mobile App - Checkpoint
 
-> Last updated: 2026-06-04
+> Last updated: 2026-06-06
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -32,8 +32,15 @@ Auth/session
 
 - [x] Manually verify Kapter Explain against a running backend/provider, then refine stream error/abort UX from device testing.
 - [ ] Manually verify vocabulary lookup/save on device against the live backend, including active-word tap targets, free-tier limit handling, and Explain handoff.
+- [ ] Manually verify iOS player lifecycle after the focus/blur playback fix, especially back-navigation stop behavior and pause stability across Explain and Lookup.
 
 ## 3. Recently Completed
+
+- 2026-06-06 — Player blur cleanup and focused-instance playback sync. Status: Working.
+  - Changed: Scoped player-to-store synchronization and Explain replay registration to the focused screen only, added explicit blur cleanup that pauses playback when leaving the player route, and hardened `useMediaPlayback` so pause always stops both underlying Expo audio/video players.
+  - Why: iOS testing exposed a lifecycle bug where a blurred player screen inside the tab navigator could keep playing in the background and continue overwriting global player state, which made pause, Explain, and Lookup appear to auto-resume.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: manual device verification on iOS for back-navigation, opening a second media item after leaving the first player, and pause behavior during Explain/Lookup.
 
 - 2026-06-04 — Grouped Word Bank screen and Settings entry. Status: Working.
   - Added a new hidden app route `/(app)/word-bank` and a Settings entry that opens a grouped saved-vocabulary screen backed by the new authenticated backend `GET /vocabulary` contract.
