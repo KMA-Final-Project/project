@@ -1,8 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  AvailablePlan,
+  CurrentSubscriptionPlan,
+  SubscriptionAiCredits,
+  SubscriptionQuota,
+  SubscriptionStatusResponse,
+} from '@kapter/contracts';
 import { BillingCycleType } from 'prisma/generated/client';
 import { MEDIA_ERRORS } from 'src/common/constants/error-messages';
 
-export class SubscriptionCurrentPlanDto {
+export class SubscriptionCurrentPlanDto implements CurrentSubscriptionPlan {
   @ApiProperty() planCode!: string;
   @ApiProperty() planName!: string;
   @ApiProperty() variantId!: string;
@@ -15,7 +22,7 @@ export class SubscriptionCurrentPlanDto {
   billingCycleType!: BillingCycleType;
 }
 
-export class SubscriptionQuotaStatusDto {
+export class SubscriptionQuotaStatusDto implements SubscriptionQuota {
   @ApiProperty() usedSeconds!: number;
   @ApiProperty({ nullable: true }) totalSeconds!: number | null;
   @ApiProperty({ nullable: true }) remainingSeconds!: number | null;
@@ -35,12 +42,12 @@ export class SubscriptionQuotaStatusDto {
     | typeof MEDIA_ERRORS.QUOTA_EXCEEDED;
 }
 
-export class SubscriptionAiCreditsDto {
+export class SubscriptionAiCreditsDto implements SubscriptionAiCredits {
   @ApiProperty() remaining!: number;
   @ApiProperty() includedPerCycle!: number;
 }
 
-export class AvailablePlanDto {
+export class AvailablePlanDto implements AvailablePlan {
   @ApiProperty() planCode!: string;
   @ApiProperty() planName!: string;
   @ApiPropertyOptional({ nullable: true }) description!: string | null;
@@ -58,7 +65,7 @@ export class AvailablePlanDto {
   @ApiProperty() isCurrent!: boolean;
 }
 
-export class SubscriptionStatusResponseDto {
+export class SubscriptionStatusResponseDto implements SubscriptionStatusResponse {
   @ApiPropertyOptional({ type: SubscriptionCurrentPlanDto, nullable: true })
   currentPlan!: SubscriptionCurrentPlanDto | null;
 

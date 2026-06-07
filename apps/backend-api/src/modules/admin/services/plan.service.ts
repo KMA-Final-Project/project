@@ -94,7 +94,7 @@ export class PlanService extends BaseCrudService<
       data: {
         name: dto.name,
         description: dto.description,
-        features: dto.features as Prisma.JsonArray | undefined,
+        features: dto.features,
         tierLevel: dto.tierLevel,
         isActive: dto.isActive,
       },

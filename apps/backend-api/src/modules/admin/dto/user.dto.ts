@@ -1,8 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type { AdminUsersQueryParams } from '@kapter/contracts';
 import { IsInt, IsOptional, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class AdminUsersQueryDto {
+export class AdminUsersQueryDto implements AdminUsersQueryParams {
   @ApiPropertyOptional({ example: 1, default: 1 })
   @IsOptional()
   @Type(() => Number)

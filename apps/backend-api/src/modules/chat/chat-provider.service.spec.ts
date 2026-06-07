@@ -176,19 +176,7 @@ describe('ChatProviderService', () => {
         },
       ]
     >;
-    const createCall = createCalls[0]?.[0] as {
-      response_format?: {
-        json_schema?: {
-          schema?: {
-            properties?: {
-              contextualDefinition?: {
-                maxLength?: number;
-              };
-            };
-          };
-        };
-      };
-    };
+    const createCall = createCalls[0]?.[0];
     expect(
       createCall?.response_format?.json_schema?.schema?.properties
         ?.contextualDefinition?.maxLength,

@@ -52,6 +52,15 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 
 ## Recent Update — 2026-05-24
 
+- 2026-06-07 — Root pnpm workspace adoption and shared TypeScript contracts. Status: Working.
+- Added the repository-root `pnpm` workspace and moved dashboard package management onto the shared root lockfile.
+- Replaced dashboard-local auth/overview/plans/users/ai-explain transport types with imports from `packages/contracts`, which now emits ESM plus declaration files through `tsup`.
+- Added root workspace scripts so dashboard build/lint/typecheck can run from the repository root.
+- Why: the dashboard was duplicating backend-owned admin contract shapes, and the project now needs a stable shared TS boundary before a future user-facing web app is added.
+- Contract touchpoints: TypeScript compile-time authority only. Dashboard API behavior unchanged.
+- Validation: `pnpm typecheck`; `pnpm lint`; `pnpm build`.
+- Follow-up: if shared admin response DTOs become fully explicit in the backend later, keep the workspace package boundary and switch the internals rather than creating a second contract source.
+
 - Kapter Explain Phase 1 dashboard types. Status: In-Progress.
 - Added admin metrics/session response types for future Kapter Explain monitoring.
 - Added `aiCreditsPerMonth` to plan variant create/update/list types so dashboard contracts match backend plan quota fields.

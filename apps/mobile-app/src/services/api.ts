@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { create } from "axios";
 import { Platform } from "react-native";
 import { getTokens, setTokens, clearTokens } from "./token-storage";
 import { Tokens } from "@/types/auth";
@@ -38,7 +38,7 @@ export const API_BASE_URL = envApiBaseUrl
     : normalizeApiBaseUrl(envApiBaseUrl)
   : DEFAULT_API_BASE_URL;
 
-export const api = axios.create({
+export const api = create({
   baseURL: API_BASE_URL,
   timeout: 15000,
   headers: { "Content-Type": "application/json" },

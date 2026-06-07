@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-06-04
+> Last updated: 2026-06-07
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -23,6 +23,26 @@ Current completed surfaces:
 - [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
 
 ## 3. Recently Completed
+
+- 2026-06-07 — Backend Prisma/watch startup stabilized after workspace reinstall. Status: Working.
+  - Pinned `prisma`, `@prisma/client`, and `@prisma/adapter-pg` to `7.8.0`, and updated backend build/dev scripts to regenerate Prisma before compile so the emitted client cannot drift from the installed runtime.
+  - Disabled Nest CLI `deleteOutDir` during watch startup on Windows because repeated `dist/` cleanup was throwing `EPERM` and preventing both `pnpm start:dev` and `pnpm worker:dev` from recompiling the updated Prisma client.
+  - Corrected the backend runtime entry scripts to the actual emitted paths under `dist/src/`.
+  - Why: after the shared workspace reinstall, backend watch mode kept crashing before recompilation and the stale compiled Prisma client then surfaced `TypeError: Cannot read properties of undefined (reading 'graph')` during bootstrap.
+  - Contract touched: none. API, queue, artifact, and socket behavior unchanged.
+  - Validation: `pnpm build`; controlled startup verification of `pnpm start:dev` and `pnpm worker:dev` until Nest reached successful bootstrap.
+  - Follow-up: if multiple dev processes need to run concurrently, avoid starting backend API and worker with separate `pnpm pgen` steps at the exact same moment because Prisma generation writes into one shared output directory.
+
+- 2026-06-07 — Root pnpm workspace and shared TypeScript contracts package. Status: Working.
+  - Added a repository-root `pnpm` workspace and moved the TypeScript modules onto one shared lockfile.
+  - Added `packages/contracts` as a minimal shared workspace package, wired backend DTO/request classes into the shared transport surfaces where the wire shapes already matched cleanly, and now emit the package through `tsup`.
+  - Kept backend NestJS DTO classes and Swagger decorators as the runtime validation authority; this change centralized TypeScript transport definitions without changing API behavior.
+  - Aligned the backend Jest toolchain to `jest@29.7.0` and `@types/jest@29.5.14` after the shared workspace install surfaced a broken Jest 30 runtime path during backend test execution.
+  - Added repository-root workspace scripts for build, lint, typecheck, test, and validate so backend verification can run from one consistent entry point.
+  - Why: backend, mobile, and dashboard were duplicating the same transport contracts, which increased drift risk and made future web-app expansion less clean than it needed to be.
+  - Contract touched: TypeScript compile-time authority only. API/queue/artifact/socket behavior unchanged.
+  - Validation: `pnpm --filter @kapter/contracts build`; `pnpm --filter @kapter/contracts typecheck`; `pnpm build`; `pnpm lint`; `pnpm test -- --runInBand`.
+  - Follow-up: if the team later adopts generated OpenAPI consumer types, replace or feed `packages/contracts` through the same package boundary instead of reintroducing ad hoc per-app contract mirrors.
 
 - 2026-06-06 — Mobile subscription status contract and failure-code upload gating. Status: Working.
   - Added authenticated `GET /user/subscription-status` under the user module so mobile can read the current plan snapshot, current-month quota usage window, per-file duration limit, AI credits, and active plan catalog from one backend source of truth.

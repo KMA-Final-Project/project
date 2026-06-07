@@ -1,4 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  CreateVariantPayload,
+  UpdateVariantPayload,
+} from '@kapter/contracts';
 import {
   IsString,
   IsOptional,
@@ -11,7 +15,7 @@ import {
 } from 'class-validator';
 import { BillingCycleType } from 'prisma/generated/client';
 
-export class CreateVariantDto {
+export class CreateVariantDto implements CreateVariantPayload {
   @ApiProperty({ example: 'Monthly', description: 'Variant display name' })
   @IsString()
   @MaxLength(100)
@@ -56,7 +60,7 @@ export class CreateVariantDto {
   aiCreditsPerMonth: number;
 }
 
-export class UpdateVariantDto {
+export class UpdateVariantDto implements UpdateVariantPayload {
   @ApiPropertyOptional({ example: 'Monthly Updated' })
   @IsOptional()
   @IsString()

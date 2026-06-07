@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { ChatConfigService } from './chat-config.service';
 import { OPENAI_CLIENT, type OpenAiClient } from './chat-provider.constants';
 import {
@@ -48,7 +47,7 @@ export class ChatProviderService {
       const stream = await this.openai.chat.completions.create(
         {
           model: this.config.model,
-          messages: messages as ChatCompletionMessageParam[],
+          messages: messages,
           temperature: this.config.temperature,
           max_tokens: this.config.maxOutputTokens,
           stream: true,
@@ -93,7 +92,7 @@ export class ChatProviderService {
       const response = await this.openai.chat.completions.create(
         {
           model: this.config.lookupModel,
-          messages: messages as ChatCompletionMessageParam[],
+          messages: messages,
           temperature: this.config.lookupTemperature,
           max_tokens: this.config.lookupMaxOutputTokens,
           response_format: {

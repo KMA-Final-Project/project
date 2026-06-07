@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type { CreatePlanPayload, UpdatePlanPayload } from '@kapter/contracts';
 import {
   IsString,
   IsOptional,
@@ -9,7 +10,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-export class CreatePlanDto {
+export class CreatePlanDto implements CreatePlanPayload {
   @ApiProperty({ example: 'PRO', description: 'Unique plan ID' })
   @IsString()
   @MaxLength(50)
@@ -52,7 +53,7 @@ export class CreatePlanDto {
   tierLevel?: number;
 }
 
-export class UpdatePlanDto {
+export class UpdatePlanDto implements UpdatePlanPayload {
   @ApiPropertyOptional({ example: 'Pro Plan Updated' })
   @IsOptional()
   @IsString()

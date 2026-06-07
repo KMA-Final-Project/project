@@ -16,6 +16,36 @@ Before running commands:
 
 Do not declare a task complete without documenting which validation command was run or why it could not be run.
 
+### Root workspace
+
+The repository now uses a root `pnpm` workspace for the TypeScript modules and shared packages.
+
+Install dependencies from the repository root:
+
+```bash
+pnpm install
+```
+
+Use `pnpm --filter <package-name> <command>` when you want to target one workspace package from the root.
+
+Common root commands:
+
+```bash
+pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm validate
+```
+
+Current behavior:
+
+- `pnpm build` builds `@kapter/contracts`, `backend-api`, and `dashboard`.
+- `pnpm typecheck` checks `@kapter/contracts`, `mobile-app`, and `dashboard`.
+- `pnpm lint` runs the configured lint command for `backend-api`, `mobile-app`, and `dashboard`.
+- `pnpm test` currently runs the backend unit test suite.
+- `pnpm validate` runs the full root verification chain in the intended order.
+
 ## 2. Backend API Commands
 
 Location:
