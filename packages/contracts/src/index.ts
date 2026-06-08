@@ -1,4 +1,5 @@
 export * from "./admin-ai-explain.js";
+export * from "./admin-monitoring.js";
 export * from "./admin-overview.js";
 export * from "./admin-plans.js";
 export * from "./admin-users.js";

@@ -503,6 +503,80 @@ interface AiExplainMetrics {
 }
 ```
 
+### 5.4 Admin Monitoring API
+
+**Base path:** `/admin/monitoring`
+
+#### GET /admin/monitoring/queues
+
+Returns per-queue health counts for the two active BullMQ queues.
+
+Response shape:
+
+```ts
+{
+  generatedAt: string; // ISO 8601
+  queues: Array<{
+    name: "transcription" | "ai-processing";
+    waiting: number;
+    active: number;
+    delayed: number;
+    completed: number;
+    failed: number;
+    paused: number;
+  }>;
+}
+```
+
+Queue names: `transcription`, `ai-processing`.
+
+#### GET /admin/monitoring/failures
+
+Returns a source-scoped paginated failure dataset with a hybrid summary.
+
+Query params:
+
+- `source`: `"MEDIA" | "QUEUE"` (required)
+- `page`, `limit`: pagination
+- `search`: free-text (applies differently per source)
+- `from`, `to`: ISO date strings for date range filter
+- MEDIA-only filters: `originType` (`LOCAL | YOUTUBE`), `failCode`
+- QUEUE-only filter: `queueName` (`transcription | ai-processing`)
+
+Response shape:
+
+```ts
+{
+  source: "MEDIA" | "QUEUE";
+  summary: {
+    failedMediaCount: number;    // always from DB
+    failedQueueJobCount: number; // always from BullMQ retained set
+    availableFailCodes: string[];
+  };
+  data: AdminMonitoringFailureItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+```
+
+`AdminMonitoringFailureItem` fields:
+
+- `source`, `occurredAt`, `queueName?`, `jobId?`, `attemptsMade?`
+- `mediaId?`, `mediaTitle?`, `userId?`, `userEmail?`, `originType?`
+- `failCode?`, `failReason?`, `status?`
+
+Source-specific behavior:
+
+- **MEDIA**: queries durable `media_items` where `status = FAILED` and `deletedAt = null`, joins user email, filters in SQL, sorts newest first
+- **QUEUE**: enumerates retained BullMQ failed jobs (`queue.getFailed()`), maps payload fields, filters/sorts in memory, then paginates. Queue failures are a sliding window (currently 500 per queue), not durable history.
+
+Dashboard auth behavior:
+
+- Dashboard reuses `POST /auth/refresh` for token rotation
+- `apiClient` implements single-flight refresh: on 401, attempts one shared refresh using stored refresh token, replays the failed request on success, clears session on failure
+- No login/refresh DTO changes
+
 ## 6. Artifact Storage Contract
 
 ### 6.1 Buckets

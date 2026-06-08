@@ -6,14 +6,14 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 
 ---
 
-## Status as of 2026-05-24
+## Status as of 2026-06-08
 
 ### Working ✅
 
 | Area | Detail |
 |------|--------|
 | Auth flow | Login → JWT stored in localStorage → `AuthContext` provides user + `isAdmin` |
-| HTTP client | `ApiClient` with `get`, `post`, `patch`, `delete`. Attaches `Authorization: Bearer`. |
+| HTTP client | `ApiClient` with `get`, `post`, `patch`, `delete`. Attaches `Authorization: Bearer`. Single-flight 401 refresh. |
 | Overview page (`/`) | Fetches `GET /admin/overview` and renders metrics cards |
 | Plans page (`/plans`) — READ | Fetches all plans, variant rows, quota info |
 | Plans page — CREATE | `PlanFormDialog` wired to `POST /admin/plans` |
@@ -24,16 +24,18 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 | Plans page — DELETE variant | `ConfirmDialog` wired to `DELETE /admin/variants/:id` |
 | Users page (`/users`) | Paginated list from `GET /admin/users`, client-side search + role filter |
 | Users detail (`/users/:id`) | Profile, subscription snapshot, quota bar, recent billing history |
-| Router | `/`, `/login`, `/users`, `/users/:id`, `/plans`, `/monitoring`, 404 |
+| Queues page (`/monitoring/queues`) | Real-time queue health from `GET /admin/monitoring/queues`, 15s auto-refresh, health badges |
+| Failures page (`/monitoring/failures`) | Source-tabs (Media/Queue), URL-backed filters, server-side pagination, summary cards |
+| Auth resilience | Single-flight token refresh on 401, session-expired toast, silent recovery |
+| Toast notifications | sonner `<Toaster />` mounted in provider tree |
+| Router | `/`, `/login`, `/users`, `/users/:id`, `/plans`, `/ai-explain`, `/monitoring/queues`, `/monitoring/failures`, 404 |
 | Route guard | `RequireAdmin` wraps all admin routes; `AuthGuard` on login redirect |
 
 ### Scaffold / Incomplete ⚠️
 
 | Area | Detail |
 |------|--------|
-| Monitoring page (`/monitoring`) | Placeholder only — no data layer |
 | Kapter Explain admin monitoring | Metrics/session page wired to backend admin endpoints |
-| Toast notifications | No global toast provider; errors shown inline only |
 
 ---
 
@@ -41,16 +43,26 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 
 | ID | Issue | Priority |
 |----|-------|----------|
-| F-01 | JWT refresh interceptor — 401 is not retried after token expiry | Medium |
-| F-02 | `Monitoring` page data layer and UI | Low |
 | F-06 | Manual visual verification of Kapter Explain admin page with real usage data | Medium |
 | F-03 | Plan slide-over drawer for detail view (currently only list + edit dialog) | Low |
-| F-04 | Global toast/sonner provider for success/error notifications | Low |
 | F-05 | `_count.subscriptions` not present on list-level plan data — requires `GET /admin/plans/:id` fetch per variant edit | Low |
 
 ---
 
-## Recent Update — 2026-05-24
+## Recent Update — 2026-06-08
+
+- 2026-06-08 — Admin monitoring pages + auth resilience + sonner toasts. Status: Working.
+  - Queues page: real-time queue health from `GET /admin/monitoring/queues`, 15s auto-refresh, health badges (stable/watch/critical), per-queue metric grids.
+  - Failures page: source-tabs (Media/Queue), URL-backed filters via `useSearchParams`, server-side pagination, summary cards for failed media and queue jobs.
+  - Auth resilience: single-flight token refresh in `apiClient` — on 401, attempts one shared `POST /auth/refresh`, replays on success, clears session on failure.
+  - `authStorage` extended with `updateTokens()` and `subscribe()` (same-tab `CustomEvent` propagation).
+  - `AuthProvider` listens for storage changes and syncs session state.
+  - sonner `<Toaster />` mounted in provider tree with dark theme, bottom-right position.
+  - Shared monitoring contract types added to `packages/contracts/src/admin-monitoring.ts`.
+  - Monitoring feature layer: `monitoring-api.ts`, `monitoring-queries.ts`, `types.ts`.
+  - Contract touchpoints: API (new admin monitoring endpoints), Auth (token refresh behavior).
+  - Validation: `pnpm typecheck`; `pnpm lint`; `pnpm build`.
+  - Resolved gaps: F-01 (JWT refresh), F-02 (monitoring data layer), F-04 (toast provider).
 
 - 2026-06-07 — Root pnpm workspace adoption and shared TypeScript contracts. Status: Working.
 - Added the repository-root `pnpm` workspace and moved dashboard package management onto the shared root lockfile.
@@ -95,12 +107,13 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 
 ---
 
-## Validation Results — 2026-05-21
+## Validation Results — 2026-06-08
 
 ```
 Backend build:     PASSED (pnpm build — zero errors)
+Backend lint:      PASSED (pnpm lint — zero errors)
+Backend test:      PASSED (pnpm test — 6/6 monitoring tests pass)
 Dashboard tsc:     PASSED (pnpm typecheck — zero errors)
 Dashboard eslint:  PASSED (pnpm lint — zero errors)
-2026-05-24:        PASSED (pnpm typecheck — zero errors)
-2026-05-24:        PASSED (pnpm lint; pnpm build)
+Dashboard build:   PASSED (pnpm build — zero errors)
 ```

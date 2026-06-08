@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-06-07
+> Last updated: 2026-06-08
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -23,6 +23,17 @@ Current completed surfaces:
 - [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
 
 ## 3. Recently Completed
+
+- 2026-06-08 — Admin monitoring endpoints added. Status: Working.
+  - New `MonitoringAdminService` with two read-only endpoints: `GET /admin/monitoring/queues` and `GET /admin/monitoring/failures`.
+  - Queue overview returns per-queue counts (waiting, active, delayed, completed, failed, paused) plus `generatedAt`.
+  - Failures endpoint is source-scoped: `source=MEDIA` queries durable `media_items` with SQL filters; `source=QUEUE` enumerates retained BullMQ failed jobs with in-memory filtering.
+  - Summary always returns both `failedMediaCount` (DB) and `failedQueueJobCount` (BullMQ) regardless of active source tab.
+  - Added `getFailedJobs()` to `QueueService` for BullMQ failed job enumeration.
+  - Shared contract types added to `packages/contracts/src/admin-monitoring.ts`.
+  - Unit tests: 6 passing (queue overview, media failures with search/filters, queue failures with search).
+  - Contract touched: API (new admin monitoring endpoints). See CONTRACTS.md Section 5.4.
+  - Validation: `pnpm build`, `pnpm lint`, `pnpm test` (6/6 monitoring tests pass).
 
 - 2026-06-07 — Backend Prisma/watch startup stabilized after workspace reinstall. Status: Working.
   - Pinned `prisma`, `@prisma/client`, and `@prisma/adapter-pg` to `7.8.0`, and updated backend build/dev scripts to regenerate Prisma before compile so the emitted client cannot drift from the installed runtime.

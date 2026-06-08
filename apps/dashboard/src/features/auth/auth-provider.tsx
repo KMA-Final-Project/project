@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -30,6 +31,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [session, setSession] = useState<AuthSession | null>(() =>
     authStorage.get()
   )
+
+  useEffect(() => {
+    return authStorage.subscribe((detail) => {
+      if (detail.type === "clear") {
+        setSession(null)
+      } else {
+        setSession(authStorage.get())
+      }
+    })
+  }, [])
 
   const login = useCallback(async (payload: LoginPayload) => {
     const nextSession = await loginRequest(payload)

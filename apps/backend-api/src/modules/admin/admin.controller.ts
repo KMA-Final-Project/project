@@ -26,6 +26,7 @@ import {
   VariantService,
   UserAdminService,
   AiExplainAdminService,
+  MonitoringAdminService,
 } from './services';
 import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
@@ -41,6 +42,11 @@ import {
   AiExplainSessionsQueryDto,
   AiExplainSessionsResponseDto,
 } from './dto/ai-explain.dto';
+import {
+  AdminMonitoringQueueOverviewDto,
+  AdminMonitoringFailuresQueryDto,
+  AdminMonitoringFailuresResponseDto,
+} from './dto/monitoring.dto';
 import { ErrorResponseDto } from 'src/common/dto';
 
 @ApiTags('Admin - Subscription Plans')
@@ -55,6 +61,7 @@ export class AdminController {
     private readonly variantService: VariantService,
     private readonly userAdminService: UserAdminService,
     private readonly aiExplainAdminService: AiExplainAdminService,
+    private readonly monitoringAdminService: MonitoringAdminService,
   ) {}
 
   @Get('overview')
@@ -103,6 +110,26 @@ export class AdminController {
     @Query() query: AiExplainSessionsQueryDto,
   ): Promise<AiExplainSessionsResponseDto> {
     return this.aiExplainAdminService.getSessions(query);
+  }
+
+  // ==================== MONITORING ====================
+
+  @Get('monitoring/queues')
+  @ApiOperation({ summary: 'Queue health overview for monitoring' })
+  @ApiResponse({ status: 200, type: AdminMonitoringQueueOverviewDto })
+  async getMonitoringQueues(): Promise<AdminMonitoringQueueOverviewDto> {
+    return this.monitoringAdminService.getQueueOverview();
+  }
+
+  @Get('monitoring/failures')
+  @ApiOperation({
+    summary: 'Paginated failure diagnostics (media or queue source)',
+  })
+  @ApiResponse({ status: 200, type: AdminMonitoringFailuresResponseDto })
+  async getMonitoringFailures(
+    @Query() query: AdminMonitoringFailuresQueryDto,
+  ): Promise<AdminMonitoringFailuresResponseDto> {
+    return this.monitoringAdminService.getFailures(query);
   }
 
   // ==================== PLANS ====================

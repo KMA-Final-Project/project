@@ -1,4 +1,6 @@
+import { toast } from "sonner"
 import { authStorage } from "@/features/auth/auth-storage.ts"
+import type { AuthTokens } from "@/features/auth/types.ts"
 
 const resolveBaseUrl = () => {
   const envBaseUrl = import.meta.env.VITE_API_BASE_URL
@@ -19,6 +21,43 @@ export class ApiError extends Error {
     this.status = status
   }
 }
+
+let refreshPromise: Promise<AuthTokens> | null = null
+
+async function attemptRefresh(): Promise<AuthTokens> {
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = (async () => {
+    const session = authStorage.get()
+    if (!session?.tokens.refreshToken) {
+      throw new ApiError("No refresh token", 401)
+    }
+
+    const response = await fetch(`${resolveBaseUrl()}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: session.tokens.refreshToken }),
+    })
+
+    if (!response.ok) {
+      throw new ApiError("Refresh failed", response.status)
+    }
+
+    const body = (await response.json()) as AuthTokens
+
+    return body
+  })()
+
+  try {
+    const tokens = await refreshPromise
+    authStorage.updateTokens(tokens)
+    return tokens
+  } finally {
+    refreshPromise = null
+  }
+}
+
+const SKIP_REFRESH_PATHS = ["/auth/login", "/auth/refresh"]
 
 class ApiClient {
   private readonly baseUrl = resolveBaseUrl()
@@ -45,7 +84,11 @@ class ApiClient {
     return this.request<TResponse>(path)
   }
 
-  private async request<TResponse>(path: string, init?: RequestInit) {
+  private async request<TResponse>(
+    path: string,
+    init?: RequestInit,
+    isRetry = false,
+  ): Promise<TResponse> {
     const session = authStorage.get()
     const headers = new Headers(init?.headers)
 
@@ -60,11 +103,39 @@ class ApiClient {
       headers,
     })
 
-    if (!response.ok) {
-      throw await this.toError(response)
+    if (response.ok) {
+      return (await response.json()) as TResponse
     }
 
-    return (await response.json()) as TResponse
+    if (
+      response.status === 401 &&
+      !isRetry &&
+      !SKIP_REFRESH_PATHS.some((p) => path.startsWith(p))
+    ) {
+      try {
+        const newTokens = await attemptRefresh()
+        const retryHeaders = new Headers(init?.headers)
+        retryHeaders.set("Content-Type", "application/json")
+        retryHeaders.set("Authorization", `Bearer ${newTokens.accessToken}`)
+
+        const retryResponse = await fetch(`${this.baseUrl}${path}`, {
+          ...init,
+          headers: retryHeaders,
+        })
+
+        if (retryResponse.ok) {
+          return (await retryResponse.json()) as TResponse
+        }
+
+        throw await this.toError(retryResponse)
+      } catch {
+        authStorage.clear()
+        toast.error("Session expired. Please log in again.")
+        throw new ApiError("Session expired. Please log in again.", 401)
+      }
+    }
+
+    throw await this.toError(response)
   }
 
   private async toError(response: Response) {
