@@ -6,6 +6,10 @@ export type AdminSubscriptionStatus = "ACTIVE" | "EXPIRED" | "CANCELLED";
 export interface AdminUsersQueryParams {
   page?: number;
   limit?: number;
+  search?: string;
+  role?: UserRole;
+  planId?: string;
+  variantId?: string;
 }
 
 export interface AdminUserListItem {
@@ -62,4 +66,14 @@ export interface AdminUserDetail {
   currentSubscription: AdminUserSubscriptionSnapshot | null;
   recentUsageHistory: AdminUserUsageHistoryItem[];
   totalMediaItems: number;
+}
+
+export interface UpdateAdminUserRolePayload {
+  role: UserRole;
+}
+
+export interface AdminUserRoleUpdateResult {
+  id: string;
+  role: UserRole;
+  updatedAt: string;
 }

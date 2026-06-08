@@ -577,6 +577,71 @@ Dashboard auth behavior:
 - `apiClient` implements single-flight refresh: on 401, attempts one shared refresh using stored refresh token, replays the failed request on success, clears session on failure
 - No login/refresh DTO changes
 
+### 5.5 Plan Detail API
+
+**Enhanced GET /admin/plans/:id**
+
+Returns `AdminPlanDetail` with plan metadata, summary totals, and variant rows with subscription metrics.
+
+Response shape:
+
+```ts
+interface AdminPlanDetail {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  features: string[] | null;
+  tierLevel: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  totalVariants: number;
+  activeVariants: number;
+  activeCurrentSubscribers: number;
+  historicalSubscriptions: number;
+  variants: AdminPlanVariantDetail[];
+}
+
+interface AdminPlanVariantDetail extends PlanVariant {
+  subscriptionMetrics: {
+    activeCurrentSubscribers: number;
+    historicalSubscriptions: number;
+  };
+}
+```
+
+Count semantics:
+- `activeCurrentSubscribers` = count of `User` where `currentSubscription.variantId = variant.id`
+- `historicalSubscriptions` = count of `Subscription` where `variantId = variant.id`
+
+Variant mutation behavior (unchanged contract, clarified semantics):
+- **hasSubscribers** = active current subscribers > 0 (not total historical)
+- Metadata-only edits update in place regardless of subscribers
+- Term changes when active current subscribers > 0 create new version, deactivate old
+- Delete when both active = 0 AND historical = 0 → hard delete
+- Delete when historical > 0 → deactivate
+- Plan deactivation blocked when any active current subscribers exist
+
+### 5.6 User Role Management API
+
+**Extended GET /admin/users**
+
+New optional query params:
+- `search`: free-text across `fullName` and `email` (case-insensitive)
+- `role`: filter by `USER` or `ADMIN`
+- `planId`: filter users where `currentSubscription.variant.planId = planId`
+- `variantId`: filter users where `currentSubscription.variantId = variantId`
+
+**PATCH /admin/users/:id/role**
+
+Request: `{ role: "USER" | "ADMIN" }`
+Response: `{ id, role, updatedAt }`
+
+Backend enforcement:
+- Block self-demotion (compare `req.user.id` with target `id`)
+- Block demoting the last remaining admin
+
 ## 6. Artifact Storage Contract
 
 ### 6.1 Buckets

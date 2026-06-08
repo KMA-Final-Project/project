@@ -68,3 +68,29 @@ export interface UpdateVariantPayload {
   aiCreditsPerMonth?: number;
   isActive?: boolean;
 }
+
+export interface AdminPlanSubscriptionMetrics {
+  activeCurrentSubscribers: number;
+  historicalSubscriptions: number;
+}
+
+export interface AdminPlanVariantDetail extends PlanVariant {
+  subscriptionMetrics: AdminPlanSubscriptionMetrics;
+}
+
+export interface AdminPlanDetail {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  features: string[] | null;
+  tierLevel: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  totalVariants: number;
+  activeVariants: number;
+  activeCurrentSubscribers: number;
+  historicalSubscriptions: number;
+  variants: AdminPlanVariantDetail[];
+}

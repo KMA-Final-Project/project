@@ -10,6 +10,7 @@ import { MonitoringFailuresPage } from "@/features/monitoring/pages/monitoring-f
 import { MonitoringQueuesPage } from "@/features/monitoring/pages/monitoring-queues-page.tsx"
 import { OverviewPage } from "@/features/overview/pages/overview-page.tsx"
 import { PlansPage } from "@/features/plans/pages/plans-page.tsx"
+import { PlanDetailPage } from "@/features/plans/pages/plan-detail-page.tsx"
 import { UsersPage } from "@/features/users/pages/users-page.tsx"
 import { UserDetailPage } from "@/features/users/pages/user-detail-page.tsx"
 import { NotFoundPage } from "@/shared/ui/not-found-page.tsx"
@@ -55,6 +56,10 @@ const router = createBrowserRouter([
           {
             path: "/plans",
             element: <PlansPage />,
+          },
+          {
+            path: "/plans/:id",
+            element: <PlanDetailPage />,
           },
           {
             path: "/ai-explain",

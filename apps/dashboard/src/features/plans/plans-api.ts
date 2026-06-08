@@ -2,6 +2,7 @@ import { apiClient } from "@/shared/lib/http-client.ts"
 
 import type {
   SubscriptionPlan,
+  AdminPlanDetail,
   CreatePlanPayload,
   UpdatePlanPayload,
   CreateVariantPayload,
@@ -10,6 +11,10 @@ import type {
 
 export const getPlans = async () => {
   return apiClient.get<SubscriptionPlan[]>("/admin/plans")
+}
+
+export const getPlanById = async (id: string): Promise<AdminPlanDetail> => {
+  return apiClient.get<AdminPlanDetail>(`/admin/plans/${id}`)
 }
 
 export const createPlan = async (dto: CreatePlanPayload) => {

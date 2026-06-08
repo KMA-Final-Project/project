@@ -1,6 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import type { AdminUsersQueryParams } from '@kapter/contracts';
-import { IsInt, IsOptional, Min, Max } from 'class-validator';
+import type {
+  AdminUsersQueryParams,
+  UpdateAdminUserRolePayload,
+  AdminUserRoleUpdateResult,
+  UserRole,
+} from '@kapter/contracts';
+import { IsInt, IsOptional, Min, Max, IsString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AdminUsersQueryDto implements AdminUsersQueryParams {
@@ -18,6 +23,26 @@ export class AdminUsersQueryDto implements AdminUsersQueryParams {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ enum: ['USER', 'ADMIN'] })
+  @IsOptional()
+  @IsEnum(['USER', 'ADMIN'])
+  role?: UserRole;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  planId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  variantId?: string;
 }
 
 export class AdminUserListItemDto {
@@ -78,4 +103,16 @@ export class AdminUserDetailDto {
   @ApiProperty({ type: [AdminUserUsageHistoryItemDto] })
   recentUsageHistory!: AdminUserUsageHistoryItemDto[];
   @ApiProperty() totalMediaItems!: number;
+}
+
+export class UpdateAdminUserRoleDto implements UpdateAdminUserRolePayload {
+  @ApiProperty({ enum: ['USER', 'ADMIN'] })
+  @IsEnum(['USER', 'ADMIN'])
+  role!: UserRole;
+}
+
+export class AdminUserRoleUpdateResultDto implements AdminUserRoleUpdateResult {
+  @ApiProperty() id!: string;
+  @ApiProperty({ enum: ['USER', 'ADMIN'] }) role!: UserRole;
+  @ApiProperty() updatedAt!: string;
 }

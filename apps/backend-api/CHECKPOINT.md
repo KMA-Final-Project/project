@@ -24,6 +24,16 @@ Current completed surfaces:
 
 ## 3. Recently Completed
 
+- 2026-06-08 — Plan detail metrics and user role management. Status: Working.
+  - Enhanced `GET /admin/plans/:id` returns `AdminPlanDetail` with per-variant subscription metrics (activeCurrentSubscribers, historicalSubscriptions).
+  - Extended `GET /admin/users` with server-side filters: search, role, planId, variantId.
+  - Added `PATCH /admin/users/:id/role` with self-demotion and last-admin safety checks.
+  - `PlanService.findByIdWithMetrics()` computes counts using distinct semantics: active current subscribers via `currentSubscription.variantId`, historical via `Subscription` table.
+  - Shared contract types added to `packages/contracts/src/admin-plans.ts` and `admin-users.ts`.
+  - Unit tests: 44 passing (9 new: plan metrics, user filters, role update safety rules).
+  - Contract touched: API (enhanced plan detail, extended user filters, new role endpoint). See CONTRACTS.md Sections 5.5 and 5.6.
+  - Validation: `pnpm build`, `pnpm lint`, `pnpm test`.
+
 - 2026-06-08 — Admin monitoring endpoints added. Status: Working.
   - New `MonitoringAdminService` with two read-only endpoints: `GET /admin/monitoring/queues` and `GET /admin/monitoring/failures`.
   - Queue overview returns per-queue counts (waiting, active, delayed, completed, failed, paused) plus `generatedAt`.

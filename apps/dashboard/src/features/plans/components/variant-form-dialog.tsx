@@ -22,6 +22,7 @@ import {
 import { createVariant, updateVariant } from "@/features/plans/plans-api.ts"
 import { plansKeys } from "@/features/plans/plans-queries.ts"
 import type {
+  AdminPlanVariantDetail,
   PlanVariant,
   BillingCycleType,
   CreateVariantPayload,
@@ -33,7 +34,7 @@ type VariantFormDialogProps = {
   onOpenChange: (open: boolean) => void
   planId: string
   /** Pass an existing variant to edit. Omit for create mode. */
-  variant?: PlanVariant
+  variant?: PlanVariant | AdminPlanVariantDetail
 }
 
 type FormValues = {
@@ -60,7 +61,10 @@ export const VariantFormDialog = ({
   variant,
 }: VariantFormDialogProps) => {
   const isEdit = !!variant
-  const hasSubscribers = (variant?._count?.subscriptions ?? 0) > 0
+  const hasSubscribers =
+    (variant?._count?.subscriptions ?? 0) > 0 ||
+    ((variant as AdminPlanVariantDetail)?.subscriptionMetrics
+      ?.activeCurrentSubscribers ?? 0) > 0
   const queryClient = useQueryClient()
   const [billingCycle, setBillingCycle] = useState<BillingCycleType>(
     variant?.billingCycleType ?? "MONTHLY",

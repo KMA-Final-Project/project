@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { Link } from "react-router"
+import { useCallback, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useSearchParams } from "react-router"
 import {
   RiArrowLeftLine,
   RiArrowRightLine,
@@ -9,6 +9,7 @@ import {
   RiSearchLine,
   RiUserLine,
 } from "@remixicon/react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button.tsx"
 import {
@@ -18,31 +19,71 @@ import {
   CardTitle,
 } from "@/components/ui/card.tsx"
 import { Input } from "@/components/ui/input.tsx"
-import { usersListQuery } from "@/features/users/users-queries.ts"
+import { RoleChangeDialog } from "@/features/users/components/role-change-dialog.tsx"
+import { updateUserRole } from "@/features/users/users-api.ts"
+import { usersKeys, usersListQuery } from "@/features/users/users-queries.ts"
+import { useAuth } from "@/features/auth/auth-provider.tsx"
 import type { AdminUserListItem } from "@/features/users/types.ts"
 
 const PAGE_SIZE = 20
 
 export const UsersPage = () => {
-  const [page, setPage] = useState(1)
-  const [search, setSearch] = useState("")
-  const [roleFilter, setRoleFilter] = useState<"ALL" | "USER" | "ADMIN">("ALL")
+  const queryClient = useQueryClient()
+  const { session } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const usersQuery = useQuery(usersListQuery({ page, limit: PAGE_SIZE }))
+  const page = Math.max(1, Number(searchParams.get("page")) || 1)
+  const search = searchParams.get("search") ?? ""
+  const role = searchParams.get("role") ?? ""
+  const planId = searchParams.get("planId") ?? ""
+  const variantId = searchParams.get("variantId") ?? ""
 
-  // Client-side search and role filter (admin-only endpoint — scale is acceptable)
-  const filtered = useMemo(() => {
-    const all = usersQuery.data?.data ?? []
-    return all.filter((u) => {
-      const matchesRole = roleFilter === "ALL" || u.role === roleFilter
-      const term = search.toLowerCase()
-      const matchesSearch =
-        !term ||
-        u.fullName.toLowerCase().includes(term) ||
-        u.email.toLowerCase().includes(term)
-      return matchesRole && matchesSearch
-    })
-  }, [usersQuery.data, search, roleFilter])
+  const [roleDialog, setRoleDialog] = useState<{
+    open: boolean
+    userId: string
+    userName: string
+    currentRole: string
+    targetRole: "USER" | "ADMIN"
+  } | null>(null)
+
+  const updateParam = useCallback(
+    (key: string, value: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        if (value) {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+        return next
+      })
+    },
+    [setSearchParams],
+  )
+
+  const queryParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: search || undefined,
+    role: (role || undefined) as "USER" | "ADMIN" | undefined,
+    planId: planId || undefined,
+    variantId: variantId || undefined,
+  }
+
+  const usersQuery = useQuery(usersListQuery(queryParams))
+
+  const roleMutation = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: "USER" | "ADMIN" }) =>
+      updateUserRole(id, role),
+    onSuccess: () => {
+      toast.success("Role updated.")
+      setRoleDialog(null)
+      queryClient.invalidateQueries({ queryKey: usersKeys.all })
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Failed to update role.")
+    },
+  })
 
   const total = usersQuery.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -74,21 +115,25 @@ export const UsersPage = () => {
     )
   }
 
+  const users = usersQuery.data?.data ?? []
+
   return (
     <div className="space-y-6">
       {/* Summary */}
       <div className="grid gap-4 sm:grid-cols-3">
         <MetricChip label="total users" value={String(total)} />
         <MetricChip
-          label="shown (filtered)"
-          value={String(filtered.length)}
-          tone="accent"
-        />
-        <MetricChip
           label="page"
           value={`${page} / ${totalPages}`}
           tone="primary"
         />
+        {(planId || variantId) && (
+          <MetricChip
+            label="filtered by"
+            value={planId ? `plan ${planId}` : `variant ${variantId}`}
+            tone="accent"
+          />
+        )}
       </div>
 
       {/* Filters */}
@@ -97,22 +142,27 @@ export const UsersPage = () => {
           <div className="relative flex-1 min-w-48">
             <RiSearchLine className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              id="user-search"
               className="pl-9"
               placeholder="Search name or email…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                updateParam("search", e.target.value)
+                updateParam("page", "1")
+              }}
             />
           </div>
           <div className="flex gap-1.5">
-            {(["ALL", "USER", "ADMIN"] as const).map((r) => (
+            {(["", "USER", "ADMIN"] as const).map((r) => (
               <Button
                 key={r}
                 size="sm"
-                variant={roleFilter === r ? "default" : "outline"}
-                onClick={() => setRoleFilter(r)}
+                variant={role === r ? "default" : "outline"}
+                onClick={() => {
+                  updateParam("role", r)
+                  updateParam("page", "1")
+                }}
               >
-                {r === "ALL" ? "All roles" : r}
+                {r === "" ? "All roles" : r}
               </Button>
             ))}
           </div>
@@ -129,10 +179,12 @@ export const UsersPage = () => {
       {/* Table */}
       <Card className="panel-glow border border-border/70 bg-background/72">
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
-            <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-center p-8">
+          {users.length === 0 ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-3 p-8 text-center">
               <RiUserLine className="size-10 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No users match your filter.</p>
+              <p className="text-sm text-muted-foreground">
+                No users match your filters.
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -161,13 +213,27 @@ export const UsersPage = () => {
                       Joined
                     </th>
                     <th className="px-6 py-4 text-right font-medium text-muted-foreground">
-                      Action
+                      Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((user) => (
-                    <UserRow key={user.id} user={user} />
+                  {users.map((user) => (
+                    <UserRow
+                      key={user.id}
+                      user={user}
+                      isSelf={user.id === session?.user.id}
+                      onRoleChange={() =>
+                        setRoleDialog({
+                          open: true,
+                          userId: user.id,
+                          userName: user.fullName,
+                          currentRole: user.role,
+                          targetRole:
+                            user.role === "ADMIN" ? "USER" : "ADMIN",
+                        })
+                      }
+                    />
                   ))}
                 </tbody>
               </table>
@@ -186,7 +252,7 @@ export const UsersPage = () => {
             variant="outline"
             size="sm"
             disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
+            onClick={() => updateParam("page", String(page - 1))}
           >
             <RiArrowLeftLine className="size-4" />
             Prev
@@ -195,25 +261,49 @@ export const UsersPage = () => {
             variant="outline"
             size="sm"
             disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => updateParam("page", String(page + 1))}
           >
             Next
             <RiArrowRightLine className="size-4" />
           </Button>
         </div>
       </div>
+
+      {roleDialog && (
+        <RoleChangeDialog
+          open={roleDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setRoleDialog(null)
+          }}
+          userName={roleDialog.userName}
+          currentRole={roleDialog.currentRole}
+          targetRole={roleDialog.targetRole}
+          isPending={roleMutation.isPending}
+          onConfirm={() =>
+            roleMutation.mutate({
+              id: roleDialog.userId,
+              role: roleDialog.targetRole,
+            })
+          }
+        />
+      )}
     </div>
   )
 }
 
-// ===== Row =====
+type UserRowProps = {
+  user: AdminUserListItem
+  isSelf: boolean
+  onRoleChange: () => void
+}
 
-type UserRowProps = { user: AdminUserListItem }
-
-const UserRow = ({ user }: UserRowProps) => (
+const UserRow = ({ user, isSelf, onRoleChange }: UserRowProps) => (
   <tr className="border-b border-border/50 transition-colors hover:bg-muted/30 last:border-0">
     <td className="px-6 py-4 font-medium text-card-foreground">
       {user.fullName}
+      {isSelf && (
+        <span className="ml-2 text-xs text-muted-foreground">(you)</span>
+      )}
     </td>
     <td className="px-6 py-4 text-muted-foreground">{user.email}</td>
     <td className="px-6 py-4">
@@ -252,16 +342,24 @@ const UserRow = ({ user }: UserRowProps) => (
       {new Date(user.createdAt).toLocaleDateString()}
     </td>
     <td className="px-6 py-4 text-right">
-      <Link to={`/users/${user.id}`}>
-        <Button variant="outline" size="sm">
-          View
+      <div className="flex justify-end gap-2">
+        <Link to={`/users/${user.id}`}>
+          <Button variant="outline" size="sm">
+            View
+          </Button>
+        </Link>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isSelf}
+          onClick={onRoleChange}
+        >
+          {user.role === "ADMIN" ? "Demote" : "Promote"}
         </Button>
-      </Link>
+      </div>
     </td>
   </tr>
 )
-
-// ===== Helpers =====
 
 type MetricChipProps = {
   label: string
@@ -280,7 +378,9 @@ const MetricChip = ({ label, value, tone = "default" }: MetricChipProps) => (
     }
   >
     <div className="signal-text">{label}</div>
-    <div className="mt-3 font-heading text-3xl text-card-foreground">{value}</div>
+    <div className="mt-3 font-heading text-3xl text-card-foreground">
+      {value}
+    </div>
   </div>
 )
 

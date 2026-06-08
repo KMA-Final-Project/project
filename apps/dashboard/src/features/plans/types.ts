@@ -1,4 +1,7 @@
 export type {
+  AdminPlanDetail,
+  AdminPlanVariantDetail,
+  AdminPlanSubscriptionMetrics,
   BillingCycleType,
   CreatePlanPayload,
   CreateVariantPayload,

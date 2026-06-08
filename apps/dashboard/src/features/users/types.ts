@@ -1,11 +1,11 @@
 export type {
-  AdminSubscriptionStatus as SubscriptionStatus,
+  AdminSubscriptionStatus,
   AdminUserDetail,
   AdminUserListItem,
   AdminUserListResponse,
+  AdminUsersQueryParams,
+  AdminUserRoleUpdateResult,
   AdminUserSubscriptionSnapshot,
   AdminUserUsageHistoryItem,
-  AdminUsersQueryParams as UsersQueryParams,
-  BillingCycleType,
-  UserRole,
+  UpdateAdminUserRolePayload,
 } from "@kapter/contracts";

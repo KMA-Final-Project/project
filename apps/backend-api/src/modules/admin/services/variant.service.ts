@@ -19,21 +19,28 @@ export class VariantService extends BaseCrudService<
   }
 
   /**
-   * Get variant with subscription count.
+   * Get variant with both active current and historical subscription counts.
    */
-  async findByIdWithSubscriberCount(id: string) {
+  async findByIdWithSubscriptionCounts(id: string) {
     const variant = await this.prisma.planVariant.findUnique({
       where: { id },
-      include: {
-        _count: { select: { subscriptions: true } },
-      },
     });
 
     if (!variant) {
       throw new NotFoundException(`Variant with ID "${id}" not found`);
     }
 
-    return variant;
+    const [activeCurrentSubscribers, historicalSubscriptions] =
+      await Promise.all([
+        this.prisma.user.count({
+          where: { currentSubscription: { variantId: id } },
+        }),
+        this.prisma.subscription.count({
+          where: { variantId: id },
+        }),
+      ]);
+
+    return { variant, activeCurrentSubscribers, historicalSubscriptions };
   }
 
   async create(dto: CreateVariantDto, planId?: string): Promise<PlanVariant> {
@@ -69,9 +76,8 @@ export class VariantService extends BaseCrudService<
   }
 
   async update(id: string, dto: UpdateVariantDto): Promise<PlanVariant> {
-    const variant = await this.findByIdWithSubscriberCount(id);
-
-    const hasSubscribers = variant._count.subscriptions > 0;
+    const { variant, activeCurrentSubscribers } =
+      await this.findByIdWithSubscriptionCounts(id);
 
     // Check if changing terms (price or limits)
     const isChangingTerms =
@@ -83,13 +89,13 @@ export class VariantService extends BaseCrudService<
       (dto.aiCreditsPerMonth !== undefined &&
         dto.aiCreditsPerMonth !== variant.aiCreditsPerMonth);
 
-    // If has subscribers AND changing terms → create new version
-    if (hasSubscribers && isChangingTerms) {
+    // If has active current subscribers AND changing terms → create new version
+    if (activeCurrentSubscribers > 0 && isChangingTerms) {
       const result = await this.createNewVersion(variant, dto);
       return result.newVariant;
     }
 
-    // Direct update (no subscribers or metadata-only change)
+    // Direct update (no active subscribers or metadata-only change)
     return this.prisma.planVariant.update({
       where: { id },
       data: {
@@ -145,18 +151,24 @@ export class VariantService extends BaseCrudService<
   }
 
   async delete(id: string) {
-    const variant = await this.findByIdWithSubscriberCount(id);
+    const { activeCurrentSubscribers, historicalSubscriptions } =
+      await this.findByIdWithSubscriptionCounts(id);
 
-    if (variant._count.subscriptions > 0) {
-      // Soft delete for variants with history
+    // Cannot hard-delete if any subscription history exists
+    if (historicalSubscriptions > 0) {
       await this.prisma.planVariant.update({
         where: { id },
         data: { isActive: false },
       });
-      return { message: 'Variant deactivated (has subscription history)' };
+      return {
+        message:
+          activeCurrentSubscribers > 0
+            ? 'Variant deactivated (has active subscribers)'
+            : 'Variant deactivated (has subscription history)',
+      };
     }
 
-    // Hard delete for unused variants
+    // Hard delete for completely unused variants
     await this.prisma.planVariant.delete({ where: { id } });
     return { message: 'Variant deleted' };
   }

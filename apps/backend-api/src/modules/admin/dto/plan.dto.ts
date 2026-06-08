@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import type { CreatePlanPayload, UpdatePlanPayload } from '@kapter/contracts';
+import type {
+  CreatePlanPayload,
+  UpdatePlanPayload,
+  AdminPlanDetail,
+  AdminPlanVariantDetail,
+  AdminPlanSubscriptionMetrics,
+  BillingCycleType,
+} from '@kapter/contracts';
 import {
   IsString,
   IsOptional,
@@ -81,4 +88,47 @@ export class UpdatePlanDto implements UpdatePlanPayload {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+export class AdminPlanSubscriptionMetricsDto implements AdminPlanSubscriptionMetrics {
+  @ApiProperty({ example: 5 })
+  activeCurrentSubscribers!: number;
+
+  @ApiProperty({ example: 12 })
+  historicalSubscriptions!: number;
+}
+
+export class AdminPlanVariantDetailDto implements AdminPlanVariantDetail {
+  @ApiProperty() id!: string;
+  @ApiProperty() planId!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty() price!: string;
+  @ApiProperty() currency!: string;
+  @ApiProperty() billingCycleType!: BillingCycleType;
+  @ApiProperty() maxDurationPerFile!: number;
+  @ApiProperty() monthlyQuotaSeconds!: number;
+  @ApiProperty() aiCreditsPerMonth!: number;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty() createdAt!: string;
+  @ApiProperty() updatedAt!: string;
+  @ApiProperty({ type: AdminPlanSubscriptionMetricsDto })
+  subscriptionMetrics!: AdminPlanSubscriptionMetricsDto;
+}
+
+export class AdminPlanDetailDto implements AdminPlanDetail {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiPropertyOptional() description!: string | null;
+  @ApiPropertyOptional({ type: [String] }) features!: string[] | null;
+  @ApiProperty() tierLevel!: number;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty() createdAt!: string;
+  @ApiProperty() updatedAt!: string;
+  @ApiProperty() totalVariants!: number;
+  @ApiProperty() activeVariants!: number;
+  @ApiProperty() activeCurrentSubscribers!: number;
+  @ApiProperty() historicalSubscriptions!: number;
+  @ApiProperty({ type: [AdminPlanVariantDetailDto] })
+  variants!: AdminPlanVariantDetailDto[];
 }

@@ -15,21 +15,22 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 | Auth flow | Login → JWT stored in localStorage → `AuthContext` provides user + `isAdmin` |
 | HTTP client | `ApiClient` with `get`, `post`, `patch`, `delete`. Attaches `Authorization: Bearer`. Single-flight 401 refresh. |
 | Overview page (`/`) | Fetches `GET /admin/overview` and renders metrics cards |
-| Plans page (`/plans`) — READ | Fetches all plans, variant rows, quota info |
-| Plans page — CREATE | `PlanFormDialog` wired to `POST /admin/plans` |
-| Plans page — EDIT plan | `PlanFormDialog` wired to `PATCH /admin/plans/:id` |
-| Plans page — DEACTIVATE plan | `ConfirmDialog` wired to `DELETE /admin/plans/:id` |
-| Plans page — ADD variant | `VariantFormDialog` wired to `POST /admin/plans/:planId/variants` |
-| Plans page — EDIT variant | `VariantFormDialog` wired to `PATCH /admin/variants/:id` with versioning warning when `_count.subscriptions > 0` |
-| Plans page — DELETE variant | `ConfirmDialog` wired to `DELETE /admin/variants/:id` |
-| Users page (`/users`) | Paginated list from `GET /admin/users`, client-side search + role filter |
-| Users detail (`/users/:id`) | Profile, subscription snapshot, quota bar, recent billing history |
-| Queues page (`/monitoring/queues`) | Real-time queue health from `GET /admin/monitoring/queues`, 15s auto-refresh, health badges |
-| Failures page (`/monitoring/failures`) | Source-tabs (Media/Queue), URL-backed filters, server-side pagination, summary cards |
-| Auth resilience | Single-flight token refresh on 401, session-expired toast, silent recovery |
+| Plans page (`/plans`) — INVENTORY | Summary metrics, plan cards link to `/plans/:id`, "New plan" button |
+| Plan detail (`/plans/:id`) | Header, summary cards (variants, active subscribers, historical), plan actions, variant cards with per-variant metrics, subscriber links |
+| Users page (`/users`) | Server-side filters (search, role, planId, variantId) via URL params, role change button per row |
+| Users detail (`/users/:id`) | Profile, subscription, quota, role management card, role change with confirmation |
+| Queues page (`/monitoring/queues`) | Real-time queue health, 15s auto-refresh, health badges |
+| Failures page (`/monitoring/failures`) | Source-tabs, URL-backed filters, server-side pagination, summary cards |
+| Auth resilience | Single-flight token refresh on 401, session-expired toast |
 | Toast notifications | sonner `<Toaster />` mounted in provider tree |
-| Router | `/`, `/login`, `/users`, `/users/:id`, `/plans`, `/ai-explain`, `/monitoring/queues`, `/monitoring/failures`, 404 |
+| Router | `/overview`, `/users`, `/users/:id`, `/plans`, `/plans/:id`, `/ai-explain`, `/monitoring/queues`, `/monitoring/failures`, 404 |
 | Route guard | `RequireAdmin` wraps all admin routes; `AuthGuard` on login redirect |
+
+### Scaffold / Incomplete ⚠️
+
+| Area | Detail |
+|------|--------|
+| Kapter Explain admin monitoring | Metrics/session page wired to backend admin endpoints |
 
 ### Scaffold / Incomplete ⚠️
 
@@ -44,12 +45,23 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 | ID | Issue | Priority |
 |----|-------|----------|
 | F-06 | Manual visual verification of Kapter Explain admin page with real usage data | Medium |
-| F-03 | Plan slide-over drawer for detail view (currently only list + edit dialog) | Low |
 | F-05 | `_count.subscriptions` not present on list-level plan data — requires `GET /admin/plans/:id` fetch per variant edit | Low |
 
 ---
 
 ## Recent Update — 2026-06-08
+
+- 2026-06-08 — Plan detail page + role management. Status: Working.
+  - New `/plans/:id` detail page with plan metadata, summary cards (variants, active subscribers, historical subscriptions), variant cards with per-variant metrics, plan/variant actions, subscriber links to `/users?planId=...` and `/users?variantId=...`.
+  - Plans list simplified to inventory-only: cards link to detail, inline edit/deactivate/add-variant controls removed.
+  - Users page now uses server-side filters (search, role, planId, variantId) via URL-backed `useSearchParams`.
+  - Deep-link support: plan detail subscriber links populate users page filters.
+  - Role management: row-level promote/demote on users list, role management card on user detail page, `RoleChangeDialog` with confirmation.
+  - Self-demotion disabled client-side, backend rejects self-demotion and last-admin demotion with toast feedback.
+  - `PATCH /admin/users/:id/role` wired with mutation, query invalidation, and toast.
+  - Resolved gap F-03 (plan detail drawer) — now a full page instead of a drawer.
+  - Contract touchpoints: API (plan detail, user filters, role management).
+  - Validation: `pnpm typecheck`; `pnpm lint`; `pnpm build`.
 
 - 2026-06-08 — Admin monitoring pages + auth resilience + sonner toasts. Status: Working.
   - Queues page: real-time queue health from `GET /admin/monitoring/queues`, 15s auto-refresh, health badges (stable/watch/critical), per-queue metric grids.
@@ -110,10 +122,11 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 ## Validation Results — 2026-06-08
 
 ```
-Backend build:     PASSED (pnpm build — zero errors)
-Backend lint:      PASSED (pnpm lint — zero errors)
-Backend test:      PASSED (pnpm test — 6/6 monitoring tests pass)
-Dashboard tsc:     PASSED (pnpm typecheck — zero errors)
-Dashboard eslint:  PASSED (pnpm lint — zero errors)
-Dashboard build:   PASSED (pnpm build — zero errors)
+Contracts build:     PASSED
+Backend build:       PASSED
+Backend lint:        PASSED
+Backend test:        PASSED (44/44 tests, 9 new)
+Dashboard tsc:       PASSED
+Dashboard lint:      PASSED
+Dashboard build:     PASSED
 ```
