@@ -1,15 +1,15 @@
 import { queryOptions } from "@tanstack/react-query"
 
 import { getUsers, getUserById } from "@/features/users/users-api.ts"
-import type { UsersQueryParams } from "@/features/users/types.ts"
+import type { AdminUsersQueryParams } from "@/features/users/types.ts"
 
 export const usersKeys = {
   all: ["users"] as const,
-  list: (params: UsersQueryParams) => ["users", "list", params] as const,
+  list: (params: AdminUsersQueryParams) => ["users", "list", params] as const,
   detail: (id: string) => ["users", id] as const,
 }
 
-export const usersListQuery = (params: UsersQueryParams = {}) =>
+export const usersListQuery = (params: AdminUsersQueryParams = {}) =>
   queryOptions({
     queryKey: usersKeys.list(params),
     queryFn: () => getUsers(params),

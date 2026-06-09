@@ -1,4 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  ChatFeedbackRequest,
+  ChatHistoryFeedback,
+  ChatHistoryMessage,
+  ChatHistoryResponse,
+  ExplainDeltaEvent,
+  ExplainDoneEvent,
+  ExplainErrorEvent,
+  ExplainMetaEvent,
+  ExplainRequest,
+} from '@kapter/contracts';
 import {
   IsEnum,
   IsInt,
@@ -29,7 +40,7 @@ export enum ChatFeedbackRating {
   NEGATIVE = 'NEGATIVE',
 }
 
-export class ExplainRequestDto {
+export class ExplainRequestDto implements ExplainRequest {
   @ApiProperty({
     example: 12,
     description: '0-based canonical subtitle segment index.',
@@ -58,7 +69,7 @@ export class ExplainRequestDto {
   userMessage?: string;
 }
 
-export class ExplainMetaEventDto {
+export class ExplainMetaEventDto implements ExplainMetaEvent {
   @ApiProperty({ example: '8c8d1605-efc7-4ba0-b951-2bfef40df777' })
   sessionId!: string;
 
@@ -78,12 +89,12 @@ export class ExplainMetaEventDto {
   promptVersion!: string;
 }
 
-export class ExplainDeltaEventDto {
+export class ExplainDeltaEventDto implements ExplainDeltaEvent {
   @ApiProperty({ example: 'This phrase is translated this way because...' })
   content!: string;
 }
 
-export class ExplainErrorEventDto {
+export class ExplainErrorEventDto implements ExplainErrorEvent {
   @ApiProperty({ enum: ExplainErrorCode })
   code!: ExplainErrorCode;
 
@@ -91,7 +102,7 @@ export class ExplainErrorEventDto {
   message!: string;
 }
 
-export class ExplainDoneEventDto {
+export class ExplainDoneEventDto implements ExplainDoneEvent {
   @ApiProperty({ example: 324 })
   tokensUsed!: number;
 
@@ -99,7 +110,7 @@ export class ExplainDoneEventDto {
   finishReason!: ExplainFinishReason;
 }
 
-export class ChatFeedbackDto {
+export class ChatFeedbackDto implements ChatFeedbackRequest {
   @ApiProperty({ example: '73f80729-67a4-4b0b-a941-8788c45a28f9' })
   @IsUUID()
   chatMessageId!: string;
@@ -118,12 +129,12 @@ export class ChatFeedbackDto {
   reason?: string;
 }
 
-export class ChatHistoryFeedbackDto {
+export class ChatHistoryFeedbackDto implements ChatHistoryFeedback {
   @ApiProperty({ enum: ChatFeedbackRating })
   rating!: ChatFeedbackRating;
 }
 
-export class ChatHistoryMessageDto {
+export class ChatHistoryMessageDto implements ChatHistoryMessage {
   @ApiProperty({ example: '73f80729-67a4-4b0b-a941-8788c45a28f9' })
   id!: string;
 
@@ -140,7 +151,7 @@ export class ChatHistoryMessageDto {
   feedback?: ChatHistoryFeedbackDto;
 }
 
-export class ChatHistoryResponseDto {
+export class ChatHistoryResponseDto implements ChatHistoryResponse {
   @ApiProperty({
     example: '8c8d1605-efc7-4ba0-b951-2bfef40df777',
     nullable: true,

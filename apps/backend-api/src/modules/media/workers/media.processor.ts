@@ -19,6 +19,11 @@ import {
   TRANSCRIPTION_QUEUE,
   AI_PROCESSING_QUEUE,
 } from 'src/modules/queue/queue.types';
+import {
+  inferMediaFailureCode,
+  MEDIA_FAILURE_CODES,
+  MediaValidationError,
+} from '../media-failure';
 
 const execFileAsync = promisify(execFile);
 
@@ -74,6 +79,7 @@ export class MediaProcessor {
       // Step 1: Mark as VALIDATING
       await this.updateMedia(mediaId, {
         status: 'VALIDATING',
+        failCode: null,
         failReason: null,
       });
 
@@ -134,6 +140,7 @@ export class MediaProcessor {
       // Step 6: Mark as PROCESSING (AI Engine will take over)
       await this.updateMedia(mediaId, {
         status: 'PROCESSING',
+        failCode: null,
         failReason: null,
       });
 
@@ -144,11 +151,13 @@ export class MediaProcessor {
     } catch (error) {
       const reason =
         error instanceof Error ? error.message : 'Unknown validation error';
+      const failCode = inferMediaFailureCode(error);
 
       if (isRetryableYtDlpError(error)) {
         if (this.hasAttemptsRemaining(job)) {
           await this.updateMedia(mediaId, {
             status: 'VALIDATING',
+            failCode,
             failReason: reason,
           });
 
@@ -161,6 +170,7 @@ export class MediaProcessor {
 
         await this.updateMedia(mediaId, {
           status: 'FAILED',
+          failCode,
           failReason: reason,
         });
 
@@ -171,6 +181,7 @@ export class MediaProcessor {
 
       await this.updateMedia(mediaId, {
         status: 'FAILED',
+        failCode,
         failReason: reason,
       });
 
@@ -414,14 +425,18 @@ export class MediaProcessor {
     }
 
     if (!user.currentSubscription) {
-      throw new Error('No active subscription — cannot process media');
+      throw new MediaValidationError(
+        MEDIA_FAILURE_CODES.SUBSCRIPTION_INACTIVE,
+        'No active subscription — cannot process media',
+      );
     }
 
     const limit = user.currentSubscription.maxDurationPerFileSnapshot;
     if (durationSeconds > limit) {
       const limitMin = Math.round(limit / 60);
       const fileMin = Math.round(durationSeconds / 60);
-      throw new Error(
+      throw new MediaValidationError(
+        MEDIA_FAILURE_CODES.DURATION_LIMIT_EXCEEDED,
         `File duration (${fileMin} min) exceeds your plan limit (${limitMin} min per file)`,
       );
     }
@@ -452,7 +467,10 @@ export class MediaProcessor {
     }
 
     if (!user.currentSubscription) {
-      throw new Error('No active subscription');
+      throw new MediaValidationError(
+        MEDIA_FAILURE_CODES.SUBSCRIPTION_INACTIVE,
+        'No active subscription',
+      );
     }
 
     const quota = user.currentSubscription.monthlyQuotaSecondsSnapshot;
@@ -477,7 +495,8 @@ export class MediaProcessor {
 
     if (totalAfter > quota) {
       const remaining = Math.max(0, quota - usedSeconds);
-      throw new Error(
+      throw new MediaValidationError(
+        MEDIA_FAILURE_CODES.QUOTA_EXCEEDED,
         `Monthly quota would be exceeded. Used: ${Math.round(usedSeconds / 60)} min, ` +
           `This file: ${Math.round(durationSeconds / 60)} min, ` +
           `Remaining: ${Math.round(remaining / 60)} min`,

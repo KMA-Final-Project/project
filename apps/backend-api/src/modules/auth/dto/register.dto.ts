@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { RegisterPayload } from '@kapter/contracts';
 import {
   IsEmail,
   IsNotEmpty,
@@ -8,7 +9,7 @@ import {
 } from 'class-validator';
 import { PASSWORD_REGEX } from 'src/common/constants';
 
-export class RegisterDto {
+export class RegisterDto implements RegisterPayload {
   @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
   @IsNotEmpty()

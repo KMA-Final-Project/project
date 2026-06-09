@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { Role } from 'prisma/generated/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import type {
   AdminUsersQueryDto,
   AdminUserListItemDto,
   AdminUserListResponseDto,
   AdminUserDetailDto,
+  AdminUserRoleUpdateResultDto,
 } from '../dto/user.dto';
 
 @Injectable()
@@ -16,8 +22,34 @@ export class UserAdminService {
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
 
+    const where: Record<string, unknown> = {};
+
+    if (query.search) {
+      where.OR = [
+        { fullName: { contains: query.search, mode: 'insensitive' } },
+        { email: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (query.role) {
+      where.role = query.role;
+    }
+
+    if (query.planId) {
+      where.currentSubscription = {
+        variant: { planId: query.planId },
+      };
+    }
+
+    if (query.variantId) {
+      where.currentSubscription = {
+        variantId: query.variantId,
+      };
+    }
+
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -31,7 +63,7 @@ export class UserAdminService {
           },
         },
       }),
-      this.prisma.user.count(),
+      this.prisma.user.count({ where }),
     ]);
 
     const data: AdminUserListItemDto[] = users.map((u) => ({
@@ -107,6 +139,48 @@ export class UserAdminService {
         quotaLimitAtThatTime: h.quotaLimitAtThatTime,
       })),
       totalMediaItems: user._count.mediaItems,
+    };
+  }
+
+  async updateRole(
+    targetId: string,
+    requestUserId: string,
+    newRole: Role,
+  ): Promise<AdminUserRoleUpdateResultDto> {
+    if (targetId === requestUserId) {
+      throw new BadRequestException('Cannot change your own role.');
+    }
+
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, role: true },
+    });
+
+    if (!target) {
+      throw new NotFoundException(`User with ID "${targetId}" not found`);
+    }
+
+    if (target.role === Role.ADMIN && newRole === Role.USER) {
+      const adminCount = await this.prisma.user.count({
+        where: { role: Role.ADMIN },
+      });
+      if (adminCount <= 1) {
+        throw new BadRequestException(
+          'Cannot demote the last remaining admin.',
+        );
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetId },
+      data: { role: newRole },
+      select: { id: true, role: true, updatedAt: true },
+    });
+
+    return {
+      id: updated.id,
+      role: updated.role,
+      updatedAt: updated.updatedAt.toISOString(),
     };
   }
 }

@@ -1,6 +1,6 @@
 # Mobile App - Checkpoint
 
-> Last updated: 2026-06-06
+> Last updated: 2026-06-07
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -35,6 +35,33 @@ Auth/session
 - [ ] Manually verify iOS player lifecycle after the focus/blur playback fix, especially back-navigation stop behavior and pause stability across Explain and Lookup.
 
 ## 3. Recently Completed
+
+- 2026-06-07 — Android dev build recovered after workspace reinstall. Status: Working.
+  - Pinned `react-native-nitro-modules` to `0.35.7` after a fresh workspace reinstall resolved the app to `0.33.9`, which is too old for the current `react-native-unistyles@3.2.5` native generator.
+  - Root cause: after deleting module-local `node_modules`, the rebuild used the declared dependency range again; `react-native-unistyles` generated Kotlin expected newer Nitro APIs such as `CxxPart`, so `pnpm android` failed during `:react-native-unistyles:compileDebugKotlin`.
+  - `pnpm android:clean` was not the real blocker; its failure was a Windows `EBUSY` lock while trying to delete the generated `android/` directory. A native `gradlew clean` was enough once the Nitro mismatch was corrected.
+  - Why: the previous app-local install state had masked an incompatible native dependency pairing that became visible after the monorepo workspace migration and reinstall.
+  - Validation: `cd android && .\gradlew.bat clean`; `pnpm android` rebuilt and reinstalled the app; `adb shell pidof com.sondoannam202.mobileapp`; `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: if `android:clean` is needed again on Windows, close Android Studio/File Explorer handles on `apps/mobile-app/android` before running Expo prebuild clean.
+
+- 2026-06-07 — Root pnpm workspace adoption and shared TypeScript contracts. Status: Working.
+  - Moved the mobile app onto the repository-root `pnpm` workspace and removed the app-local workspace file/lockfile in favor of the shared root workspace model.
+  - Replaced local auth/media/subscription/explain/lookup/word-bank/subtitle contract definitions with thin re-exports from `packages/contracts`, which now emits ESM plus declaration files through `tsup`.
+  - Added root workspace scripts so mobile lint/typecheck can be invoked from the repository root instead of relying on per-app navigation.
+  - Why: the mobile app was mirroring backend-facing transport types locally, which increased drift risk and made a future user-facing web client harder to scale into the monorepo cleanly.
+  - Contract touchpoints: TypeScript compile-time authority only. Mobile runtime behavior and API wire shapes unchanged.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: keep mobile-specific UI models local, and do not let `packages/contracts` turn into a generic helper bucket.
+
+- 2026-06-06 — Subscription screen, truthful quota state, and upload entitlement gating. Status: Working.
+  - Replaced the mobile quota placeholder with a live authenticated subscription-status query and added a dedicated hidden `/(app)/subscription` screen reachable from Settings.
+  - Settings now shows the real plan/quota/AI-credit summary, while the new subscription screen exposes current plan details, live usage, available plan cards, and future-ready upgrade CTAs that stop at a non-functional coming-soon modal.
+  - UploadSheet, YouTube modal, and local media picker now gate obvious blockers before upload begins, map backend entitlement codes cleanly, and show a specific pre-upload duration blocker for oversized local files.
+  - Processing now uses backend `failCode` for entitlement failures instead of relying only on raw `failReason`, and Explain turns `INSUFFICIENT_CREDITS` into an assistant-style chat reply instead of a generic error label.
+  - Why: users needed to understand exactly why media submission could not proceed, using one truthful subscription source of state rather than placeholder quota numbers.
+  - Contract touchpoints: API, Quota, Processing UX, Player UX, Navigation.
+  - Validation: `pnpm lint`; `pnpm exec tsc --noEmit --pretty false`.
+  - Follow-up: wire the future website upgrade CTA once billing exists, and verify the new subscription/upload states on device against a live backend session.
 
 - 2026-06-06 — Player blur cleanup and focused-instance playback sync. Status: Working.
   - Changed: Scoped player-to-store synchronization and Explain replay registration to the focused screen only, added explicit blur cleanup that pauses playback when leaving the player route, and hardened `useMediaPlayback` so pause always stops both underlying Expo audio/video players.

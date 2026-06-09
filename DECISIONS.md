@@ -45,6 +45,7 @@ When changing an accepted decision:
 - [ADR-014 — Keep mobile dependent on Backend API, not directly on AI Engine](#adr-014--keep-mobile-dependent-on-backend-api-not-directly-on-ai-engine)
 - [ADR-015 — Adopt the V2.1 hybrid after-ASR runtime for single-GPU AI Engine workers](#adr-015--adopt-the-v21-hybrid-after-asr-runtime-for-single-gpu-ai-engine-workers)
 - [ADR-016 — Use ASR provider routing so `during_asr` stays the target UX mode on 16GB GPUs](#adr-016--use-asr-provider-routing-so-during_asr-stays-the-target-ux-mode-on-16gb-gpus)
+- [ADR-017 — Use a root pnpm workspace with a minimal shared TypeScript contracts package](#adr-017--use-a-root-pnpm-workspace-with-a-minimal-shared-typescript-contracts-package)
 
 ---
 
@@ -622,6 +623,53 @@ The real blocker is ASR residency and route fit by language:
 - `apps/ai-engine/src/core/smart_aligner.py`
 - `apps/ai-engine/src/async_pipeline.py`
 - `apps/ai-engine/src/scripts/benchmark_suite.py`
+
+---
+
+## ADR-017 — Use a root pnpm workspace with a minimal shared TypeScript contracts package
+
+Status: Accepted
+
+### Decision
+
+Use the repository root as the `pnpm` workspace root for all TypeScript applications and shared packages.
+
+Introduce `packages/contracts` as a minimal shared workspace package shared by:
+
+- `apps/backend-api`
+- `apps/mobile-app`
+- `apps/dashboard`
+
+The package owns plain TypeScript transport contracts only. It is authored from TypeScript source and emits ESM plus declaration files through `tsup`. Backend NestJS DTO classes remain the runtime validation and Swagger authority. `CONTRACTS.md` remains the semantic source of truth for cross-language boundaries involving the Python AI Engine.
+
+### Reason
+
+The TypeScript applications were already sharing the same backend-facing contracts informally, but each module duplicated its own local interfaces. That caused drift risk, wasted agent context, and made the future web-app expansion path less clean than it should be.
+
+A root workspace matches the real monorepo shape better than an `apps/`-only workspace and gives the project a clean place for shared packages such as contracts, future API clients, or repo-level TypeScript tooling.
+
+### Tradeoffs
+
+- The repository now has one shared lockfile for the TypeScript workspace.
+- Expo, NestJS, and Vite now depend on the same workspace package resolution model.
+- The contracts package must stay narrow; if it grows into a grab-bag of helpers or app-specific logic, it will make the repo harder to reason about rather than easier.
+- Backend-generated consumer types are still attractive long-term, but phase 1 intentionally stops at hand-authored shared contracts to keep the rollout small and verifiable.
+
+### Guardrails
+
+- Do not put generic utilities, helpers, runtime clients, UI code, or backend-only business logic into `packages/contracts`.
+- Do not treat the contracts package as a replacement for `CONTRACTS.md` while the AI Engine remains Python.
+- Keep backend DTO decorators and validation local to the backend module.
+- If generated OpenAPI consumer types are introduced later, do so behind the same package boundary or through a clearly superseding ADR.
+
+### Related Files
+
+- `package.json`
+- `pnpm-workspace.yaml`
+- `packages/contracts/`
+- `CONTRACTS.md`
+- `PROJECT_MAP.md`
+- `COMMANDS.md`
 
 ---
 

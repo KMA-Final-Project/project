@@ -62,6 +62,36 @@ export class QueueService {
     return [transcription, aiProcessing];
   }
 
+  async getFailedJobs(queueName?: string) {
+    const queues: Array<{ name: string; queue: Queue }> = [];
+
+    if (!queueName || queueName === TRANSCRIPTION_QUEUE) {
+      queues.push({
+        name: TRANSCRIPTION_QUEUE,
+        queue: this.transcriptionQueue,
+      });
+    }
+    if (!queueName || queueName === AI_PROCESSING_QUEUE) {
+      queues.push({ name: AI_PROCESSING_QUEUE, queue: this.aiProcessingQueue });
+    }
+
+    const results = await Promise.all(
+      queues.map(async ({ name, queue }) => {
+        const jobs = await queue.getFailed(0, -1);
+        return jobs.map((job) => ({
+          queueName: name,
+          jobId: job.id ?? '',
+          attemptsMade: job.attemptsMade,
+          failedReason: job.failedReason ?? '',
+          data: job.data as Record<string, unknown>,
+          finishedOn: job.finishedOn ?? job.timestamp,
+        }));
+      }),
+    );
+
+    return results.flat();
+  }
+
   private async getQueueMetrics(queue: Queue, name: string) {
     const counts = await queue.getJobCounts(
       'waiting',

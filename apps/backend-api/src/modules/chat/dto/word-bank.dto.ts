@@ -1,7 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type {
+  WordBankContextItem,
+  WordBankGroupItem,
+  WordBankListResponse,
+} from '@kapter/contracts';
 import { LookupPartOfSpeech } from './lookup.dto';
 
-export class WordBankContextItemDto {
+export class WordBankContextItemDto implements WordBankContextItem {
   @ApiProperty({ example: 'ccff0b65-0eca-4922-bdee-dc7144d4d4f3' })
   id!: string;
 
@@ -57,7 +62,7 @@ export class WordBankContextItemDto {
   savedAt!: string;
 }
 
-export class WordBankGroupItemDto {
+export class WordBankGroupItemDto implements WordBankGroupItem {
   @ApiProperty({ example: '42858ef7-f4d6-4a53-b013-6dbe4f7d6b38' })
   vocabularyId!: string;
 
@@ -88,7 +93,7 @@ export class WordBankListMetaDto {
   totalContexts!: number;
 }
 
-export class WordBankListResponseDto {
+export class WordBankListResponseDto implements WordBankListResponse {
   @ApiProperty({ type: [WordBankGroupItemDto] })
   data!: WordBankGroupItemDto[];
 

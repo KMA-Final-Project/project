@@ -1,4 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  LookupData,
+  LookupMeta,
+  LookupQuotaMeta,
+  LookupRequest,
+  LookupResponse,
+  SaveLookupWordRequest,
+  SaveLookupWordResponse,
+} from '@kapter/contracts';
 import { IsInt, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export enum LookupPartOfSpeech {
@@ -29,7 +38,7 @@ export enum LookupErrorCode {
   LLM_ERROR = 'LLM_ERROR',
 }
 
-export class LookupRequestDto {
+export class LookupRequestDto implements LookupRequest {
   @ApiProperty({
     example: 12,
     description: '0-based canonical subtitle segment index.',
@@ -64,7 +73,7 @@ export class LookupRequestDto {
   endWordIndex!: number;
 }
 
-export class LookupDataDto {
+export class LookupDataDto implements LookupData {
   @ApiProperty({ example: 'already' })
   word!: string;
 
@@ -87,7 +96,7 @@ export class LookupDataDto {
   exampleSentenceTranslation!: string;
 }
 
-export class LookupQuotaMetaDto {
+export class LookupQuotaMetaDto implements LookupQuotaMeta {
   @ApiProperty({ enum: ['free', 'paid'], example: 'free' })
   tier!: 'free' | 'paid';
 
@@ -101,7 +110,7 @@ export class LookupQuotaMetaDto {
   resetsInSeconds!: number | null;
 }
 
-export class LookupMetaDto {
+export class LookupMetaDto implements LookupMeta {
   @ApiProperty({ example: false })
   cacheHit!: boolean;
 
@@ -118,7 +127,7 @@ export class LookupMetaDto {
   quota!: LookupQuotaMetaDto;
 }
 
-export class LookupResponseDto {
+export class LookupResponseDto implements LookupResponse {
   @ApiProperty({ type: LookupDataDto })
   data!: LookupDataDto;
 
@@ -126,7 +135,10 @@ export class LookupResponseDto {
   meta!: LookupMetaDto;
 }
 
-export class SaveLookupWordDto extends LookupRequestDto {
+export class SaveLookupWordDto
+  extends LookupRequestDto
+  implements SaveLookupWordRequest
+{
   @ApiProperty({
     example: '1a87b8f0-7a49-4d62-af0f-54f6d063c8e6',
     description: 'Opaque lookup snapshot token received from POST /lookup.',
@@ -182,7 +194,7 @@ export class SavedLookupWordItemDto {
   createdAt!: string;
 }
 
-export class SaveLookupWordResponseDto {
+export class SaveLookupWordResponseDto implements SaveLookupWordResponse {
   @ApiProperty({ example: true })
   created!: boolean;
 

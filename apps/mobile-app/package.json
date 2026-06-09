@@ -11,6 +11,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@kapter/contracts": "workspace:*",
     "@expo/metro-runtime": "^6.1.2",
     "@expo/vector-icons": "^15.0.2",
     "@hookform/resolvers": "^5.2.2",
@@ -54,7 +55,7 @@
     "react-native": "0.81.5",
     "react-native-edge-to-edge": "^1.8.1",
     "react-native-gesture-handler": "~2.28.0",
-    "react-native-nitro-modules": "^0.33.9",
+    "react-native-nitro-modules": "0.35.7",
     "react-native-reanimated": "~4.1.6",
     "react-native-safe-area-context": "~5.6.2",
     "react-native-screens": "~4.16.0",

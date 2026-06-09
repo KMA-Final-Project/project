@@ -19,7 +19,7 @@ import {
   useThemePreference,
   useLanguagePreference,
   useOnboarding,
-  useSubscriptionQuota,
+  useSubscriptionStatus,
 } from "@/hooks";
 import type { ThemePreference } from "@/hooks";
 import type { SupportedLanguage } from "@/i18n";
@@ -35,7 +35,8 @@ export default function SettingsTab() {
   const { preference, setThemePreference } = useThemePreference();
   const { currentLanguage, setLanguage } = useLanguagePreference();
   const { defaultTargetLanguage, setTargetLanguage, resetOnboarding } = useOnboarding();
-  const { remainingMinutes, totalMinutes, isLoading: quotaLoading } = useSubscriptionQuota();
+  const { data: subscriptionStatus, isLoading: quotaLoading } =
+    useSubscriptionStatus();
   const logout = useAuthStore((s) => s.logout);
 
   const handleLogout = async () => {
@@ -59,9 +60,16 @@ export default function SettingsTab() {
     { key: "vi", label: t("language.vi") },
   ];
 
-  const remaining = remainingMinutes ?? 0;
-  const total = totalMinutes ?? 1;
-  const percent = Math.min(100, Math.max(0, (remaining / total) * 100));
+  const remaining = subscriptionStatus?.quota.remainingSeconds == null
+    ? null
+    : Math.max(0, Math.floor(subscriptionStatus.quota.remainingSeconds / 60));
+  const total = subscriptionStatus?.quota.totalSeconds == null
+    ? null
+    : Math.max(1, Math.floor(subscriptionStatus.quota.totalSeconds / 60));
+  const percent =
+    remaining == null || total == null
+      ? 0
+      : Math.min(100, Math.max(0, (remaining / total) * 100));
 
   return (
     <View style={styles.root}>
@@ -69,7 +77,13 @@ export default function SettingsTab() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Subscription Quota Card */}
-        <View style={styles.section}>
+        <Pressable
+          onPress={() => router.push(ROUTES.SUBSCRIPTION as never)}
+          style={({ pressed }) => [
+            styles.section,
+            pressed && styles.linkRowPressed,
+          ]}
+        >
           <View style={styles.sectionHeader}>
             <Ionicons name="sparkles" size={20} color={theme.colors.primary} />
             <Text style={styles.sectionTitle}>{t("settings.quotaTitle")}</Text>
@@ -81,20 +95,38 @@ export default function SettingsTab() {
             <View style={styles.quotaBody}>
               <View style={styles.quotaRow}>
                 <Text style={styles.quotaMinutes}>
-                  {t("settings.quotaMinutes", {
-                    remaining,
-                    total,
+                  {remaining == null || total == null
+                    ? t("settings.quotaUnlimited")
+                    : t("settings.quotaMinutes", {
+                        remaining,
+                        total,
+                      })}
+                </Text>
+                {remaining != null && total != null ? (
+                  <Text style={styles.quotaPercent}>{Math.round(percent)}%</Text>
+                ) : null}
+              </View>
+              {remaining != null && total != null ? (
+                <View style={styles.progressBarBg}>
+                  <View style={[styles.progressBarFill, { width: `${percent}%` }]} />
+                </View>
+              ) : null}
+              {subscriptionStatus?.currentPlan?.planName ? (
+                <Text style={styles.quotaResetText}>
+                  {t("settings.currentPlanLabel", {
+                    plan: subscriptionStatus.currentPlan.planName,
                   })}
                 </Text>
-                <Text style={styles.quotaPercent}>{Math.round(percent)}%</Text>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: `${percent}%` }]} />
-              </View>
-              <Text style={styles.quotaResetText}>{t("settings.quotaReset")}</Text>
+              ) : null}
+              <Text style={styles.quotaResetText}>
+                {t("settings.aiCreditsSummary", {
+                  remaining: subscriptionStatus?.aiCredits.remaining ?? 0,
+                  total: subscriptionStatus?.aiCredits.includedPerCycle ?? 0,
+                })}
+              </Text>
             </View>
           )}
-        </View>
+        </Pressable>
 
         {/* Translation Default Target Language Section */}
         <View style={styles.section}>

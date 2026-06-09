@@ -48,9 +48,13 @@ Primary output surfaces:
 ```text
 .
 |- AGENTS.md              # Mandatory agent behavior, startup protocol, and global guardrails.
+|- package.json           # Root pnpm workspace manifest and shared package-manager pin.
+|- pnpm-workspace.yaml    # Workspace package globs for apps/* and packages/*.
+|- pnpm-lock.yaml         # Single lockfile for the TypeScript workspace.
 |- INSTRUCTION.md         # Product vision, architecture overview, module roles, and main use cases.
 |- PROJECT_MAP.md         # Repository navigation map.
 |- COMMANDS.md            # Command reference and validation strategy.
+|- packages/             # Shared TypeScript-only workspace packages.
 |- apps/                  # Active product applications.
 |- infra/                 # Local infrastructure compose setups.
 |- scripts/               # Helper scripts.
@@ -254,6 +258,24 @@ Agent docs:
 apps/dashboard/INSTRUCTION.md
 apps/dashboard/CHECKPOINT.md
 ```
+
+### 4.5 Shared TypeScript Packages
+
+Path:
+
+```text
+packages/
+```
+
+Current shared package:
+
+```text
+packages/contracts
+```
+
+Role:
+
+Transport and contract surfaces shared by `backend-api`, `mobile-app`, and `dashboard`. The package is authored in TypeScript source, emits ESM plus declaration files through `tsup`, and remains the compile-time source of truth for TypeScript consumers while backend NestJS DTO classes remain the runtime validation and Swagger authority.
 
 ## 5. Infrastructure
 

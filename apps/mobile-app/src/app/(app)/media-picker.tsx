@@ -16,8 +16,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUploadMedia } from "@/hooks/useMedia";
+import { useSubscriptionStatus } from "@/hooks";
 import { ROUTES } from "@/constants/routes";
 import { useTranslation } from "react-i18next";
+import { extractApiError } from "@/utils/api-error";
 
 export default function MediaPickerScreen() {
   const { t } = useTranslation();
@@ -29,6 +31,7 @@ export default function MediaPickerScreen() {
   const [loading, setLoading] = useState(true);
 
   const [permissionResponse, requestPermission] = MediaLibrary.usePermissions();
+  const { data: subscriptionStatus } = useSubscriptionStatus();
 
   const { mutateAsync: uploadMedia, isPending: uploadPending } =
     useUploadMedia();
@@ -63,6 +66,59 @@ export default function MediaPickerScreen() {
 
   const handleSelectAsset = async (asset: MediaLibrary.Asset) => {
     try {
+      if (subscriptionStatus?.quota.uploadBlockerCode === "subscriptionInactive") {
+        Alert.alert(
+          t("upload.blockedTitle"),
+          t("upload.blockedSubscriptionInactive"),
+          [
+            { text: t("common.cancel") },
+            {
+              text: t("upload.viewPlans"),
+              onPress: () => router.push(ROUTES.SUBSCRIPTION as never),
+            },
+          ],
+        );
+        return;
+      }
+
+      if (subscriptionStatus?.quota.uploadBlockerCode === "quotaExceeded") {
+        Alert.alert(
+          t("upload.blockedTitle"),
+          t("upload.blockedQuotaExceeded"),
+          [
+            { text: t("common.cancel") },
+            {
+              text: t("upload.viewPlans"),
+              onPress: () => router.push(ROUTES.SUBSCRIPTION as never),
+            },
+          ],
+        );
+        return;
+      }
+
+      const maxDuration = subscriptionStatus?.quota.maxDurationPerFileSeconds;
+      if (
+        typeof maxDuration === "number" &&
+        asset.duration > 0 &&
+        asset.duration > maxDuration
+      ) {
+        Alert.alert(
+          t("upload.durationLimitTitle"),
+          t("upload.durationLimitMessage", {
+            fileMinutes: Math.ceil(asset.duration / 60),
+            planMinutes: Math.ceil(maxDuration / 60),
+          }),
+          [
+            { text: t("upload.chooseAnotherFile") },
+            {
+              text: t("upload.viewPlans"),
+              onPress: () => router.push(ROUTES.SUBSCRIPTION as never),
+            },
+          ],
+        );
+        return;
+      }
+
       // Need full file info to get actual URIs and sizes on Android/iOS
       const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.id);
 
@@ -100,10 +156,8 @@ export default function MediaPickerScreen() {
     } catch (error: any) {
       console.error("Upload failed:", error);
       Alert.alert(
-        "Upload failed",
-        error?.response?.data?.message ??
-          error?.message ??
-          "An unexpected error occurred.",
+        t("upload.submitFailedTitle"),
+        extractApiError(error),
       );
     }
   };

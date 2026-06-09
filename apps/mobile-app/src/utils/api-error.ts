@@ -15,11 +15,11 @@ export function extractApiError(
   if (isAxiosError(err) && err.response?.data) {
     const backendMessage = err.response.data.message;
 
-    const translateIfValidStr = (msg: unknown) => {
+    const translateIfValidStr = (msg: unknown): string | null => {
       if (typeof msg === "string") {
-        const i18nKey = `apiErrors.${msg}` as any;
-        if (i18n.exists(i18nKey)) {
-          return i18n.t(i18nKey);
+        const i18nKey = `apiErrors.${msg}`;
+        if (i18n.exists(i18nKey as never)) {
+          return String(i18n.t(i18nKey as never));
         }
       }
       return null;
@@ -45,5 +45,5 @@ export function extractApiError(
   }
 
   // Fallback
-  return i18n.t(defaultMessageKey as any);
+  return String(i18n.t(defaultMessageKey as never));
 }

@@ -8,9 +8,9 @@
  * On error or cancel → returns to Library.
  */
 import React, { Fragment, useState } from "react";
-import { Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { BottomSheet, UploadSheet, YouTubeModal } from "@/components";
+import { useSubscriptionStatus } from "@/hooks";
 import { useSubmitYouTube } from "@/hooks/useMedia";
 import { ROUTES } from "@/constants/routes";
 
@@ -21,6 +21,8 @@ interface UploadModalsProps {
 
 export default function UploadModals({ visible, onClose }: UploadModalsProps) {
   const router = useRouter();
+  const { data: subscriptionStatus, isLoading: subscriptionLoading } =
+    useSubscriptionStatus();
 
   // const [sheetVisible, setSheetVisible] = useState(true);
   const [ytVisible, setYtVisible] = useState(false);
@@ -61,24 +63,19 @@ export default function UploadModals({ visible, onClose }: UploadModalsProps) {
     sourceLanguage?: string;
     targetLanguage?: string;
   }) => {
-    try {
-      const newItem = await submitYouTube(payload);
+    const newItem = await submitYouTube(payload);
 
-      setYtVisible(false);
-      // Navigate to processing screen for this item
-      router.replace({
-        pathname: ROUTES.PROCESSING,
-        params: { id: newItem.id },
-      } as any);
-    } catch (error: any) {
-      console.error("YouTube submit failed:", error);
-      Alert.alert(
-        "Failed",
-        error?.response?.data?.message ??
-          error?.message ??
-          "An unexpected error occurred.",
-      );
-    }
+    setYtVisible(false);
+    router.replace({
+      pathname: ROUTES.PROCESSING,
+      params: { id: newItem.id },
+    } as any);
+  };
+
+  const handleViewPlans = () => {
+    onClose();
+    setYtVisible(false);
+    router.push(ROUTES.SUBSCRIPTION as never);
   };
 
   return (
@@ -87,6 +84,26 @@ export default function UploadModals({ visible, onClose }: UploadModalsProps) {
         <UploadSheet
           onSelectDevice={handleSelectDevice}
           onSelectYouTube={handleSelectYouTube}
+          onViewPlans={handleViewPlans}
+          remainingMinutes={
+            subscriptionStatus?.quota.remainingSeconds == null
+              ? null
+              : Math.max(
+                  0,
+                  Math.floor(subscriptionStatus.quota.remainingSeconds / 60),
+                )
+          }
+          totalMinutes={
+            subscriptionStatus?.quota.totalSeconds == null
+              ? null
+              : Math.max(
+                  0,
+                  Math.floor(subscriptionStatus.quota.totalSeconds / 60),
+                )
+          }
+          currentPlanName={subscriptionStatus?.currentPlan?.planName ?? null}
+          blockerCode={subscriptionStatus?.quota.uploadBlockerCode ?? "none"}
+          isLoading={subscriptionLoading}
         />
       </BottomSheet>
 
@@ -94,6 +111,7 @@ export default function UploadModals({ visible, onClose }: UploadModalsProps) {
         visible={ytVisible}
         onClose={handleCloseYT}
         onSubmit={handleSubmitYT}
+        onViewPlans={handleViewPlans}
         loading={ytPending}
       />
     </Fragment>

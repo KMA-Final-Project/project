@@ -48,6 +48,13 @@
   "notificationHint": "You'll be notified when processing is done",
   "openPlayer": "Open Player",
   "backLibrary": "Back to Library",
+  "failure": {
+    "subscriptionInactive": "You need an active subscription before this media can be processed.",
+    "quotaExceeded": "This media could not continue because your monthly quota is exhausted.",
+    "durationLimitExceeded": "This media is longer than your current per-file plan limit.",
+    "viewPlans": "View Plans",
+    "chooseAnotherFile": "Choose Another File"
+  },
   "untitled": "Untitled",
   "originYoutube": "YouTube",
   "originLocal": "Local File",

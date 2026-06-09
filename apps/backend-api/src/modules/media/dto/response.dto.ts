@@ -1,9 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type {
+  ConfirmUploadResponse,
+  MediaArtifactsSummary,
+  MediaStreamResponse,
+  PresignedUrlResponse,
+  SubmitYouTubeResponse,
+} from '@kapter/contracts';
 import { PipelineStage } from 'src/common/constants';
 
 // ==================== Presigned URL Response ====================
 
-export class PresignedUrlResponseDto {
+export class PresignedUrlResponseDto implements PresignedUrlResponse {
   @ApiProperty({
     description: 'Public-facing presigned PUT URL for direct upload to MinIO',
     example:
@@ -42,7 +49,7 @@ export class PresignedUrlResponseDto {
 
 // ==================== Confirm Upload Response ====================
 
-export class ConfirmUploadResponseDto {
+export class ConfirmUploadResponseDto implements ConfirmUploadResponse {
   @ApiProperty({
     description: 'MediaItem database ID',
     example: '15209337-61c8-4a67-9f71-990475f394a4',
@@ -60,7 +67,7 @@ export class ConfirmUploadResponseDto {
     example: 'QUEUED',
     enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
   })
-  status: string;
+  status: ConfirmUploadResponse['status'];
 
   @ApiProperty({
     description: 'BullMQ job ID for tracking',
@@ -78,7 +85,7 @@ export class ConfirmUploadResponseDto {
 
 // ==================== YouTube Submission Response ====================
 
-export class SubmitYoutubeResponseDto {
+export class SubmitYoutubeResponseDto implements SubmitYouTubeResponse {
   @ApiProperty({
     description: 'MediaItem database ID',
     example: '15209337-61c8-4a67-9f71-990475f394a4',
@@ -97,7 +104,7 @@ export class SubmitYoutubeResponseDto {
     example: 'QUEUED',
     enum: ['QUEUED', 'VALIDATING', 'PROCESSING', 'COMPLETED', 'FAILED'],
   })
-  status: string;
+  status: SubmitYouTubeResponse['status'];
 
   @ApiProperty({
     description: 'Original YouTube URL',
@@ -122,7 +129,7 @@ export class SubmitYoutubeResponseDto {
 
 // ==================== Artifact Inventory ====================
 
-export class MediaArtifactsSummaryDto {
+export class MediaArtifactsSummaryDto implements MediaArtifactsSummary {
   @ApiProperty({ example: 3 })
   chunkCount: number;
 
@@ -263,6 +270,13 @@ export class MediaStatusResponseDto {
   durationSeconds: number;
 
   @ApiProperty({
+    description: 'Machine-readable failure code (only when status=FAILED)',
+    example: 'quotaExceeded',
+    nullable: true,
+  })
+  failCode: string | null;
+
+  @ApiProperty({
     description: 'Human-readable error (only when status=FAILED)',
     example: null,
     nullable: true,
@@ -360,6 +374,13 @@ export class MediaListItemDto {
   targetLanguage: string | null;
 
   @ApiProperty({
+    description: 'Machine-readable failure code (only when status=FAILED)',
+    example: 'quotaExceeded',
+    nullable: true,
+  })
+  failCode: string | null;
+
+  @ApiProperty({
     type: MediaArtifactsSummaryDto,
     description:
       'Cached artifact availability summary stored with the media record for hot library reads.',
@@ -388,7 +409,7 @@ export class MediaListItemDto {
 
 // ==================== Stream URL Response ====================
 
-export class StreamUrlResponseDto {
+export class StreamUrlResponseDto implements MediaStreamResponse {
   @ApiProperty({
     description:
       'Direct video stream URL (may be null for audio-only content or when yt-dlp resolves only audio)',

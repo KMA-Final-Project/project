@@ -1,9 +1,10 @@
 import { queryOptions } from "@tanstack/react-query"
 
-import { getPlans } from "@/features/plans/plans-api.ts"
+import { getPlans, getPlanById } from "@/features/plans/plans-api.ts"
 
 export const plansKeys = {
   all: ["plans"] as const,
+  detail: (id: string) => [...plansKeys.all, id] as const,
 }
 
 export const plansListQuery = () =>
@@ -11,4 +12,12 @@ export const plansListQuery = () =>
     queryKey: plansKeys.all,
     queryFn: getPlans,
     staleTime: 5 * 60_000,
+  })
+
+export const planDetailQuery = (id: string) =>
+  queryOptions({
+    queryKey: plansKeys.detail(id),
+    queryFn: () => getPlanById(id),
+    staleTime: 60_000,
+    enabled: !!id,
   })

@@ -1,4 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  ConfirmUploadRequest,
+  PresignedUrlRequest,
+  SubmitYouTubeRequest,
+} from '@kapter/contracts';
 import {
   IsString,
   IsNotEmpty,
@@ -16,7 +21,7 @@ import {
  * Step 1: Request a presigned PUT URL for direct file upload to MinIO.
  * Client will use the returned URL to upload the file directly.
  */
-export class RequestPresignedUrlDto {
+export class RequestPresignedUrlDto implements PresignedUrlRequest {
   @ApiProperty({
     example: 'lecture-01.mp3',
     description: 'Original file name',
@@ -48,7 +53,7 @@ export class RequestPresignedUrlDto {
  * Step 2: After the client uploads the file, confirm the upload and
  * trigger background processing.
  */
-export class ConfirmUploadDto {
+export class ConfirmUploadDto implements ConfirmUploadRequest {
   @ApiProperty({
     example: 'My Lecture Recording',
     description: 'User-friendly title for the media',
@@ -97,7 +102,7 @@ export class ConfirmUploadDto {
 /**
  * Submit a YouTube URL for async download + transcription.
  */
-export class SubmitYoutubeDto {
+export class SubmitYoutubeDto implements SubmitYouTubeRequest {
   @ApiProperty({
     example: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     description: 'YouTube video URL',

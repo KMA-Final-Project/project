@@ -1,15 +1,24 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type {
+  AiExplainDailyUsage,
+  AiExplainMetrics,
+  AiExplainMetricsQuery,
+  AiExplainSessionsQuery,
+  AiExplainSessionsResponse,
+  AiExplainSessionItem,
+  AiExplainTopSegment,
+} from '@kapter/contracts';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
-export class AiExplainMetricsQueryDto {
+export class AiExplainMetricsQueryDto implements AiExplainMetricsQuery {
   @ApiProperty({ example: '7d', enum: ['7d', '30d'] })
   @IsOptional()
   @IsIn(['7d', '30d'])
   period?: '7d' | '30d' = '7d';
 }
 
-export class AiExplainSessionsQueryDto {
+export class AiExplainSessionsQueryDto implements AiExplainSessionsQuery {
   @ApiProperty({ example: 1, default: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -26,7 +35,7 @@ export class AiExplainSessionsQueryDto {
   limit?: number = 20;
 }
 
-export class AiExplainTopSegmentDto {
+export class AiExplainTopSegmentDto implements AiExplainTopSegment {
   @ApiProperty({ example: '15209337-61c8-4a67-9f71-990475f394a4' })
   mediaId!: string;
 
@@ -43,7 +52,7 @@ export class AiExplainTopSegmentDto {
   requestCount!: number;
 }
 
-export class AiExplainDailyUsageDto {
+export class AiExplainDailyUsageDto implements AiExplainDailyUsage {
   @ApiProperty({ example: '2026-05-24' })
   date!: string;
 
@@ -57,9 +66,9 @@ export class AiExplainDailyUsageDto {
   tokens!: number;
 }
 
-export class AiExplainMetricsDto {
+export class AiExplainMetricsDto implements AiExplainMetrics {
   @ApiProperty({ example: '7d' })
-  period!: string;
+  period!: '7d' | '30d';
 
   @ApiProperty({ example: 120 })
   totalRequests!: number;
@@ -92,7 +101,7 @@ export class AiExplainMetricsDto {
   dailyUsage!: AiExplainDailyUsageDto[];
 }
 
-export class AiExplainSessionItemDto {
+export class AiExplainSessionItemDto implements AiExplainSessionItem {
   @ApiProperty({ example: '8c8d1605-efc7-4ba0-b951-2bfef40df777' })
   id!: string;
 
@@ -112,7 +121,7 @@ export class AiExplainSessionItemDto {
   updatedAt!: string;
 }
 
-export class AiExplainSessionsResponseDto {
+export class AiExplainSessionsResponseDto implements AiExplainSessionsResponse {
   @ApiProperty({ type: [AiExplainSessionItemDto] })
   data!: AiExplainSessionItemDto[];
 

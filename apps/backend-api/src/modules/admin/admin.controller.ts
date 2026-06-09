@@ -20,20 +20,28 @@ import {
 import { Role } from 'prisma/generated/client';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RolesGuard } from 'src/common/guards/roles.guard';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import {
   OverviewService,
   PlanService,
   VariantService,
   UserAdminService,
   AiExplainAdminService,
+  MonitoringAdminService,
 } from './services';
-import { CreatePlanDto, UpdatePlanDto } from './dto/plan.dto';
+import {
+  CreatePlanDto,
+  UpdatePlanDto,
+  AdminPlanDetailDto,
+} from './dto/plan.dto';
 import { CreateVariantDto, UpdateVariantDto } from './dto/variant.dto';
 import { AdminOverviewDto } from './dto/overview.dto';
 import {
   AdminUsersQueryDto,
   AdminUserListResponseDto,
   AdminUserDetailDto,
+  UpdateAdminUserRoleDto,
+  AdminUserRoleUpdateResultDto,
 } from './dto/user.dto';
 import {
   AiExplainMetricsDto,
@@ -41,6 +49,11 @@ import {
   AiExplainSessionsQueryDto,
   AiExplainSessionsResponseDto,
 } from './dto/ai-explain.dto';
+import {
+  AdminMonitoringQueueOverviewDto,
+  AdminMonitoringFailuresQueryDto,
+  AdminMonitoringFailuresResponseDto,
+} from './dto/monitoring.dto';
 import { ErrorResponseDto } from 'src/common/dto';
 
 @ApiTags('Admin - Subscription Plans')
@@ -55,6 +68,7 @@ export class AdminController {
     private readonly variantService: VariantService,
     private readonly userAdminService: UserAdminService,
     private readonly aiExplainAdminService: AiExplainAdminService,
+    private readonly monitoringAdminService: MonitoringAdminService,
   ) {}
 
   @Get('overview')
@@ -85,6 +99,19 @@ export class AdminController {
     return this.userAdminService.findById(id);
   }
 
+  @Patch('users/:id/role')
+  @ApiOperation({ summary: 'Change a user role (USER/ADMIN)' })
+  @ApiResponse({ status: 200, type: AdminUserRoleUpdateResultDto })
+  @ApiResponse({ status: 400, type: ErrorResponseDto })
+  @ApiResponse({ status: 404, type: ErrorResponseDto })
+  async updateUserRole(
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminUserRoleDto,
+    @CurrentUser() currentUser: { id: string },
+  ): Promise<AdminUserRoleUpdateResultDto> {
+    return this.userAdminService.updateRole(id, currentUser.id, dto.role);
+  }
+
   // ==================== AI EXPLAIN ====================
 
   @Get('ai-explain/metrics')
@@ -105,6 +132,26 @@ export class AdminController {
     return this.aiExplainAdminService.getSessions(query);
   }
 
+  // ==================== MONITORING ====================
+
+  @Get('monitoring/queues')
+  @ApiOperation({ summary: 'Queue health overview for monitoring' })
+  @ApiResponse({ status: 200, type: AdminMonitoringQueueOverviewDto })
+  async getMonitoringQueues(): Promise<AdminMonitoringQueueOverviewDto> {
+    return this.monitoringAdminService.getQueueOverview();
+  }
+
+  @Get('monitoring/failures')
+  @ApiOperation({
+    summary: 'Paginated failure diagnostics (media or queue source)',
+  })
+  @ApiResponse({ status: 200, type: AdminMonitoringFailuresResponseDto })
+  async getMonitoringFailures(
+    @Query() query: AdminMonitoringFailuresQueryDto,
+  ): Promise<AdminMonitoringFailuresResponseDto> {
+    return this.monitoringAdminService.getFailures(query);
+  }
+
   // ==================== PLANS ====================
 
   @Get('plans')
@@ -115,11 +162,11 @@ export class AdminController {
   }
 
   @Get('plans/:id')
-  @ApiOperation({ summary: 'Get a subscription plan by ID' })
-  @ApiResponse({ status: 200, description: 'Returns the plan' })
+  @ApiOperation({ summary: 'Get a subscription plan by ID with metrics' })
+  @ApiResponse({ status: 200, type: AdminPlanDetailDto })
   @ApiResponse({ status: 404, type: ErrorResponseDto })
   async findPlanById(@Param('id') id: string) {
-    return this.planService.findByIdWithVariants(id);
+    return this.planService.findByIdWithMetrics(id);
   }
 
   @Post('plans')

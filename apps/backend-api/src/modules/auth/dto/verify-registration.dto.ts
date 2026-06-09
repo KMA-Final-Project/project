@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { VerifyOtpPayload } from '@kapter/contracts';
 import { IsEmail, IsNotEmpty, IsString, Length } from 'class-validator';
 
-export class VerifyRegistrationDto {
+export class VerifyRegistrationDto implements VerifyOtpPayload {
   @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
   @IsNotEmpty()

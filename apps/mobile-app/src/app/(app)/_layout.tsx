@@ -38,6 +38,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     "processing",
     "player",
     "media-picker",
+    "subscription",
     "word-bank",
   ]);
   const activeLeafSegment = segments[segments.length - 1];
@@ -201,6 +202,7 @@ export default function AppLayout() {
         <Tabs.Screen name="processing" options={{ href: null }} />
         <Tabs.Screen name="player" options={{ href: null }} />
         <Tabs.Screen name="media-picker" options={{ href: null }} />
+        <Tabs.Screen name="subscription" options={{ href: null }} />
         <Tabs.Screen name="word-bank" options={{ href: null }} />
         <Tabs.Screen name="onboarding" options={{ href: null }} />
       </Tabs>

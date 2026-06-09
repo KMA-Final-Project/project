@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "react-router"
 import {
   RiArrowLeftLine,
@@ -8,6 +9,7 @@ import {
   RiTimeLine,
   RiUserLine,
 } from "@remixicon/react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button.tsx"
 import {
@@ -18,7 +20,10 @@ import {
   CardTitle,
 } from "@/components/ui/card.tsx"
 import { Separator } from "@/components/ui/separator.tsx"
-import { userDetailQuery } from "@/features/users/users-queries.ts"
+import { RoleChangeDialog } from "@/features/users/components/role-change-dialog.tsx"
+import { updateUserRole } from "@/features/users/users-api.ts"
+import { userDetailQuery, usersKeys } from "@/features/users/users-queries.ts"
+import { useAuth } from "@/features/auth/auth-provider.tsx"
 import type {
   AdminUserDetail,
   AdminUserSubscriptionSnapshot,
@@ -27,7 +32,22 @@ import type {
 
 export const UserDetailPage = () => {
   const { id } = useParams<{ id: string }>()
+  const queryClient = useQueryClient()
+  const { session } = useAuth()
   const userQuery = useQuery(userDetailQuery(id!))
+  const [roleDialog, setRoleDialog] = useState(false)
+
+  const roleMutation = useMutation({
+    mutationFn: (role: "USER" | "ADMIN") => updateUserRole(id!, role),
+    onSuccess: () => {
+      toast.success("Role updated.")
+      setRoleDialog(false)
+      queryClient.invalidateQueries({ queryKey: usersKeys.all })
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Failed to update role.")
+    },
+  })
 
   if (userQuery.isPending) {
     return (
@@ -88,6 +108,13 @@ export const UserDetailPage = () => {
       {/* Profile header */}
       <ProfileCard user={user} />
 
+      {/* Role management */}
+      <RoleManagementCard
+        user={user}
+        isSelf={user.id === session?.user.id}
+        onChangeRole={() => setRoleDialog(true)}
+      />
+
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Subscription */}
         <SubscriptionCard sub={user.currentSubscription} />
@@ -100,9 +127,77 @@ export const UserDetailPage = () => {
       {user.recentUsageHistory.length > 0 && (
         <UsageHistoryCard history={user.recentUsageHistory} />
       )}
+
+      {/* Role change dialog */}
+      {roleDialog && (
+        <RoleChangeDialog
+          open={roleDialog}
+          onOpenChange={setRoleDialog}
+          userName={user.fullName}
+          currentRole={user.role}
+          targetRole={user.role === "ADMIN" ? "USER" : "ADMIN"}
+          isPending={roleMutation.isPending}
+          onConfirm={() =>
+            roleMutation.mutate(
+              user.role === "ADMIN" ? "USER" : "ADMIN",
+            )
+          }
+        />
+      )}
     </div>
   )
 }
+
+// ===== Role Management Card =====
+
+type RoleManagementCardProps = {
+  user: AdminUserDetail
+  isSelf: boolean
+  onChangeRole: () => void
+}
+
+const RoleManagementCard = ({
+  user,
+  isSelf,
+  onChangeRole,
+}: RoleManagementCardProps) => (
+  <Card className="panel-glow border border-border/70 bg-background/72">
+    <CardHeader>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <RiShieldUserLine className="size-5 text-accent" />
+          <CardTitle className="text-base">Role management</CardTitle>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isSelf}
+          onClick={onChangeRole}
+        >
+          Change role
+        </Button>
+      </div>
+    </CardHeader>
+    <CardContent>
+      <div className="flex items-center gap-3">
+        <span
+          className={
+            user.role === "ADMIN"
+              ? "rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+              : "rounded-full border border-border/70 px-3 py-1 text-xs text-muted-foreground"
+          }
+        >
+          {user.role}
+        </span>
+        {isSelf && (
+          <span className="text-xs text-muted-foreground">
+            You cannot change your own role.
+          </span>
+        )}
+      </div>
+    </CardContent>
+  </Card>
+)
 
 // ===== Profile Card =====
 

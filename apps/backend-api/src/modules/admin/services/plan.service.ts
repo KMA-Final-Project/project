@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { SubscriptionPlan, Prisma } from 'prisma/generated/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -58,6 +59,70 @@ export class PlanService extends BaseCrudService<
     return plan;
   }
 
+  async findByIdWithMetrics(id: string) {
+    const plan = await this.prisma.subscriptionPlan.findUnique({
+      where: { id },
+      include: {
+        variants: {
+          orderBy: { billingCycleType: 'asc' },
+        },
+      },
+    });
+
+    if (!plan) {
+      throw new NotFoundException(`Plan with ID "${id}" not found`);
+    }
+
+    const variantIds = plan.variants.map((v) => v.id);
+
+    const [activeCurrentCounts, historicalCounts] = await Promise.all([
+      Promise.all(
+        variantIds.map((vId) =>
+          this.prisma.user.count({
+            where: { currentSubscription: { variantId: vId } },
+          }),
+        ),
+      ),
+      Promise.all(
+        variantIds.map((vId) =>
+          this.prisma.subscription.count({
+            where: { variantId: vId },
+          }),
+        ),
+      ),
+    ]);
+
+    const variantsWithMetrics = plan.variants.map((v, i) => ({
+      ...v,
+      price: v.price.toString(),
+      subscriptionMetrics: {
+        activeCurrentSubscribers: activeCurrentCounts[i],
+        historicalSubscriptions: historicalCounts[i],
+      },
+    }));
+
+    const totalActiveCurrent = activeCurrentCounts.reduce((a, b) => a + b, 0);
+    const totalHistorical = historicalCounts.reduce((a, b) => a + b, 0);
+    const activeVariants = plan.variants.filter((v) => v.isActive).length;
+
+    return {
+      id: plan.id,
+      code: plan.code,
+      name: plan.name,
+      description: plan.description,
+      features: plan.features as string[] | null,
+      tierLevel: plan.tierLevel,
+      isActive: plan.isActive,
+      createdAt: plan.createdAt.toISOString(),
+      updatedAt: plan.updatedAt.toISOString(),
+      totalVariants: plan.variants.length,
+      activeVariants,
+      activeCurrentSubscribers: totalActiveCurrent,
+      historicalSubscriptions: totalHistorical,
+      variants: variantsWithMetrics,
+    };
+  }
+
   async create(dto: CreatePlanDto): Promise<SubscriptionPlan> {
     // Check for duplicate ID or code
     const existing = await this.prisma.subscriptionPlan.findFirst({
@@ -94,7 +159,7 @@ export class PlanService extends BaseCrudService<
       data: {
         name: dto.name,
         description: dto.description,
-        features: dto.features as Prisma.JsonArray | undefined,
+        features: dto.features,
         tierLevel: dto.tierLevel,
         isActive: dto.isActive,
       },

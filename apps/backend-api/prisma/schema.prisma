@@ -208,6 +208,7 @@ model MediaItem {
   artifactSummary        Json?       @map("artifact_summary") // Cached artifact availability summary for hot read paths
   currentStep            String?     @map("current_step") // Active pipeline stage: AUDIO_PREP, INSPECTING, VAD, PROCESSING, TRANSLATING, EXPORTING
   estimatedTimeRemaining Int?        @map("estimated_time_remaining") // Seconds remaining (ETA), null when idle/done
+  failCode               String?     @map("fail_code") // Machine-readable failure code for mobile UX
   failReason             String?     @map("fail_reason") // Human-readable error
 
   // Logic flag
@@ -225,6 +226,7 @@ model MediaItem {
   aiCreditReservations AiCreditReservation[]
 
   createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at") // Soft delete
 
   @@map("media_items")

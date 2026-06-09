@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { AdminOverview, QueueOverviewItem } from '@kapter/contracts';
 
-export class QueueOverviewItemDto {
+export class QueueOverviewItemDto implements QueueOverviewItem {
   @ApiProperty({ example: 'transcription' })
   name!: string;
 
@@ -23,7 +24,7 @@ export class QueueOverviewItemDto {
   paused!: number;
 }
 
-export class AdminOverviewDto {
+export class AdminOverviewDto implements AdminOverview {
   @ApiProperty({ example: 42 })
   totalUsers!: number;
 

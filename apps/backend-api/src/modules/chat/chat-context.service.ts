@@ -3,43 +3,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type {
+  Sentence as SubtitleSegment,
+  SubtitleOutput,
+  TranslatedBatch,
+  Word as SubtitleWord,
+} from '@kapter/contracts';
 import { createHash } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { MinioService } from 'src/modules/minio/minio.service';
-
-export interface SubtitleWord {
-  word: string;
-  start: number;
-  end: number;
-  confidence: number;
-  phoneme: string | null;
-}
-
-export interface SubtitleSegment {
-  text: string;
-  start: number;
-  end: number;
-  words: SubtitleWord[];
-  translation: string;
-  phonetic: string;
-  detected_lang: string;
-  segment_index: number | null;
-}
-
-interface SubtitleOutput {
-  metadata?: {
-    source_lang?: string;
-    target_lang?: string;
-    model_used?: string;
-  };
-  segments?: SubtitleSegment[];
-}
-
-interface TranslatedBatch {
-  batch_index: number;
-  first_segment_index: number;
-  segments?: SubtitleSegment[];
-}
 
 export interface CanonicalSubtitleContext {
   mediaId: string;
@@ -51,6 +23,8 @@ export interface CanonicalSubtitleContext {
   next: SubtitleSegment | null;
   contextHash: string;
 }
+
+export type { SubtitleSegment, SubtitleWord };
 
 @Injectable()
 export class ChatContextService {

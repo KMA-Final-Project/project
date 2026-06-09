@@ -44,6 +44,7 @@ function buildQueuedMediaItem(
     currentStep: null,
     createdAt: new Date().toISOString(),
     estimatedTimeRemaining: null,
+    failCode: null,
     failReason: null,
     sourceLanguage: null,
     targetLanguage,

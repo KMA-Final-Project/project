@@ -1,7 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type {
+  AuthResponse,
+  MessageResponse,
+  Tokens,
+  UserProfile,
+} from '@kapter/contracts';
 import { Role } from 'prisma/generated/client';
 
-export class UserProfileDto {
+export class UserProfileDto implements UserProfile {
   @ApiProperty({ example: 'uuid-string' })
   id!: string;
 
@@ -18,7 +24,7 @@ export class UserProfileDto {
   role!: Role;
 }
 
-export class TokensDto {
+export class TokensDto implements Tokens {
   @ApiProperty({ description: 'JWT access token (short-lived)' })
   accessToken!: string;
 
@@ -26,7 +32,7 @@ export class TokensDto {
   refreshToken!: string;
 }
 
-export class AuthResponseDto {
+export class AuthResponseDto implements AuthResponse {
   @ApiProperty({ type: UserProfileDto })
   user!: UserProfileDto;
 
@@ -34,7 +40,7 @@ export class AuthResponseDto {
   tokens!: TokensDto;
 }
 
-export class MessageResponseDto {
+export class MessageResponseDto implements MessageResponse {
   @ApiProperty({ example: 'Operation completed successfully' })
   message!: string;
 }
