@@ -17,6 +17,7 @@ import { MediaModule } from './modules/media/media.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { SocketModule } from './modules/socket/socket.module';
 import { ChatModule } from './modules/chat';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ChatModule } from './modules/chat';
     MediaModule,
     ChatModule,
     SocketModule,
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [

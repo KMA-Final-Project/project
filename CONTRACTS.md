@@ -642,6 +642,50 @@ Backend enforcement:
 - Block self-demotion (compare `req.user.id` with target `id`)
 - Block demoting the last remaining admin
 
+### 5.7 Billing API
+
+**Source of truth split:**
+- Stripe = financial source of truth (payment status, billing cycle, invoicing, cancellation)
+- Internal Subscription + User = entitlement source of truth (quota, AI credits, upload access)
+
+**Endpoints:**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/billing/catalog` | Public | Checkout-eligible recurring paid variants |
+| GET | `/billing/status` | JWT | Current billing state for authenticated user |
+| POST | `/billing/checkout-session` | JWT | Create Stripe Checkout Session |
+| GET | `/billing/checkout-sessions/:sessionId` | JWT | Get checkout session status |
+| POST | `/billing/customer-portal-session` | JWT | Create Stripe Customer Portal session |
+| POST | `/billing/webhooks/stripe` | Stripe signature | Stripe webhook endpoint |
+
+**GET /billing/catalog**
+Returns active, checkoutEnabled, mapped, non-FREE, non-LIFETIME variants.
+
+**POST /billing/checkout-session**
+Request: `{ variantId, successUrl, cancelUrl }`
+Response: `{ checkoutUrl, sessionId }`
+Validation: variant exists, active, recurring, mapped, checkoutEnabled, user has no active paid Stripe sub.
+
+**GET /billing/status**
+Response: `{ hasStripeCustomer, hasActivePaidSubscription, stripeCustomerId, currentSubscription: { variantId, planName, status, stripeStatus, cancelAtPeriodEnd, currentPeriodEnd } }`
+
+**POST /billing/webhooks/stripe**
+Public endpoint. Security via Stripe signature verification using webhook secret. Idempotent by stripeEventId. Processes: checkout.session.completed/expired, customer.subscription.created/updated/deleted, invoice.paid, invoice.payment_failed.
+
+**Entitlement sync rules:**
+- FREE → paid: create new internal Subscription snapshot, set as currentSubscriptionId
+- Same variant renewal: update dates/status on existing internal row
+- Variant change: create new internal Subscription snapshot
+- Paid → end: mark paid row ended, create new FREE snapshot as current
+- AI credits replaced with target plan's aiCreditsPerMonth on activation, renewal, upgrade, and FREE fallback
+
+**Admin variant billing config:**
+PlanVariant extended with: `checkoutEnabled` (boolean), `stripeProductId` (string?), `stripePriceId` (string?)
+Validation: checkoutEnabled=true requires both stripeProductId and stripePriceId.
+
+**ConfigService keys:** STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PORTAL_CONFIGURATION_ID, STRIPE_ALLOWED_ORIGINS
+
 ## 6. Artifact Storage Contract
 
 ### 6.1 Buckets

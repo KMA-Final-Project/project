@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-06-08
+> Last updated: 2026-06-09
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -21,8 +21,40 @@ Current completed surfaces:
 ## 2. Active Work
 
 - [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
+- [ ] Wire billing module into AppModule and verify catalog endpoint returns seeded variants.
 
 ## 3. Recently Completed
+
+- 2026-06-09 — Stripe billing module (backend-only). Status: Working.
+  - Full Stripe billing integration: Checkout, Customer Portal, webhook processing, entitlement sync.
+  - New BillingModule with 5 services: StripeService, CatalogService, CheckoutService, WebhookService, EntitlementSyncService.
+  - New BillingController (authenticated) + WebhookController (public, Stripe signature verified).
+  - Endpoints: GET /billing/catalog (public), GET /billing/status, POST /billing/checkout-session, GET /billing/checkout-sessions/:sessionId, POST /billing/customer-portal-session, POST /billing/webhooks/stripe.
+  - Prisma: BillingWebhookEvent, BillingCheckoutSession models. User extended with stripeCustomerId. Subscription extended with Stripe tracking fields. PlanVariant extended with checkoutEnabled/stripeProductId/stripePriceId.
+  - Entitlement sync: FREE→paid creates snapshot, same variant renewal updates existing, variant change creates new snapshot, paid→end falls back to FREE. AI credits replenished on invoice.paid.
+  - Admin variant billing config: checkoutEnabled, stripeProductId, stripePriceId on variant create/update.
+  - Bootstrap: rawBody: true for Stripe webhook signature verification.
+  - Contract types in packages/contracts/src/billing.ts.
+  - Unit tests: 52 passing (8 new billing tests: catalog filtering, webhook idempotency, entitlement sync).
+  - Contract touched: API (new billing endpoints), Prisma (new models + extended models). See CONTRACTS.md Section 5.7.
+  - Validation: `pnpm build`, `pnpm lint`, `pnpm test` all pass.
+
+- 2026-06-09 — EntitlementSyncService for Stripe webhook lifecycle. Status: Working.
+  - Implemented `syncSubscription`: upserts Stripe state, creates new snapshot on variant change, updates existing on renewal.
+  - Implemented `handleInvoicePaid`: replenishes `aiCreditsRemaining` from variant or snapshot.
+  - Implemented `handlePaymentFailed`: marks subscription `past_due`, keeps entitlements active.
+  - Implemented `handleSubscriptionDeleted`: ends paid subscription, calls `assignDefaultFreePlan` for FREE fallback.
+  - Uses `any` for Stripe types to avoid namespace import issues with stripe v22.
+  - Uses `SubscriptionStatus` enum from Prisma for all status fields.
+  - Contract touched: Billing module internal service, no API endpoint changes.
+  - Validation: `pnpm --filter backend-api build` passed.
+
+- 2026-06-09 — Public billing catalog endpoint. Status: Working.
+  - Implemented `CatalogService.getCatalog()` querying active, checkoutEnabled, mapped, non-FREE, non-LIFETIME PlanVariants.
+  - Added `GET /billing/catalog` public endpoint to `BillingController` with `@Public()` decorator.
+  - Returns `BillingCatalogItem[]` with planCode, planName, variantId, variantName, price, currency, billingCycleType, and quota/limit fields.
+  - Contract touched: API (new public billing endpoint).
+  - Validation: `pnpm --filter backend-api build` passed.
 
 - 2026-06-08 — Plan detail metrics and user role management. Status: Working.
   - Enhanced `GET /admin/plans/:id` returns `AdminPlanDetail` with per-variant subscription metrics (activeCurrentSubscribers, historicalSubscriptions).
@@ -281,6 +313,7 @@ Current completed surfaces:
 
 Stable documented endpoints:
 
+- `GET /billing/catalog` (public, no auth)
 - `POST /media/presigned-url`
 - `POST /media/confirm-upload`
 - `POST /media/youtube`
@@ -356,6 +389,8 @@ pnpm pmigrate:dev <name>
 
 Last verified:
 
+- 2026-06-09 — `pnpm --filter backend-api build` passed after implementing EntitlementSyncService.
+- 2026-06-09 — `pnpm --filter backend-api build` passed after implementing CatalogService and BillingController.
 - 2026-05-21 — `cd apps/backend-api && pnpm build` passed after adding the evaluator script.
 - 2026-05-21 — `.\scripts\run-e2e-youtube-pipeline.ps1` completed and produced a full local run bundle under `outputs/e2e-youtube-pipeline/20260521_113334/`.
 

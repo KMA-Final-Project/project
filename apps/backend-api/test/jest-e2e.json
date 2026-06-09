@@ -5,5 +5,11 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^src/(.*)$": "<rootDir>/../src/$1",
+    "^prisma/(.*)$": "<rootDir>/../prisma/$1",
+    "^\\./enums\\.js$": "<rootDir>/../prisma/generated/enums",
+    "^\\./internal/(class|prismaNamespace)\\.js$": "<rootDir>/../prisma/generated/internal/$1"
   }
 }

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PlanVariant } from 'prisma/generated/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { BaseCrudService } from 'src/common/services';
@@ -51,6 +55,15 @@ export class VariantService extends BaseCrudService<
     // Verify plan exists
     await this.planService.findById(planId);
 
+    // Validate billing config
+    if (dto.checkoutEnabled === true) {
+      if (!dto.stripeProductId || !dto.stripePriceId) {
+        throw new BadRequestException(
+          'checkoutEnabled requires both stripeProductId and stripePriceId.',
+        );
+      }
+    }
+
     return this.prisma.planVariant.create({
       data: {
         planId,
@@ -61,6 +74,9 @@ export class VariantService extends BaseCrudService<
         maxDurationPerFile: dto.maxDurationPerFile,
         monthlyQuotaSeconds: dto.monthlyQuotaSeconds,
         aiCreditsPerMonth: dto.aiCreditsPerMonth,
+        checkoutEnabled: dto.checkoutEnabled ?? false,
+        stripeProductId: dto.stripeProductId,
+        stripePriceId: dto.stripePriceId,
       },
     });
   }
@@ -78,6 +94,15 @@ export class VariantService extends BaseCrudService<
   async update(id: string, dto: UpdateVariantDto): Promise<PlanVariant> {
     const { variant, activeCurrentSubscribers } =
       await this.findByIdWithSubscriptionCounts(id);
+
+    // Validate billing config
+    if (dto.checkoutEnabled === true) {
+      if (!dto.stripeProductId || !dto.stripePriceId) {
+        throw new BadRequestException(
+          'checkoutEnabled requires both stripeProductId and stripePriceId.',
+        );
+      }
+    }
 
     // Check if changing terms (price or limits)
     const isChangingTerms =
@@ -106,6 +131,9 @@ export class VariantService extends BaseCrudService<
         monthlyQuotaSeconds: dto.monthlyQuotaSeconds,
         aiCreditsPerMonth: dto.aiCreditsPerMonth,
         isActive: dto.isActive,
+        checkoutEnabled: dto.checkoutEnabled,
+        stripeProductId: dto.stripeProductId,
+        stripePriceId: dto.stripePriceId,
       },
     });
   }

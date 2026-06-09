@@ -67,6 +67,7 @@ model User {
   aiCreditsRemaining            Int      @default(0) @map("ai_credits_remaining")
   aiCreditsLastResetDate        DateTime @default(now()) @map("ai_credits_last_reset_date")
   role                          Role     @default(USER)
+  stripeCustomerId              String?  @map("stripe_customer_id") @unique
 
   // Relationships
   currentSubscription  Subscription?         @relation("UserCurrentSub", fields: [currentSubscriptionId], references: [id])
@@ -80,6 +81,7 @@ model User {
   chatFeedbacks        ChatFeedback[]
   aiUsageLogs          AiUsageLog[]
   aiCreditReservations AiCreditReservation[]
+  billingCheckoutSessions BillingCheckoutSession[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -123,8 +125,13 @@ model PlanVariant {
 
   isActive Boolean @default(true)
 
+  checkoutEnabled Boolean  @default(false) @map("checkout_enabled")
+  stripeProductId String?  @map("stripe_product_id")
+  stripePriceId   String?  @map("stripe_price_id")
+
   plan          SubscriptionPlan @relation(fields: [planId], references: [id])
   subscriptions Subscription[]
+  billingCheckoutSessions BillingCheckoutSession[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -155,6 +162,13 @@ model Subscription {
   maxDurationPerFileSnapshot  Int     @map("max_duration_per_file_snapshot")
   monthlyQuotaSecondsSnapshot Int     @map("monthly_quota_seconds_snapshot")
   aiCreditsPerMonthSnapshot   Int     @default(0) @map("ai_credits_per_month_snapshot")
+
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  stripePriceId        String?   @map("stripe_price_id")
+  stripeStatus         String?   @map("stripe_status")
+  currentPeriodStart   DateTime? @map("current_period_start")
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  cancelAtPeriodEnd    Boolean   @default(false) @map("cancel_at_period_end")
 
   // Relationships
   user    User        @relation("UserHistorySub", fields: [userId], references: [id])
@@ -406,4 +420,36 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+model BillingWebhookEvent {
+  id             String    @id @default(uuid())
+  stripeEventId  String    @unique @map("stripe_event_id")
+  type           String
+  apiVersion     String?   @map("api_version")
+  rawPayload     Json      @map("raw_payload")
+  status         String    @default("RECEIVED") // RECEIVED | PROCESSED | FAILED
+  failureMessage String?   @map("failure_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  @@map("billing_webhook_events")
+}
+
+model BillingCheckoutSession {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  variantId        String    @map("variant_id")
+  stripeSessionId  String    @unique @map("stripe_session_id")
+  stripeCustomerId String    @map("stripe_customer_id")
+  status           String    @default("PENDING") // PENDING | COMPLETED | EXPIRED | FAILED
+  successUrl       String?   @map("success_url")
+  cancelUrl        String?   @map("cancel_url")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  completedAt      DateTime? @map("completed_at")
+
+  user    User        @relation(fields: [userId], references: [id])
+  variant PlanVariant @relation(fields: [variantId], references: [id])
+
+  @@map("billing_checkout_sessions")
 }
