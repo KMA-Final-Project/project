@@ -56,12 +56,24 @@ from src.core.transcript_trust_gate import (
 from src.db import update_media_status
 from src.events import publish_batch_ready, publish_chunk_ready, publish_progress
 from src.minio_client import MinioClient
+from src.core.translation_revision_windowing import (
+    FinalizationWindowBuilder,
+    FinalizationWindowPolicy,
+)
+from src.core.translation_revision_overlay import (
+    OverlayCandidate,
+    TranslationRevisionOverlay,
+)
 from src.schemas import (
     ContextAnalysisResult,
+    SegmentTranslationProvenance,
     Sentence,
     SubtitleMetadata,
     SubtitleOutput,
     TranslatedBatch,
+    TranslationFinalizationMetadata,
+    TranslationRevisionArtifact,
+    TranslationRevisionSegment,
     Word,
 )
 
@@ -1874,6 +1886,151 @@ async def run_v2_pipeline_async(
     if detected_source_lang in {"zh", "yue"}:
         apply_chinese_pinyin(all_sentences)
 
+    # ── Step 5b: Translation finalization (if enabled) ───────────────────
+    finalization_metrics = TranslationFinalizationMetadata(enabled=False)
+    revision_artifacts: list[TranslationRevisionArtifact] = []
+    overlay = TranslationRevisionOverlay()
+
+    finalization_enabled = (
+        settings.AI_ENABLE_LLM_FINALIZATION
+        and detected_source_lang in settings.parse_csv_tokens(settings.AI_LLM_FINALIZATION_LANGS)
+        and detected_source_lang != target_lang
+    )
+
+    if finalization_enabled:
+        finalization_metrics.enabled = True
+        finalization_budget_seconds = min(
+            settings.AI_LLM_FINALIZATION_BUDGET_MAX_SECONDS,
+            max(
+                settings.AI_LLM_FINALIZATION_BUDGET_MIN_SECONDS,
+                duration_seconds * settings.AI_LLM_FINALIZATION_BUDGET_RATIO_SECONDS_PER_MEDIA_SECOND,
+            ),
+        )
+        deadline_monotonic = _time.monotonic() + finalization_budget_seconds
+
+        window_builder = FinalizationWindowBuilder(
+            FinalizationWindowPolicy(
+                min_segment_count=settings.AI_LLM_FINALIZATION_MIN_SEGMENTS,
+                target_segment_count=settings.AI_LLM_FINALIZATION_TARGET_SEGMENTS,
+                max_segment_count=settings.AI_LLM_FINALIZATION_MAX_SEGMENTS,
+                min_source_tokens=settings.AI_LLM_FINALIZATION_MIN_SOURCE_TOKENS,
+                target_source_tokens=settings.AI_LLM_FINALIZATION_TARGET_SOURCE_TOKENS,
+                max_request_tokens=settings.AI_LLM_FINALIZATION_MAX_REQUEST_TOKENS,
+                min_duration_seconds=settings.AI_LLM_FINALIZATION_MIN_DURATION_SECONDS,
+                target_duration_seconds=settings.AI_LLM_FINALIZATION_TARGET_DURATION_SECONDS,
+                max_duration_seconds=settings.AI_LLM_FINALIZATION_MAX_DURATION_SECONDS,
+                overlap_segments=settings.AI_LLM_FINALIZATION_OVERLAP_SEGMENTS,
+                overlap_source_tokens=settings.AI_LLM_FINALIZATION_OVERLAP_SOURCE_TOKENS,
+            )
+        )
+
+        for sentence in all_sentences:
+            window_builder.add(sentence)
+
+        llm = pipeline.llm
+        for window in window_builder.pop_ready_windows(eof=True):
+            if _time.monotonic() >= deadline_monotonic:
+                finalization_metrics.finalization_deadline_hit = True
+                logger.warning("⏰ Translation finalization deadline hit")
+                break
+
+            finalization_metrics.attempted_windows += 1
+
+            try:
+                core_segments = [
+                    {"segment_index": s.segment_index, "text": s.text, "translation": s.translation}
+                    for s in window.core_sentences
+                ]
+                halo_before = [
+                    {"segment_index": s.segment_index, "text": s.text, "translation": s.translation}
+                    for s in window.halo_before_sentences
+                ]
+                halo_after = [
+                    {"segment_index": s.segment_index, "text": s.text, "translation": s.translation}
+                    for s in window.halo_after_sentences
+                ]
+
+                result = llm.finalize_translation_window(
+                    source_language=detected_source_lang,
+                    target_lang=target_lang,
+                    core_segments=core_segments,
+                    halo_before_segments=halo_before,
+                    halo_after_segments=halo_after,
+                    include_nmt_draft=True,
+                )
+
+                if result is not None:
+                    payload_segments = result.get("segments", [])
+                    validation = overlay.validate_response_payload(
+                        expected_indexes=[s.segment_index for s in window.core_sentences],
+                        payload_segments=payload_segments,
+                    )
+
+                    if validation.status in ("valid", "partial"):
+                        finalization_metrics.completed_windows += 1
+
+                        from datetime import datetime, timezone
+
+                        artifact = TranslationRevisionArtifact(
+                            revision_index=window.revision_index,
+                            window_start_segment_index=window.window_start_segment_index,
+                            window_end_segment_index=window.window_end_segment_index,
+                            core_start_segment_index=window.core_start_segment_index,
+                            core_end_segment_index=window.core_end_segment_index,
+                            source_hash=window.source_hash,
+                            provider=settings.AI_LLM_FINALIZATION_PROVIDER,
+                            model=settings.llm_model_for(settings.AI_LLM_FINALIZATION_PROVIDER, "refinement"),
+                            status=validation.status,
+                            validation_score=1.0 if validation.status == "valid" else 0.5,
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                            segments=[TranslationRevisionSegment(**seg) for seg in validation.accepted_segments],
+                        )
+                        revision_artifacts.append(artifact)
+
+                        await asyncio.to_thread(
+                            minio_client.upload_translation_revision, media_id, artifact
+                        )
+
+                        logger.info(
+                            f"✅ Finalization window {window.revision_index}: "
+                            f"{len(validation.accepted_segments)} segments revised"
+                        )
+                    else:
+                        finalization_metrics.invalid_windows += 1
+                        logger.warning(
+                            f"❌ Finalization window {window.revision_index} invalid: "
+                            f"{validation.failure_reason}"
+                        )
+                else:
+                    finalization_metrics.timed_out_windows += 1
+                    logger.warning(f"⏰ Finalization window {window.revision_index} timed out")
+
+            except Exception as e:
+                finalization_metrics.timed_out_windows += 1
+                logger.error(f"❌ Finalization window {window.revision_index} failed: {e}")
+
+        revised_indexes = set()
+        for artifact in revision_artifacts:
+            for seg in artifact.segments:
+                revised_indexes.add(seg.segment_index)
+
+        finalization_metrics.coverage_segments = len(revised_indexes)
+        if all_sentences:
+            revised_duration = sum(
+                s.end - s.start for s in all_sentences if s.segment_index in revised_indexes
+            )
+            finalization_metrics.coverage_duration_seconds = round(revised_duration, 1)
+
+        all_indexes = {s.segment_index for s in all_sentences}
+        fallback_indexes = all_indexes - revised_indexes
+        finalization_metrics.fallback_segments = len(fallback_indexes)
+
+        logger.info(
+            f"📊 Translation finalization: {finalization_metrics.completed_windows} windows completed, "
+            f"{finalization_metrics.coverage_segments} segments covered, "
+            f"{finalization_metrics.fallback_segments} fallback segments"
+        )
+
     progress, step, eta = _reserve_progress(0.98, "EXPORTING")
     update_media_status(
         media_id,
@@ -1965,6 +2122,66 @@ async def run_v2_pipeline_async(
         target_lang=target_lang,
     )
 
+    # Apply revision overlay to build final segments
+    if revision_artifacts:
+        candidates: dict[int, list[OverlayCandidate]] = {}
+        for artifact in revision_artifacts:
+            for seg in artifact.segments:
+                idx = seg.segment_index
+                candidates.setdefault(idx, []).append(
+                    OverlayCandidate(
+                        segment_index=idx,
+                        translation=seg.translation,
+                        revision_index=artifact.revision_index,
+                        in_core=True,
+                        validation_score=artifact.validation_score,
+                    )
+                )
+
+        base_segments = [
+            {
+                "segment_index": s.segment_index,
+                "text": s.text,
+                "translation": s.translation,
+                "start": s.start,
+                "end": s.end,
+            }
+            for s in all_sentences
+        ]
+        merged_segments = overlay.apply_translations(base_segments, candidates)
+
+        for i, merged in enumerate(merged_segments):
+            if i < len(all_sentences):
+                all_sentences[i].translation = merged["translation"]
+
+        segment_provenance = []
+        for s in all_sentences:
+            if s.segment_index in revised_indexes:
+                for artifact in revision_artifacts:
+                    for seg in artifact.segments:
+                        if seg.segment_index == s.segment_index:
+                            segment_provenance.append(
+                                SegmentTranslationProvenance(
+                                    segment_index=s.segment_index,
+                                    source="llm_revision",
+                                    revision_index=artifact.revision_index,
+                                )
+                            )
+                            break
+                    else:
+                        continue
+                    break
+            else:
+                segment_provenance.append(
+                    SegmentTranslationProvenance(
+                        segment_index=s.segment_index,
+                        source="nmt",
+                        revision_index=None,
+                    )
+                )
+
+        finalization_metrics.segment_provenance = segment_provenance
+
     return SubtitleOutput(
         metadata=SubtitleMetadata(
             duration=duration_seconds,
@@ -1972,6 +2189,7 @@ async def run_v2_pipeline_async(
             source_lang=detected_source_lang,
             target_lang=target_lang,
             model_used=model_used,
+            translation_finalization=finalization_metrics,
         ),
         segments=all_sentences,
     )
