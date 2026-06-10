@@ -173,6 +173,7 @@
     "planDurationLine": "Per-file limit: {{duration}}",
     "planCreditsLine": "AI credits: {{credits}}",
     "upgradeAction": "Upgrade",
+    "manageAction": "Manage on website",
     "comingSoonTitle": "Upgrade flow coming soon",
     "comingSoonBody": "Plan comparison is ready, but checkout is not live yet. Upgrades will be available from the website later. For now, contact support if you need a plan change.",
     "contactSupportAction": "Contact support",

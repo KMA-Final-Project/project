@@ -181,6 +181,7 @@
     "planDurationLine": "Giới hạn mỗi tệp: {{duration}}",
     "planCreditsLine": "Lượt AI: {{credits}}",
     "upgradeAction": "Nâng cấp",
+    "manageAction": "Quản lý trên website",
     "comingSoonTitle": "Luồng nâng cấp sắp ra mắt",
     "comingSoonBody": "Phần so sánh gói đã sẵn sàng, nhưng thanh toán chưa hoạt động. Sau này người dùng sẽ nâng cấp qua website. Hiện tại, hãy liên hệ hỗ trợ nếu bạn cần đổi gói.",
     "contactSupportAction": "Liên hệ hỗ trợ",
