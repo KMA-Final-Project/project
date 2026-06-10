@@ -213,7 +213,7 @@ class TranslationFinalizationMetadata(BaseModel):
     fallback_segments: int = 0
     total_cost_usd: float = 0.0
     finalization_deadline_hit: bool = False
-    segment_provenance: List["SegmentTranslationProvenance"] = Field(
+    segment_provenance: List[SegmentTranslationProvenance] = Field(
         default_factory=list
     )
 
