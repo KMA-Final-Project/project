@@ -486,3 +486,15 @@ def test_subtitle_metadata_accepts_finalization_metrics() -> None:
     )
     assert metadata.translation_finalization.coverage_segments == 18
     assert metadata.translation_finalization.segment_provenance[0].source == "llm_revision"
+
+
+# ---------------------------------------------------------------------------
+# Translation revision MinIO key stability
+# ---------------------------------------------------------------------------
+
+
+def test_minio_translation_revision_key_is_stable() -> None:
+    assert (
+        MinioClient.translation_revision_object_key("media-1", 4)
+        == "media-1/translation_revisions/4.json"
+    )
