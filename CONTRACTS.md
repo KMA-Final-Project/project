@@ -686,6 +686,25 @@ Validation: checkoutEnabled=true requires both stripeProductId and stripePriceId
 
 **ConfigService keys:** STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PORTAL_CONFIGURATION_ID, STRIPE_ALLOWED_ORIGINS
 
+### 5.8 Mobile-Web Billing Handoff
+
+**POST /auth/mobile-web-handoff** (authenticated)
+- Request: `{ target: "pricing" | "account-subscription" }`
+- Response: `{ handoffUrl: string, expiresInSeconds: 120 }`
+- Creates one-time UUID token, stores in Redis with TTL 120s
+- Builds URL from `CLIENT_WEB_BASE_URL` config
+
+**POST /auth/mobile-web-handoff/consume** (public)
+- Request: `{ token: string }`
+- Response: standard `AuthResponse` (user + tokens)
+- Consume-once: first successful consume deletes the token, retries fail
+- Rejects expired or already-consumed tokens
+
+**Web handoff flow:**
+- Client-web `/handoff` route consumes token, stores session, redirects to target with `?fromMobile=1`
+- `Return to app` button visible on pricing/account/success/cancel pages when `fromMobile=1`
+- Mobile callback URL: `mobileapp://subscription?refreshBilling=1&context=checkout-success|checkout-cancel|account`
+
 ## 6. Artifact Storage Contract
 
 ### 6.1 Buckets
