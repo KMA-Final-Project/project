@@ -69,14 +69,30 @@ class FinalizationWindowBuilder:
     def _is_ready(self) -> bool:
         segment_count = len(self._buffer)
         token_count = sum(estimate_source_tokens(s.text) for s in self._buffer)
+        duration = self._buffer[-1].end - self._buffer[0].start
+        density = token_count / max(duration, 0.001)
+
         if segment_count >= self.policy.max_segment_count:
             return True
         if token_count >= self.policy.max_request_tokens:
             return True
+
         minimums_met = (
             segment_count >= self.policy.min_segment_count
             and token_count >= self.policy.min_source_tokens
         )
+        if not minimums_met:
+            return False
+
+        if duration >= self.policy.max_duration_seconds:
+            return True
+        if segment_count >= self.policy.target_segment_count:
+            return True
+        if token_count >= self.policy.target_source_tokens:
+            return True
+        if duration >= self.policy.target_duration_seconds and density >= 0.35:
+            return True
+
         return minimums_met
 
     def _build_window(self, is_eof_flush: bool) -> FinalizationWindow:
