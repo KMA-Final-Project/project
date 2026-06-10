@@ -682,3 +682,60 @@ class LLMProvider:
         except Exception as e:
             logger.error(f"refine_batch failed: {e}")
             return None
+
+    def finalize_translation_window(
+        self,
+        *,
+        source_language: str,
+        target_lang: str,
+        core_segments: list[dict],
+        halo_before_segments: list[dict],
+        halo_after_segments: list[dict],
+        include_nmt_draft: bool,
+        timeout_seconds: int,
+    ) -> dict | None:
+        system_prompt = (
+            "You are revising subtitle translations. "
+            "Source language and target language are provided explicitly. "
+            "Halo segments are context only. "
+            "You must return translations only for the expected core segment indexes. "
+            "Do not return text, start, end, words, phonetic, or any rewritten source fields. "
+            'Return strict JSON: {"segments":[{"segment_index":0,"translation":"..."}]}.'
+        )
+        user_payload = {
+            "source_language": source_language,
+            "target_language": target_lang,
+            "expected_core_segment_indexes": [
+                segment["segment_index"] for segment in core_segments
+            ],
+            "halo_before": halo_before_segments,
+            "core_segments": core_segments,
+            "halo_after": halo_after_segments,
+            "include_nmt_draft": include_nmt_draft,
+        }
+        TRANSLATION_FINALIZATION_RESPONSE_SCHEMA = {
+            "type": "object",
+            "properties": {
+                "segments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "segment_index": {"type": "integer"},
+                            "translation": {"type": "string"},
+                        },
+                        "required": ["segment_index", "translation"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["segments"],
+            "additionalProperties": False,
+        }
+        return self.generate(
+            json.dumps(user_payload, ensure_ascii=False),
+            system_prompt=system_prompt,
+            capability="translation_finalization",
+            response_schema=TRANSLATION_FINALIZATION_RESPONSE_SCHEMA,
+            response_schema_name="translation_finalization",
+        )
