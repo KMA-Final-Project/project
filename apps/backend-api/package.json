@@ -28,7 +28,8 @@
     "start:local": "cd ../../infra && docker-compose up -d && cd - && npm run start:dev",
     "clean:env": "tsx scripts/clean-test-env.ts",
     "test:youtube": "tsx scripts/test-youtube-submit.ts",
-    "test:youtube:e2e": "tsx scripts/e2e-youtube-pipeline-eval.ts"
+    "test:youtube:e2e": "tsx scripts/e2e-youtube-pipeline-eval.ts",
+    "test:benchmark": "jest --config scripts/e2e-youtube-benchmark/jest.config.ts"
   },
   "dependencies": {
     "@kapter/contracts": "workspace:*",
