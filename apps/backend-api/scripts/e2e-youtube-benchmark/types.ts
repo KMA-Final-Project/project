@@ -285,3 +285,33 @@ export type BenchmarkOptions = {
   throttleBackoffMs: number;
   timeoutMs: number;
 };
+
+export type TranslationFinalizationMetrics = {
+  enabled: boolean;
+  coverageSegments: number;
+  coverageDurationSeconds: number;
+  attemptedWindows: number;
+  completedWindows: number;
+  timedOutWindows: number;
+  invalidWindows: number;
+  fallbackSegments: number;
+  totalCostUsd: number;
+  finalizationDeadlineHit: boolean;
+};
+
+export type SegmentTranslationProvenance = {
+  segmentIndex: number;
+  source: 'nmt' | 'llm_revision';
+  revisionIndex: number | null;
+};
+
+export type TranslationJudgeResult = {
+  winner: 'nmt' | 'llm_final' | 'tie';
+  scores: {
+    meaning: number;
+    fluency: number;
+    consistency: number;
+    readability: number;
+  };
+  rationale?: string;
+};
