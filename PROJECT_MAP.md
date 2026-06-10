@@ -259,7 +259,58 @@ apps/dashboard/INSTRUCTION.md
 apps/dashboard/CHECKPOINT.md
 ```
 
-### 4.5 Shared TypeScript Packages
+### 4.5 Client-Web
+
+Path:
+
+```text
+apps/client-web
+```
+
+Stack:
+
+- Vite 7
+- React 19
+- React Router 7
+- TanStack Query 5
+- Tailwind CSS v4
+- shadcn/ui
+- react-hook-form + zod
+- react-i18next + i18next
+- axios
+- sonner
+
+Role:
+
+User-facing SPA for acquisition, authentication, checkout, and subscription management. MVP surface — not a full web product app.
+
+Entry points:
+
+```text
+apps/client-web/src/main.tsx
+apps/client-web/src/app/router.tsx
+apps/client-web/src/app/providers.tsx
+```
+
+Key structure:
+
+```text
+apps/client-web/src/app            # providers, router, guards
+apps/client-web/src/features/auth  # login, signup, verify, forgot/reset password
+apps/client-web/src/features/billing # pricing, checkout success/cancel
+apps/client-web/src/features/account # profile, subscription management
+apps/client-web/src/shared/lib     # api-client (axios), api-error, query-client
+apps/client-web/src/i18n           # en/vi translations
+```
+
+Agent docs:
+
+```text
+apps/client-web/INSTRUCTION.md
+apps/client-web/CHECKPOINT.md
+```
+
+### 4.6 Shared TypeScript Packages
 
 Path:
 
