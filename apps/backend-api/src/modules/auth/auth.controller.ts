@@ -25,6 +25,11 @@ import {
   TokensDto,
 } from './dto';
 import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
+import {
+  ForgotPasswordDto,
+  ResendForgotPasswordOtpDto,
+  ResetPasswordDto,
+} from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators';
 
 @ApiTags('auth')
@@ -132,6 +137,50 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async logout(@Body() dto: RefreshTokenDto): Promise<MessageResponseDto> {
     return this.authService.logout(dto.refreshToken);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() req: Request,
+  ): Promise<MessageResponseDto> {
+    const ip = this.getClientIp(req);
+    return this.authService.forgotPassword(dto, ip);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('resend-forgot-password-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend password reset OTP' })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async resendForgotPasswordOtp(
+    @Body() dto: ResendForgotPasswordOtpDto,
+    @Req() req: Request,
+  ): Promise<MessageResponseDto> {
+    const ip = this.getClientIp(req);
+    return this.authService.resendForgotPasswordOtp(dto, ip);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password with OTP' })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<MessageResponseDto> {
+    return this.authService.resetPassword(dto);
   }
 
   private getClientIp(req: Request): string | undefined {
