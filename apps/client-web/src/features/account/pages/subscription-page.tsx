@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card.tsx"
 import { Badge } from "@/components/ui/badge.tsx"
 import { Separator } from "@/components/ui/separator.tsx"
+import { ReturnToApp } from "@/shared/components/return-to-app"
 
 function formatSeconds(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -46,7 +47,10 @@ export function SubscriptionPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">{t("subscription.title")}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">{t("subscription.title")}</h1>
+        <ReturnToApp context="account" />
+      </div>
 
       {isCancelAtPeriodEnd && (
         <div className="rounded-lg border border-yellow-500 bg-yellow-50 p-4 text-sm text-yellow-800 dark:border-yellow-400 dark:bg-yellow-950 dark:text-yellow-200">

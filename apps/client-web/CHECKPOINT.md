@@ -2,13 +2,20 @@
 
 ## Current Status
 
-Landing page and auth pages implemented — full marketing landing page with 5 sections, auth flow complete.
+Mobile-web billing handoff implemented — /handoff route, Return to app button, checkout URL preservation.
 
 ## Active Work
 
 - None currently
 
 ## Recently Completed
+
+- 2026-06-10 — Mobile-web billing handoff. Status: Working.
+  - `/handoff` route: consumes one-time token, stores session, redirects to pricing or subscription with `fromMobile=1`
+  - `ReturnToApp` component: visible on pricing/account/success/cancel pages when `fromMobile=1`
+  - Checkout success/cancel URLs preserve `fromMobile=1`
+  - Contract touchpoints: Auth (handoff consume endpoint). See CONTRACTS.md Section 5.8.
+  - Validation: `pnpm build`, `pnpm lint` pass.
 
 - 2026-06-09 — UI/UX redesign and brand alignment
   - Status: Working

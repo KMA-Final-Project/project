@@ -2,6 +2,7 @@ import { Link } from "react-router"
 import { useTranslation } from "react-i18next"
 import { RiCloseCircleLine } from "@remixicon/react"
 import { Button } from "@/components/ui/button.tsx"
+import { ReturnToApp } from "@/shared/components/return-to-app"
 
 export function BillingCancelPage() {
   const { t } = useTranslation("billing")
@@ -22,6 +23,7 @@ export function BillingCancelPage() {
             {t("cancel.description")}
           </p>
         </div>
+        <ReturnToApp context="checkout-cancel" />
         <div className="flex items-center justify-center gap-3">
           <Button asChild>
             <Link to="/pricing">{t("cancel.backToPricing")}</Link>

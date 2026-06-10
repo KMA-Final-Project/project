@@ -11,6 +11,7 @@ import {
 import { checkoutSessionQuery, billingKeys } from "../billing-queries.ts"
 import { accountKeys } from "@/features/account/account-queries.ts"
 import { Button } from "@/components/ui/button.tsx"
+import { ReturnToApp } from "@/shared/components/return-to-app"
 
 const POLL_INTERVAL = 3_000
 const MAX_POLL_ATTEMPTS = 20 // 20 attempts × 3s = 60s max
@@ -202,6 +203,7 @@ export function BillingSuccessPage() {
             <Link to="/pricing">Back to pricing</Link>
           </Button>
         </div>
+        <ReturnToApp context="checkout-success" />
         <p className="text-sm text-muted-foreground">
           Redirecting in {countdown}s...
         </p>

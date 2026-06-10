@@ -15,6 +15,7 @@ import { AccountPage } from "@/features/account/pages/account-page"
 import { SubscriptionPage } from "@/features/account/pages/subscription-page"
 import { BillingSuccessPage } from "@/features/billing/pages/billing-success-page"
 import { BillingCancelPage } from "@/features/billing/pages/billing-cancel-page"
+import { HandoffPage } from "@/features/auth/pages/handoff-page.tsx"
 import { NotFoundPage } from "@/features/marketing/pages/not-found-page"
 
 const router = createBrowserRouter([
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       { path: "pricing", element: <PricingPage /> },
     ],
   },
+  { path: "/handoff", element: <HandoffPage /> },
   {
     element: <RequireAnonymous />,
     children: [

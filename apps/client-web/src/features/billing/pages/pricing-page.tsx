@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card.tsx"
 import { Badge } from "@/components/ui/badge.tsx"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.tsx"
+import { ReturnToApp } from "@/shared/components/return-to-app"
 import type { BillingCatalogItem } from "@kapter/contracts"
 
 type PlanGroup = {
@@ -155,10 +156,11 @@ export function PricingPage() {
     }
 
     const origin = window.location.origin
+    const mobileSuffix = searchParams.get("fromMobile") === "1" ? "?fromMobile=1" : ""
     const result = await createCheckoutSession(
       variant.variantId,
-      `${origin}/billing/success`,
-      `${origin}/billing/cancel`,
+      `${origin}/billing/success${mobileSuffix}`,
+      `${origin}/billing/cancel${mobileSuffix}`,
     )
     sessionStorage.setItem("pendingCheckoutSessionId", result.sessionId)
     setCheckoutUrl(result.checkoutUrl)
@@ -233,6 +235,7 @@ export function PricingPage() {
           Choose a plan that fits your learning pace or content creation needs.
           Cancel or change plans anytime.
         </p>
+        <ReturnToApp context="account" />
       </div>
 
       <div className="grid gap-8 md:grid-cols-3 items-stretch relative z-10">
