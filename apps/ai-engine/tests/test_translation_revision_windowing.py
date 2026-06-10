@@ -34,10 +34,13 @@ def test_window_waits_for_min_segments_and_tokens() -> None:
     builder.add(make_sentence(0, "ni hao", 0.0, 1.0))
     builder.add(make_sentence(1, "wo shi li lei", 1.0, 2.0))
     assert builder.pop_ready_windows(eof=False) == []
+    # Add enough segments to reach target tokens (12) or target segments (5)
     builder.add(make_sentence(2, "qing wen ni shi shui", 2.0, 4.5))
+    builder.add(make_sentence(3, "wo ye hen hao", 4.5, 6.0))
+    builder.add(make_sentence(4, "xie xie ni", 6.0, 7.5))
     ready = builder.pop_ready_windows(eof=False)
     assert len(ready) == 1
-    assert [segment.segment_index for segment in ready[0].core_sentences] == [0, 1, 2]
+    assert len(ready[0].core_sentences) == 5  # target_segment_count
     assert ready[0].halo_before_sentences == []
 
 

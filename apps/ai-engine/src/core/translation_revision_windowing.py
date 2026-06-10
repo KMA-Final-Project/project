@@ -93,7 +93,7 @@ class FinalizationWindowBuilder:
         if duration >= self.policy.target_duration_seconds and density >= 0.35:
             return True
 
-        return minimums_met
+        return False
 
     def _build_window(self, is_eof_flush: bool) -> FinalizationWindow:
         if is_eof_flush:
