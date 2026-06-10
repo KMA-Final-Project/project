@@ -153,6 +153,11 @@ def _assert_sentence_contract(sentence: dict[str, Any]) -> None:
             "media-123/translated_batches/2.json",
         ),
         ("final_result_object_key", ("media-123",), "media-123/final.json"),
+        (
+            "translation_revision_object_key",
+            ("media-123", 4),
+            "media-123/translation_revisions/4.json",
+        ),
     ],
 )
 def test_minio_path_helpers_freeze_the_canonical_artifact_keys(
@@ -498,3 +503,37 @@ def test_minio_translation_revision_key_is_stable() -> None:
         MinioClient.translation_revision_object_key("media-1", 4)
         == "media-1/translation_revisions/4.json"
     )
+
+
+def test_upload_translation_revision_artifact(
+    minio_double: MinioClient,
+) -> None:
+    artifact = TranslationRevisionArtifact(
+        revision_index=2,
+        window_start_segment_index=10,
+        window_end_segment_index=30,
+        core_start_segment_index=14,
+        core_end_segment_index=26,
+        source_hash="deadbeef",
+        provider="openai",
+        model="gpt-4.1-mini",
+        status="valid",
+        validation_score=0.95,
+        created_at="2026-06-10T12:00:00Z",
+        segments=[
+            TranslationRevisionSegment(segment_index=14, translation="Xin chao"),
+            TranslationRevisionSegment(segment_index=15, translation="The gioi"),
+        ],
+    )
+
+    key, url = minio_double.upload_translation_revision("media-123", artifact)
+    payload = _last_put_json(minio_double)
+
+    assert key == MinioClient.translation_revision_object_key("media-123", 2)
+    assert url.startswith(f"http://fake/{key}")
+    assert payload["revision_index"] == 2
+    assert payload["source_hash"] == "deadbeef"
+    assert payload["status"] == "valid"
+    assert len(payload["segments"]) == 2
+    assert payload["segments"][0] == {"segment_index": 14, "translation": "Xin chao"}
+    assert "text" not in payload["segments"][0]

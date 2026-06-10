@@ -18,7 +18,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from src.config import settings
-from src.schemas import SubtitleOutput, TranslatedBatch
+from src.schemas import SubtitleOutput, TranslatedBatch, TranslationRevisionArtifact
 
 
 class MinioClient:
@@ -256,10 +256,9 @@ class MinioClient:
         return object_key
 
     def upload_translation_revision(
-        self, media_id: str, artifact: "TranslationRevisionArtifact"
+        self, media_id: str, artifact: TranslationRevisionArtifact
     ) -> tuple[str, str]:
         """Upload a translation revision artifact and return (object_key, presigned_url)."""
-        from src.schemas import TranslationRevisionArtifact
 
         object_key = self.translation_revision_object_key(media_id, artifact.revision_index)
         payload = json.dumps(
