@@ -1,6 +1,6 @@
 # AI Engine - Checkpoint
 
-> Last updated: 2026-05-25
+> Last updated: 2026-06-10
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -37,6 +37,14 @@ Deprecated V1 paths must not be reintroduced.
 - [ ] Re-run the next targeted Chinese E2E after the prompt-only rescue pass and verify whether segments like `你好，我是。你是李雷吧？`, `对，是我。第一次见面。`, and `幸会，等很久了吗？` survive through translation cleanly.
 
 ## 3. Recently Completed
+
+- 2026-06-10 — Added translation finalization config settings and Pydantic models.
+  - Status: Working
+  - Changed: Added 23 finalization config fields to `Settings` in `src/config.py` (enable flag, lang filter, segment windowing, budget controls, provider/model selection). Added `TranslationRevisionSegment`, `TranslationRevisionArtifact`, `SegmentTranslationProvenance`, and `TranslationFinalizationMetadata` models to `src/schemas.py`. Extended `SubtitleMetadata` with `translation_finalization` field. Updated `REQUIRED_METADATA_KEYS` in `tests/test_streaming_contracts.py` and added 3 new tests.
+  - Why: Foundation for Task 2-6 of the translation-only cloud-LLM finalization feature. These models and config fields will be used by windowing, overlay, and pipeline integration code.
+  - Contract touched: Artifact
+  - Validation: `venv\Scripts\python.exe -m py_compile src\config.py src\schemas.py tests\test_streaming_contracts.py`; `venv\Scripts\python.exe -m pytest tests\test_streaming_contracts.py -q` (16 passed)
+  - Follow-up: Task 2 — windowing logic that uses these config fields to split segments into LLM-processable windows.
 
 - 2026-06-05 — Added macOS-usable process-tree profiling and validated the Kim vocal-isolation model cache.
   - Status: Working
