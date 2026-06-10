@@ -23,6 +23,9 @@ import {
   AuthResponseDto,
   MessageResponseDto,
   TokensDto,
+  MobileWebHandoffDto,
+  MobileWebHandoffResponseDto,
+  MobileWebHandoffConsumeDto,
 } from './dto';
 import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
 import {
@@ -31,6 +34,7 @@ import {
   ResetPasswordDto,
 } from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -181,6 +185,32 @@ export class AuthController {
     @Body() dto: ResetPasswordDto,
   ): Promise<MessageResponseDto> {
     return this.authService.resetPassword(dto);
+  }
+
+  @ApiBearerAuth()
+  @Post('mobile-web-handoff')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create a one-time handoff URL for mobile-to-web billing',
+  })
+  @ApiResponse({ status: 200, type: MobileWebHandoffResponseDto })
+  async createMobileWebHandoff(
+    @CurrentUser() user: { id: string },
+    @Body() dto: MobileWebHandoffDto,
+  ): Promise<MobileWebHandoffResponseDto> {
+    return this.authService.createMobileWebHandoff(user.id, dto.target);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('mobile-web-handoff/consume')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Consume a one-time mobile-web handoff token' })
+  @ApiResponse({ status: 200, type: AuthResponseDto })
+  async consumeMobileWebHandoff(
+    @Body() dto: MobileWebHandoffConsumeDto,
+  ): Promise<AuthResponseDto> {
+    return this.authService.consumeMobileWebHandoff(dto.token);
   }
 
   private getClientIp(req: Request): string | undefined {

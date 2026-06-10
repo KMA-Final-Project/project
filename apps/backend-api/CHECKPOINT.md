@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-06-09
+> Last updated: 2026-06-10
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -24,6 +24,14 @@ Current completed surfaces:
 - [ ] Wire billing module into AppModule and verify catalog endpoint returns seeded variants.
 
 ## 3. Recently Completed
+
+- 2026-06-10 — Mobile-web billing handoff endpoints. Status: Working.
+  - `POST /auth/mobile-web-handoff`: authenticated, creates one-time UUID token in Redis (TTL 120s), returns handoffUrl.
+  - `POST /auth/mobile-web-handoff/consume`: public, consume-once semantics, returns AuthResponse.
+  - Contract types in packages/contracts/src/auth.ts: MobileWebHandoffRequest, MobileWebHandoffResponse, MobileWebHandoffConsumeRequest.
+  - ConfigService key: CLIENT_WEB_BASE_URL for building handoff URLs.
+  - Contract touched: Auth (new handoff endpoints). See CONTRACTS.md Section 5.8.
+  - Validation: `pnpm build`, `pnpm lint`, `pnpm test` (52/52).
 
 - 2026-06-09 — Stripe billing module (backend-only). Status: Working.
   - Full Stripe billing integration: Checkout, Customer Portal, webhook processing, entitlement sync.

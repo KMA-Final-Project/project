@@ -436,6 +436,59 @@ export class AuthService {
     };
   }
 
+  async createMobileWebHandoff(
+    userId: string,
+    target: 'pricing' | 'account-subscription',
+  ): Promise<{ handoffUrl: string; expiresInSeconds: number }> {
+    const token = randomUUID();
+    const ttl = 120;
+
+    await this.redis.set(
+      `mobile-handoff:${token}`,
+      JSON.stringify({ userId, target }),
+      ttl,
+    );
+
+    const baseUrl = this.configService.getOrThrow<string>(
+      'CLIENT_WEB_BASE_URL',
+    );
+    const handoffUrl = `${baseUrl}/handoff?token=${token}&target=${target}&fromMobile=1`;
+
+    return { handoffUrl, expiresInSeconds: ttl };
+  }
+
+  async consumeMobileWebHandoff(token: string): Promise<AuthResponseDto> {
+    const key = `mobile-handoff:${token}`;
+    const raw = await this.redis.get(key);
+    if (!raw) {
+      throw new UnauthorizedException('Invalid or expired handoff token.');
+    }
+
+    await this.redis.del(key);
+
+    const { userId } = JSON.parse(raw) as { userId: string; target: string };
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found.');
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        emailVerified: user.emailVerified,
+        role: user.role,
+      },
+      tokens,
+    };
+  }
+
   // --- Private Helper Methods ---
 
   private async generateTokens(
