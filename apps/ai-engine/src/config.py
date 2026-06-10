@@ -641,6 +641,29 @@ class Settings(BaseSettings):
             "translated batch delivery and rely on raw NMT output only."
         ),
     )
+    AI_ENABLE_LLM_FINALIZATION: bool = Field(default=False)
+    AI_LLM_FINALIZATION_LANGS: str = Field(default="zh,yue")
+    AI_LLM_FINALIZATION_MIN_SEGMENTS: int = Field(default=12, ge=2)
+    AI_LLM_FINALIZATION_TARGET_SEGMENTS: int = Field(default=24, ge=4)
+    AI_LLM_FINALIZATION_MAX_SEGMENTS: int = Field(default=36, ge=4)
+    AI_LLM_FINALIZATION_MIN_SOURCE_TOKENS: int = Field(default=120, ge=1)
+    AI_LLM_FINALIZATION_TARGET_SOURCE_TOKENS: int = Field(default=260, ge=1)
+    AI_LLM_FINALIZATION_MAX_REQUEST_TOKENS: int = Field(default=1800, ge=128)
+    AI_LLM_FINALIZATION_MIN_DURATION_SECONDS: float = Field(default=20.0, ge=0.0)
+    AI_LLM_FINALIZATION_TARGET_DURATION_SECONDS: float = Field(default=45.0, ge=0.0)
+    AI_LLM_FINALIZATION_MAX_DURATION_SECONDS: float = Field(default=90.0, ge=1.0)
+    AI_LLM_FINALIZATION_OVERLAP_SEGMENTS: int = Field(default=4, ge=0)
+    AI_LLM_FINALIZATION_OVERLAP_SOURCE_TOKENS: int = Field(default=40, ge=0)
+    AI_LLM_FINALIZATION_TIMEOUT_SECONDS: int = Field(default=25, ge=1)
+    AI_LLM_FINALIZATION_MAX_RETRIES: int = Field(default=1, ge=0)
+    AI_LLM_FINALIZATION_MAX_CONCURRENCY: int = Field(default=2, ge=1)
+    AI_LLM_FINALIZATION_BUDGET_RATIO_SECONDS_PER_MEDIA_SECOND: float = Field(default=0.2, ge=0.0)
+    AI_LLM_FINALIZATION_BUDGET_MIN_SECONDS: int = Field(default=20, ge=1)
+    AI_LLM_FINALIZATION_BUDGET_MAX_SECONDS: int = Field(default=120, ge=1)
+    AI_LLM_FINALIZATION_FAIL_OPEN: bool = Field(default=True)
+    AI_LLM_FINALIZATION_PROVIDER: str = Field(default="gemini")
+    AI_LLM_FINALIZATION_MODEL_OPENAI: str = Field(default="gpt-4.1-mini")
+    AI_LLM_FINALIZATION_MODEL_GEMINI: str = Field(default="gemini-2.5-flash")
     DEFAULT_LLM_PROVIDER_FOR_MERGER: str = Field(
         default="gemini",
         description="Primary LLM provider for semantic merge windows: ollama | openai | gemini.",
