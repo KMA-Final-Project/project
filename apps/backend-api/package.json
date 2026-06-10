@@ -19,6 +19,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "test:all": "jest && jest --config scripts/e2e-youtube-benchmark/jest.config.ts",
+    "test:benchmark": "jest --config scripts/e2e-youtube-benchmark/jest.config.ts",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "cross-env NODE_OPTIONS=\"--experimental-vm-modules\" jest --config ./test/jest-e2e.json --runInBand --forceExit",
     "pgen": "prisma generate",
