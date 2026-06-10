@@ -237,6 +237,19 @@ export type CaseSummary = {
     firstSegments: FinalArtifact['segments'];
     firstTranslatedBatchSegments: FinalArtifact['segments'] | null;
   };
+  finalization: {
+    enabled: boolean;
+    coverageSegments: number;
+    coverageDurationSeconds: number;
+    attemptedWindows: number;
+    completedWindows: number;
+    timedOutWindows: number;
+    invalidWindows: number;
+    fallbackSegments: number;
+    totalCostUsd: number;
+    finalizationDeadlineHit: boolean;
+    segmentProvenance: SegmentTranslationProvenance[];
+  } | null;
 };
 
 export type SuiteSummary = {

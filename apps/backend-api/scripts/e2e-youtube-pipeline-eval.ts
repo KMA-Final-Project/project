@@ -21,6 +21,7 @@ import type {
   FinalArtifact,
   MediaArtifactsResponse,
   MilestoneTimings,
+  SegmentTranslationProvenance,
   StatusTimelineEntry,
   SuiteSummary,
   TranslatedBatchArtifact,
@@ -218,6 +219,25 @@ async function runCase(input: {
     completion.elapsedSeconds,
   );
 
+  const finalizationMetrics = (finalArtifact.metadata as Record<string, unknown>).translation_finalization as Record<string, unknown> | undefined ?? null;
+  const finalization = finalizationMetrics ? {
+    enabled: finalizationMetrics.enabled as boolean,
+    coverageSegments: (finalizationMetrics.coverage_segments as number) ?? 0,
+    coverageDurationSeconds: (finalizationMetrics.coverage_duration_seconds as number) ?? 0,
+    attemptedWindows: (finalizationMetrics.attempted_windows as number) ?? 0,
+    completedWindows: (finalizationMetrics.completed_windows as number) ?? 0,
+    timedOutWindows: (finalizationMetrics.timed_out_windows as number) ?? 0,
+    invalidWindows: (finalizationMetrics.invalid_windows as number) ?? 0,
+    fallbackSegments: (finalizationMetrics.fallback_segments as number) ?? 0,
+    totalCostUsd: (finalizationMetrics.total_cost_usd as number) ?? 0,
+    finalizationDeadlineHit: (finalizationMetrics.finalization_deadline_hit as boolean) ?? false,
+    segmentProvenance: ((finalizationMetrics.segment_provenance as Array<Record<string, unknown>> | undefined) ?? []).map((p) => ({
+      segmentIndex: p.segment_index as number,
+      source: p.source as 'nmt' | 'llm_revision',
+      revisionIndex: (p.revision_index as number | null) ?? null,
+    } satisfies SegmentTranslationProvenance)),
+  } : null;
+
   const summary: CaseSummary = {
     caseId: caseDefinition.caseId,
     family: caseDefinition.family,
@@ -274,6 +294,7 @@ async function runCase(input: {
       firstTranslatedBatchSegments:
         firstTranslatedBatchArtifact?.segments.slice(0, 5) ?? null,
     },
+    finalization,
   };
 
   writeJsonFile(paths.evaluationSummaryPath, summary);
