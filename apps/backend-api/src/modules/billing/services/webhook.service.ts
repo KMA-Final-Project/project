@@ -81,7 +81,7 @@ export class WebhookService {
         await this.entitlementSync.handleSubscriptionDeleted(event.data.object);
         break;
       default:
-        this.logger.log(`Unhandled event type: ${event.type}`);
+        this.logger.debug(`Unhandled event type: ${event.type}`);
     }
   }
 

@@ -13,15 +13,23 @@ describe('EntitlementSyncService', () => {
         updateMany: jest.fn(),
       },
     };
+    const stripeService = {
+      client: {
+        subscriptions: {
+          retrieve: jest.fn(),
+        },
+      },
+    };
     const userSubService = { assignDefaultFreePlan: jest.fn() };
-    return { prisma, userSubService };
+    return { prisma, stripeService, userSubService };
   }
 
   describe('handleSubscriptionDeleted', () => {
     it('marks paid sub cancelled and falls back to FREE', async () => {
-      const { prisma, userSubService } = createMocks();
+      const { prisma, stripeService, userSubService } = createMocks();
       const service = new EntitlementSyncService(
         prisma as never,
+        stripeService as never,
         userSubService as never,
       );
 
@@ -44,9 +52,10 @@ describe('EntitlementSyncService', () => {
 
   describe('handlePaymentFailed', () => {
     it('marks subscription past_due', async () => {
-      const { prisma, userSubService } = createMocks();
+      const { prisma, stripeService, userSubService } = createMocks();
       const service = new EntitlementSyncService(
         prisma as never,
+        stripeService as never,
         userSubService as never,
       );
 
@@ -63,7 +72,7 @@ describe('EntitlementSyncService', () => {
 
   describe('handleInvoicePaid', () => {
     it('replenishes AI credits', async () => {
-      const { prisma, userSubService } = createMocks();
+      const { prisma, stripeService, userSubService } = createMocks();
       prisma.subscription.findFirst.mockResolvedValue({
         userId: 'user_2',
         aiCreditsPerMonthSnapshot: 50,
@@ -71,6 +80,7 @@ describe('EntitlementSyncService', () => {
       });
       const service = new EntitlementSyncService(
         prisma as never,
+        stripeService as never,
         userSubService as never,
       );
 

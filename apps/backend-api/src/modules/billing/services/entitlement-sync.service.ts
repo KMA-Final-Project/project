@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { StripeService } from './stripe.service';
 import { UserSubscriptionService } from '../../user/services/user-subscription.service';
 import { SubscriptionStatus } from 'prisma/generated/client';
 
@@ -10,6 +11,7 @@ export class EntitlementSyncService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly stripeService: StripeService,
     private readonly userSubService: UserSubscriptionService,
   ) {}
 
@@ -53,9 +55,13 @@ export class EntitlementSyncService {
         where: { id: currentSub.id },
         data: {
           stripeStatus: stripeSub.status,
-          currentPeriodStart: new Date(stripeSub.current_period_start * 1000),
-          currentPeriodEnd: new Date(stripeSub.current_period_end * 1000),
-          cancelAtPeriodEnd: stripeSub.cancel_at_period_end,
+          currentPeriodStart: this.parseStripeTimestamp(
+            stripeSub.current_period_start,
+          ),
+          currentPeriodEnd: this.parseStripeTimestamp(
+            stripeSub.current_period_end,
+          ),
+          cancelAtPeriodEnd: stripeSub.cancel_at_period_end ?? false,
           status: this.mapStripeStatus(stripeSub.status),
         },
       });
@@ -75,10 +81,33 @@ export class EntitlementSyncService {
     const stripeSubId = invoice.subscription;
     if (!stripeSubId) return;
 
-    const sub = await this.prisma.subscription.findFirst({
+    let sub = await this.prisma.subscription.findFirst({
       where: { stripeSubscriptionId: stripeSubId },
       include: { variant: true },
     });
+
+    // If subscription not found locally, fetch from Stripe and sync
+    // This handles the case where customer.subscription.created was missed
+    if (!sub) {
+      this.logger.warn(
+        `Subscription ${stripeSubId} not found locally for invoice.paid, fetching from Stripe...`,
+      );
+      try {
+        const stripeSub =
+          await this.stripeService.client.subscriptions.retrieve(stripeSubId);
+        await this.syncSubscription(stripeSub);
+        sub = await this.prisma.subscription.findFirst({
+          where: { stripeSubscriptionId: stripeSubId },
+          include: { variant: true },
+        });
+      } catch (err) {
+        this.logger.error(
+          `Failed to fetch subscription ${stripeSubId} from Stripe: ${err}`,
+        );
+        return;
+      }
+    }
+
     if (!sub) return;
 
     // Replenish AI credits
@@ -157,13 +186,19 @@ export class EntitlementSyncService {
       });
     }
 
+    // Safe date parsing with fallbacks
+    const periodStart = this.parseStripeTimestamp(
+      stripeSub.current_period_start,
+    );
+    const periodEnd = this.parseStripeTimestamp(stripeSub.current_period_end);
+
     // Create new paid subscription snapshot
     const subscription = await this.prisma.subscription.create({
       data: {
         userId,
         variantId,
         startDate: now,
-        endDate: new Date(stripeSub.current_period_end * 1000),
+        endDate: periodEnd,
         status: SubscriptionStatus.ACTIVE,
         priceSnapshot: variant.price,
         monthlyQuotaSecondsSnapshot: variant.monthlyQuotaSeconds,
@@ -172,9 +207,9 @@ export class EntitlementSyncService {
         stripeSubscriptionId: stripeSub.id,
         stripePriceId: stripeSub.items?.data?.[0]?.price?.id,
         stripeStatus: stripeSub.status,
-        currentPeriodStart: new Date(stripeSub.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSub.current_period_end * 1000),
-        cancelAtPeriodEnd: stripeSub.cancel_at_period_end,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: stripeSub.cancel_at_period_end ?? false,
       },
     });
 
@@ -206,5 +241,19 @@ export class EntitlementSyncService {
       default:
         return SubscriptionStatus.ACTIVE;
     }
+  }
+
+  /**
+   * Safely parse a Stripe Unix timestamp (seconds) into a Date.
+   * Falls back to 30 days from now if the timestamp is missing or invalid.
+   */
+  private parseStripeTimestamp(timestamp: unknown): Date {
+    if (typeof timestamp === 'number' && !isNaN(timestamp) && timestamp > 0) {
+      return new Date(timestamp * 1000);
+    }
+    // Fallback: 30 days from now
+    const fallback = new Date();
+    fallback.setDate(fallback.getDate() + 30);
+    return fallback;
   }
 }
