@@ -25,6 +25,11 @@ Current completed surfaces:
 
 ## 3. Recently Completed
 
+- 2026-06-10 — Translation-finalization benchmark telemetry. Status: Working.
+  - Changed: E2E benchmark now reports finalization timing, coverage, fallback, cost, and judge-based NMT-vs-final translation deltas.
+  - Why: translation quality must be measured separately from transcript WER.
+  - Contract touched: none. Internal benchmark harness only.
+
 - 2026-06-10 — Mobile-web billing handoff endpoints. Status: Working.
   - `POST /auth/mobile-web-handoff`: authenticated, creates one-time UUID token in Redis (TTL 120s), returns handoffUrl.
   - `POST /auth/mobile-web-handoff/consume`: public, consume-once semantics, returns AuthResponse.

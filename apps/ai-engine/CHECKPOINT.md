@@ -38,6 +38,12 @@ Deprecated V1 paths must not be reintroduced.
 
 ## 3. Recently Completed
 
+- 2026-06-10 — Translation-finalization phase 1. Status: Working.
+  - Changed: Added hybrid window-based cloud LLM finalization writing `translation_revisions/` and overlaying valid translations into `final.json`.
+  - Why: improve final subtitle quality while keeping NMT latency artifacts unchanged.
+  - Contract touched: Artifact | Language
+  - Validation: `venv\Scripts\python.exe -m pytest tests/test_translation_revision_windowing.py tests/test_translation_revision_overlay.py tests/test_translation_finalization_budgeting.py tests/test_streaming_contracts.py tests/test_event_discipline.py -q`
+
 - 2026-06-10 — Added translation finalization config settings and Pydantic models.
   - Status: Working
   - Changed: Added 23 finalization config fields to `Settings` in `src/config.py` (enable flag, lang filter, segment windowing, budget controls, provider/model selection). Added `TranslationRevisionSegment`, `TranslationRevisionArtifact`, `SegmentTranslationProvenance`, and `TranslationFinalizationMetadata` models to `src/schemas.py`. Extended `SubtitleMetadata` with `translation_finalization` field. Updated `REQUIRED_METADATA_KEYS` in `tests/test_streaming_contracts.py` and added 3 new tests.

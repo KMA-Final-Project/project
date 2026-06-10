@@ -805,6 +805,13 @@ Rules:
 - `words` are the renderable karaoke and lookup tokens, not a guarantee of raw ASR character granularity. Chinese-family output may group consecutive character-level timings into multi-character lexical words while preserving token order and using `start=first_child.start`, `end=last_child.end`.
 - The mobile app depends on `start`, `end`, `text`, `translation`, `phonetic`, and `words` for bilingual/karaoke rendering.
 
+### 6.6 Translation Revisions (Phase 1 - Internal)
+
+- Internal additive artifact family: `processed/{mediaId}/translation_revisions/`
+- Phase 1 rule: backend/mobile do not consume `translation_revisions/` directly.
+- Phase 1 invariant: LLM may revise `translation` only; source text, timestamps, words, punctuation, segment indexes, and segmentation remain NMT-owned.
+- `final.json` remains canonical and may include additive `metadata.translation_finalization`, including per-segment provenance used by benchmark/debug tooling.
+
 ## 7. MinIO URL Contract
 
 - Client-facing artifact URLs must be signed with the MinIO client configured for `MINIO_PUBLIC_ENDPOINT`.
