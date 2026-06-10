@@ -1,0 +1,5 @@
+{
+  "pricing": { "title": "Chọn gói của bạn", "monthly": "Hàng tháng", "yearly": "Hàng năm", "currentPlan": "Gói hiện tại", "upgrade": "Nâng cấp", "manage": "Quản lý", "free": "Miễn phí", "perMonth": "/tháng", "perYear": "/năm", "faq": "Câu hỏi thường gặp" },
+  "success": { "title": "Thanh toán thành công!", "description": "Gói đăng ký của bạn đã được kích hoạt.", "goToAccount": "Đến tài khoản" },
+  "cancel": { "title": "Thanh toán đã hủy", "description": "Thanh toán của bạn chưa hoàn tất. Không có khoản phí nào được tính.", "backToPricing": "Quay lại bảng giá" }
+}

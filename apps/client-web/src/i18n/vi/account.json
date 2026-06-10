@@ -1,0 +1,25 @@
+{
+  "profile": { "title": "Hồ sơ", "email": "Email", "name": "Tên", "role": "Vai trò" },
+  "subscription": {
+    "title": "Gói đăng ký",
+    "currentPlan": "Gói hiện tại",
+    "status": "Trạng thái",
+    "period": "Kỳ hiện tại",
+    "aiCredits": "Tín dụng AI",
+    "quota": "Hạn mức hàng tháng",
+    "manage": "Quản lý gói",
+    "upgrade": "Nâng cấp gói",
+    "noPlan": "Chưa có gói",
+    "free": "Miễn phí",
+    "creditsRemaining": "{{remaining}} / {{included}} còn lại",
+    "quotaUsed": "{{used}} / {{total}} đã dùng",
+    "unlimited": "Không giới hạn",
+    "cancelWarning": "Gói đăng ký của bạn sẽ bị hủy vào cuối kỳ hiện tại.",
+    "state": {
+      "active": "Đang hoạt động",
+      "past_due": "Quá hạn",
+      "cancel_at_period_end": "Hủy vào cuối kỳ",
+      "inactive": "Không hoạt động"
+    }
+  }
+}

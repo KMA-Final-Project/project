@@ -1,0 +1,12 @@
+{
+  "brand": "Kapter",
+  "nav": { "pricing": "Pricing", "login": "Log in", "signup": "Sign up", "account": "Account" },
+  "footer": { "copyright": "© 2026 Kapter. All rights reserved.", "privacy": "Privacy", "terms": "Terms" },
+  "theme": { "light": "Light", "dark": "Dark" },
+  "language": { "en": "English", "vi": "Tiếng Việt" },
+  "errors": {
+    "unknownError": "An unexpected error occurred",
+    "networkError": "Network error. Please check your connection.",
+    "sessionExpired": "Session expired. Please log in again."
+  }
+}

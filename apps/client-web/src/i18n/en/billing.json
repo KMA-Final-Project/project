@@ -1,0 +1,5 @@
+{
+  "pricing": { "title": "Choose your plan", "monthly": "Monthly", "yearly": "Yearly", "currentPlan": "Current plan", "upgrade": "Upgrade", "manage": "Manage", "free": "Free", "perMonth": "/month", "perYear": "/year", "faq": "Frequently asked questions" },
+  "success": { "title": "Payment successful!", "description": "Your subscription is now active.", "goToAccount": "Go to account" },
+  "cancel": { "title": "Payment cancelled", "description": "Your payment was not completed. No charges were made.", "backToPricing": "Back to pricing" }
+}

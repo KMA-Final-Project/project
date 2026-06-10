@@ -1,0 +1,7 @@
+{
+  "hero": { "title": "Phụ đề song ngữ, hoàn hảo", "subtitle": "Phiên âm và dịch thuật chính xác cao với thời gian cấp từ cho việc tiêu thụ media và sáng tạo nội dung.", "cta": "Bắt đầu miễn phí" },
+  "proofStrip": { "wordTiming": "Thời gian cấp từ", "bilingual": "Phụ đề song ngữ", "aiPowered": "Giải thích bằng AI", "quotaAware": "SaaS quản lý hạn ngạch" },
+  "howItWorks": { "title": "Cách hoạt động", "step1": "Tải lên media của bạn", "step2": "Nhận phụ đề song ngữ", "step3": "Học với AI" },
+  "features": { "title": "Tại sao chọn Kapter?", "transcription": { "title": "Phiên âm chính xác", "description": "Thời gian karaoke cấp từ cho việc học phụ đề nhập vai." }, "translation": { "title": "Dịch song ngữ", "description": "Phụ đề song ngữ bên cạnh ngôn ngữ mục tiêu của bạn." }, "ai": { "title": "AI thông minh", "description": "Giải thích thông minh và xây dựng từ vựng." } },
+  "cta": { "title": "Sẵn sàng bắt đầu?", "subtitle": "Tạo tài khoản miễn phí và bắt đầu học với phụ đề song ngữ ngay hôm nay.", "button": "Bắt đầu miễn phí" }
+}

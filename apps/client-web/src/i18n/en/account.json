@@ -1,0 +1,25 @@
+{
+  "profile": { "title": "Profile", "email": "Email", "name": "Name", "role": "Role" },
+  "subscription": {
+    "title": "Subscription",
+    "currentPlan": "Current plan",
+    "status": "Status",
+    "period": "Current period",
+    "aiCredits": "AI credits",
+    "quota": "Monthly quota",
+    "manage": "Manage subscription",
+    "upgrade": "Upgrade plan",
+    "noPlan": "No active plan",
+    "free": "Free",
+    "creditsRemaining": "{{remaining}} / {{included}} remaining",
+    "quotaUsed": "{{used}} / {{total}} used",
+    "unlimited": "Unlimited",
+    "cancelWarning": "Your subscription will be cancelled at the end of the current period.",
+    "state": {
+      "active": "Active",
+      "past_due": "Past due",
+      "cancel_at_period_end": "Cancels at period end",
+      "inactive": "Inactive"
+    }
+  }
+}
