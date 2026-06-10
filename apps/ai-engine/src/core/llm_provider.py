@@ -692,7 +692,6 @@ class LLMProvider:
         halo_before_segments: list[dict],
         halo_after_segments: list[dict],
         include_nmt_draft: bool,
-        timeout_seconds: int,
     ) -> dict | None:
         system_prompt = (
             "You are revising subtitle translations. "

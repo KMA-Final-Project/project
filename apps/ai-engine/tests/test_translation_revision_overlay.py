@@ -68,6 +68,39 @@ def test_validation_rejects_segment_index_mutation() -> None:
     assert result.failure_reason == "segment_index_mismatch"
 
 
+def test_validation_accepts_valid_payload() -> None:
+    overlay = TranslationRevisionOverlay()
+    result = overlay.validate_response_payload(
+        expected_indexes=[10, 11],
+        payload_segments=[
+            {"segment_index": 10, "translation": "xin chao"},
+            {"segment_index": 11, "translation": "toi la lee"},
+        ],
+    )
+    assert result.status == "valid"
+    assert result.failure_reason is None
+    assert result.accepted_segments == [
+        {"segment_index": 10, "translation": "xin chao"},
+        {"segment_index": 11, "translation": "toi la lee"},
+    ]
+
+
+def test_validation_returns_partial_when_some_translations_empty() -> None:
+    overlay = TranslationRevisionOverlay()
+    result = overlay.validate_response_payload(
+        expected_indexes=[10, 11],
+        payload_segments=[
+            {"segment_index": 10, "translation": "xin chao"},
+            {"segment_index": 11, "translation": ""},
+        ],
+    )
+    assert result.status == "partial"
+    assert result.failure_reason is None
+    assert result.accepted_segments == [
+        {"segment_index": 10, "translation": "xin chao"},
+    ]
+
+
 def test_media_deadline_exports_partial_revision_coverage() -> None:
     overlay = TranslationRevisionOverlay()
     final_segments = overlay.apply_translations(

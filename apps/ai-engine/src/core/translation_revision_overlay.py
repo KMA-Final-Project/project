@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
+_DISALLOWED_FIELDS = frozenset({"text", "start", "end", "words", "phonetic", "detected_lang"})
+
 
 @dataclass(frozen=True, slots=True)
 class OverlayCandidate:
@@ -53,8 +55,7 @@ class TranslationRevisionOverlay:
                 failure_reason="segment_count_mismatch",
             )
         for expected, item in zip(expected_indexes, payload_segments):
-            disallowed = {"text", "start", "end", "words", "phonetic", "detected_lang"}
-            leaked_fields = disallowed.intersection(item.keys())
+            leaked_fields = _DISALLOWED_FIELDS.intersection(item.keys())
             if leaked_fields:
                 return ValidationResult(
                     status="invalid",
