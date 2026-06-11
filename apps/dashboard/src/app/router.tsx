@@ -8,6 +8,7 @@ import { LoginPage } from "@/features/auth/pages/login-page.tsx"
 import { AiExplainPage } from "@/features/ai-explain/pages/ai-explain-page.tsx"
 import { MonitoringFailuresPage } from "@/features/monitoring/pages/monitoring-failures-page.tsx"
 import { MonitoringQueuesPage } from "@/features/monitoring/pages/monitoring-queues-page.tsx"
+import { MonitoringTranslationFinalizationPage } from "@/features/monitoring/pages/monitoring-translation-finalization-page.tsx"
 import { OverviewPage } from "@/features/overview/pages/overview-page.tsx"
 import { PlansPage } from "@/features/plans/pages/plans-page.tsx"
 import { PlanDetailPage } from "@/features/plans/pages/plan-detail-page.tsx"
@@ -68,6 +69,10 @@ const router = createBrowserRouter([
           {
             path: "/monitoring/queues",
             element: <MonitoringQueuesPage />,
+          },
+          {
+            path: "/monitoring/translation-finalization",
+            element: <MonitoringTranslationFinalizationPage />,
           },
           {
             path: "/monitoring/failures",

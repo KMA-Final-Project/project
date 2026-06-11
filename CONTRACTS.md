@@ -571,6 +571,110 @@ Source-specific behavior:
 - **MEDIA**: queries durable `media_items` where `status = FAILED` and `deletedAt = null`, joins user email, filters in SQL, sorts newest first
 - **QUEUE**: enumerates retained BullMQ failed jobs (`queue.getFailed()`), maps payload fields, filters/sorts in memory, then paginates. Queue failures are a sliding window (currently 500 per queue), not durable history.
 
+#### GET /admin/monitoring/translation-finalization/summary
+
+Returns bounded translation-finalization telemetry aggregated from recent completed media and `final.json.metadata.translation_finalization`.
+
+Query params:
+
+- `period`: `"7d" | "30d"` (default `7d`)
+- `sourceLanguage?`
+- `targetLanguage?`
+- `provider?`
+- `profile?`
+
+Response shape:
+
+```ts
+{
+  period: "7d" | "30d";
+  generatedAt: string;
+  totals: {
+    completedMedia: number;
+    finalizedMedia: number;
+    finalizationEnabledMedia: number;
+    totalCostUsd: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
+    totalCoverageSegments: number;
+    totalFallbackSegments: number;
+    deadlineHitMedia: number;
+    failedWindowMedia: number;
+  };
+  averages: {
+    costPerMediaUsd: number;
+    costPerMediaMinuteUsd: number;
+    tokensPerMedia: number;
+    coverageRate: number;
+    fallbackRate: number;
+    averageWindowSuccessRate: number;
+  };
+  breakdowns: {
+    byProvider: Array<{ provider: string; mediaCount: number; totalCostUsd: number; totalTokens: number }>;
+    byProfile: Array<{ profile: string; mediaCount: number; totalCostUsd: number; averageCoverageRate: number }>;
+    byRoute: Array<{ sourceLanguage: string; targetLanguage: string; mediaCount: number; totalCostUsd: number; averageCoverageRate: number }>;
+    dailyUsage: Array<{ date: string; mediaCount: number; totalCostUsd: number; totalTokens: number; deadlineHits: number }>;
+  };
+}
+```
+
+Rules:
+
+- Bounded admin-only observability surface; phase 1 reads live finalization metadata from `final.json` instead of a dedicated database rollup.
+- Missing or unreadable finalization metadata must fail open: skip the item, do not fail the entire response.
+- This endpoint does not change mobile or runtime AI-engine behavior.
+
+#### GET /admin/monitoring/translation-finalization/media
+
+Returns a paginated recent-media drill-down dataset for translation finalization.
+
+Query params:
+
+- `period`: `"7d" | "30d"` (default `7d`)
+- `page`, `limit`
+- `sourceLanguage?`
+- `targetLanguage?`
+- `provider?`
+- `profile?`
+- `health?`: `"all" | "healthy" | "fallback" | "deadline_hit" | "failed_windows"`
+
+Response shape:
+
+```ts
+{
+  page: number;
+  limit: number;
+  total: number;
+  data: Array<{
+    mediaId: string;
+    title: string;
+    userEmail: string;
+    sourceLanguage: string;
+    targetLanguage: string;
+    durationSeconds: number;
+    completedAt: string;
+    provider: string;
+    model: string;
+    profile: string;
+    coverageSegments: number;
+    fallbackSegments: number;
+    attemptedWindows: number;
+    completedWindows: number;
+    failedWindows: number;
+    timedOutWindows: number;
+    invalidWindows: number;
+    deadlineHit: boolean;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    llmRevisedSegments: number;
+    nmtFallbackSegments: number;
+  }>;
+}
+```
+
 Dashboard auth behavior:
 
 - Dashboard reuses `POST /auth/refresh` for token rotation
@@ -810,7 +914,7 @@ Rules:
 - Internal additive artifact family: `processed/{mediaId}/translation_revisions/`
 - Phase 1 rule: backend/mobile do not consume `translation_revisions/` directly.
 - Phase 1 invariant: LLM may revise `translation` only; source text, timestamps, words, punctuation, segment indexes, and segmentation remain NMT-owned.
-- `final.json` remains canonical and may include additive `metadata.translation_finalization`, including per-segment provenance used by benchmark/debug tooling.
+- `final.json` remains canonical and may include additive `metadata.translation_finalization`, including per-segment provenance, selected finalization profile, provider/model, and aggregate token/cost metadata used by benchmark/debug tooling.
 
 ## 7. MinIO URL Contract
 
@@ -1026,6 +1130,7 @@ Rules:
 - Mobile keeps translation enabled by default.
 - Mobile may auto-disable translation only when subtitle metadata shows source language and target language are the same.
 - AI Engine owns source transcription, target translation, phonetic enrichment, and final bilingual artifact generation.
+- Translation finalization, when enabled, is an AI-engine-owned final `translation` overlay stage that may run on all routes while preserving `translated_batches/` as the progressive latency layer and `final.json` as the canonical completed artifact.
 
 ## 13. Validation Matrix
 

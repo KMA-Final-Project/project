@@ -32,7 +32,9 @@ describe('AuthService - Mobile Web Handoff', () => {
       const result = await service.createMobileWebHandoff('user-1', 'pricing');
 
       expect(result.expiresInSeconds).toBe(120);
-      expect(result.handoffUrl).toContain('http://localhost:5173/handoff?token=');
+      expect(result.handoffUrl).toContain(
+        'http://localhost:5173/handoff?token=',
+      );
       expect(result.handoffUrl).toContain('target=pricing');
       expect(result.handoffUrl).toContain('fromMobile=1');
       expect(redis.set).toHaveBeenCalledWith(
@@ -148,9 +150,9 @@ describe('AuthService - Mobile Web Handoff', () => {
 
       // Second consume should fail (token already deleted)
       redis.get.mockResolvedValue(null);
-      await expect(
-        service.consumeMobileWebHandoff('token-1'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.consumeMobileWebHandoff('token-1')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 });

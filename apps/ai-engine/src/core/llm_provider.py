@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 import ollama
@@ -72,6 +73,15 @@ ANALYSIS_RESPONSE_SCHEMA = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class FinalizationLLMResult:
+    payload: dict[str, Any]
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
 class LLMProvider:
     """
     Capability-aware LLM wrapper with remote providers and Ollama fallback.
@@ -101,6 +111,8 @@ class LLMProvider:
         if capability_name == "analysis":
             return 0.2
         if capability_name == "refinement":
+            return 0.2
+        if capability_name == "translation_finalization":
             return 0.2
         return 0.1
 
@@ -252,7 +264,9 @@ class LLMProvider:
         response_schema: dict[str, Any] | None,
         response_schema_name: str | None,
         unwrap_key: str | None,
-    ) -> str:
+        *,
+        return_metadata: bool = False,
+    ) -> str | tuple[str, dict[str, Any]]:
         client = self._load_openai_client()
         messages: list[dict[str, str]] = []
         if system_prompt:
@@ -276,7 +290,17 @@ class LLMProvider:
 
         completion = client.chat.completions.create(**kwargs)
         text = self._coerce_response_text(completion.choices[0].message.content)
-        return self._maybe_unwrap_json(text, unwrap_key)
+        result = self._maybe_unwrap_json(text, unwrap_key)
+        if not return_metadata:
+            return result
+        usage = getattr(completion, "usage", None)
+        metadata = {
+            "model": getattr(completion, "model", None),
+            "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+        }
+        return result, metadata
 
     def _generate_with_gemini(
         self,
@@ -285,7 +309,9 @@ class LLMProvider:
         system_prompt: str | None,
         response_schema: dict[str, Any] | None,
         unwrap_key: str | None,
-    ) -> str:
+        *,
+        return_metadata: bool = False,
+    ) -> str | tuple[str, dict[str, Any]]:
         client = self._load_gemini_client()
         config: dict[str, Any] = {
             "temperature": self._temperature_for(capability),
@@ -302,7 +328,17 @@ class LLMProvider:
             config=config,
         )
         text = self._coerce_response_text(response.text)
-        return self._maybe_unwrap_json(text, unwrap_key)
+        result = self._maybe_unwrap_json(text, unwrap_key)
+        if not return_metadata:
+            return result
+        usage = getattr(response, "usage_metadata", None)
+        metadata = {
+            "model": self._provider_model("gemini", capability),
+            "prompt_tokens": int(getattr(usage, "prompt_token_count", 0) or 0),
+            "completion_tokens": int(getattr(usage, "candidates_token_count", 0) or 0),
+            "total_tokens": int(getattr(usage, "total_token_count", 0) or 0),
+        }
+        return result, metadata
 
     def _generate_with_provider(
         self,
@@ -313,7 +349,9 @@ class LLMProvider:
         response_schema: dict[str, Any] | None,
         response_schema_name: str | None,
         unwrap_key: str | None,
-    ) -> str:
+        *,
+        return_metadata: bool = False,
+    ) -> str | tuple[str, dict[str, Any]]:
         provider_name = self._normalize_provider(provider)
         if provider_name == "ollama":
             return self._generate_with_ollama(
@@ -322,6 +360,7 @@ class LLMProvider:
                 system_prompt,
                 response_schema,
                 unwrap_key,
+                return_metadata=return_metadata,
             )
         if provider_name == "openai":
             return self._generate_with_openai(
@@ -331,6 +370,7 @@ class LLMProvider:
                 response_schema,
                 response_schema_name,
                 unwrap_key,
+                return_metadata=return_metadata,
             )
         return self._generate_with_gemini(
             capability,
@@ -338,6 +378,7 @@ class LLMProvider:
             system_prompt,
             response_schema,
             unwrap_key,
+            return_metadata=return_metadata,
         )
 
     def analyze_context(
@@ -518,7 +559,11 @@ class LLMProvider:
                 unwrap,
             )
         except Exception as e:
-            if primary_provider != "ollama" and settings.LLM_REMOTE_TO_OLLAMA_FALLBACK:
+            if (
+                capability_name != "translation_finalization"
+                and primary_provider != "ollama"
+                and settings.LLM_REMOTE_TO_OLLAMA_FALLBACK
+            ):
                 logger.warning(
                     "{} via {} failed, retrying with Ollama fallback: {}",
                     capability_name,
@@ -536,6 +581,19 @@ class LLMProvider:
                 )
             logger.error(f"LLM Generation Failed: {e}")
             raise e
+
+    def _parse_json_object(self, content: str) -> dict[str, Any]:
+        cleaned = self._strip_markdown_fences(content)
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if not match:
+                raise ValueError("LLM output was not valid JSON object")
+            parsed = json.loads(match.group(0))
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM output was not a JSON object")
+        return parsed
 
     def generate_ollama_structured(
         self,
@@ -692,7 +750,7 @@ class LLMProvider:
         halo_before_segments: list[dict],
         halo_after_segments: list[dict],
         include_nmt_draft: bool,
-    ) -> dict | None:
+    ) -> FinalizationLLMResult | None:
         system_prompt = (
             "You are revising subtitle translations. "
             "Source language and target language are provided explicitly. "
@@ -731,10 +789,21 @@ class LLMProvider:
             "required": ["segments"],
             "additionalProperties": False,
         }
-        return self.generate(
+        provider = settings.llm_provider_for("translation_finalization")
+        raw, metadata = self._generate_with_provider(
+            provider,
+            "translation_finalization",
             json.dumps(user_payload, ensure_ascii=False),
-            system_prompt=system_prompt,
-            capability="translation_finalization",
-            response_schema=TRANSLATION_FINALIZATION_RESPONSE_SCHEMA,
-            response_schema_name="translation_finalization",
+            system_prompt,
+            TRANSLATION_FINALIZATION_RESPONSE_SCHEMA,
+            "translation_finalization",
+            None,
+            return_metadata=True,
+        )
+        return FinalizationLLMResult(
+            payload=self._parse_json_object(raw),
+            model=str(metadata.get("model") or settings.llm_model_for(provider, "translation_finalization")),
+            prompt_tokens=int(metadata.get("prompt_tokens", 0) or 0),
+            completion_tokens=int(metadata.get("completion_tokens", 0) or 0),
+            total_tokens=int(metadata.get("total_tokens", 0) or 0),
         )

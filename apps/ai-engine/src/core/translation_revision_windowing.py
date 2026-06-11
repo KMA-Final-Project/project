@@ -63,6 +63,10 @@ class FinalizationWindowBuilder:
         if not eof and not self._is_ready():
             return []
         window = self._build_window(is_eof_flush=eof)
+        if window is None:
+            if eof:
+                self._buffer = []
+            return []
         self._trim_buffer(window, drain=eof)
         return [window]
 
@@ -95,7 +99,7 @@ class FinalizationWindowBuilder:
 
         return False
 
-    def _build_window(self, is_eof_flush: bool) -> FinalizationWindow:
+    def _build_window(self, is_eof_flush: bool) -> FinalizationWindow | None:
         if is_eof_flush:
             sentences = list(self._buffer)
         else:
@@ -109,6 +113,8 @@ class FinalizationWindowBuilder:
         )
         core_end_offset = core_start_offset + core_count
         core_sentences = sentences[core_start_offset:core_end_offset]
+        if not core_sentences:
+            return None
         halo_after = [] if is_eof_flush else sentences[core_end_offset:]
         token_count = sum(estimate_source_tokens(s.text) for s in core_sentences)
         source_hash = sha256(

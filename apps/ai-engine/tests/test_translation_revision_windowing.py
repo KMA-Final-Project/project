@@ -155,3 +155,31 @@ def test_eof_flushes_incomplete_tail() -> None:
     assert ready[0].is_eof_flush is True
     assert builder.pop_ready_windows(eof=True) == []
     assert builder.is_empty() is True
+
+
+def test_eof_ignores_overlap_only_tail_after_full_core_coverage() -> None:
+    policy = FinalizationWindowPolicy(
+        min_segment_count=3,
+        target_segment_count=4,
+        max_segment_count=6,
+        min_source_tokens=6,
+        target_source_tokens=10,
+        max_request_tokens=50,
+        min_duration_seconds=4.0,
+        target_duration_seconds=10.0,
+        max_duration_seconds=30.0,
+        overlap_segments=1,
+        overlap_source_tokens=4,
+    )
+    builder = FinalizationWindowBuilder(policy)
+    for i in range(8):
+        builder.add(make_sentence(i, "a b c", float(i), float(i) + 0.7))
+
+    first = builder.pop_ready_windows(eof=False)
+    second = builder.pop_ready_windows(eof=False)
+    assert len(first) == 1
+    assert len(second) == 1
+
+    eof_ready = builder.pop_ready_windows(eof=True)
+    assert eof_ready == []
+    assert builder.is_empty() is True

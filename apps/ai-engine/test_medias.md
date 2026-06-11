@@ -13,13 +13,13 @@
 
 # Chinese
 
-- "https://www.youtube.com/watch?v=kUzay3X1maA"
+- "https://www.youtube.com/watch?v=_4GSI4J-GuA"
 - "https://www.youtube.com/watch?v=60xeAEe7H28"
 - "https://www.youtube.com/watch?v=LcUoiBwG-OA"
 - "https://www.youtube.com/watch?v=nSeVUZDzCUY"
-- "https://www.youtube.com/watch?v=SM7KMMQQ9yE"
+- "https://www.youtube.com/watch?v=-MTOd9V0VPU"
 - "https://www.youtube.com/watch?v=Y9_-pAk3Iag"
 - "https://www.youtube.com/watch?v=WA18WJmXZZE"
 - "https://www.youtube.com/watch?v=FqqK8hQzPgM"
-- "https://www.youtube.com/watch?v=iKzN26XbOnI"
+- "https://www.youtube.com/watch?v=8sn3YzhnprM"
 - "https://www.youtube.com/watch?v=GOjlcDYurP0"

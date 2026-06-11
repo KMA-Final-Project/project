@@ -53,6 +53,10 @@ import {
   AdminMonitoringQueueOverviewDto,
   AdminMonitoringFailuresQueryDto,
   AdminMonitoringFailuresResponseDto,
+  AdminTranslationFinalizationSummaryQueryDto,
+  AdminTranslationFinalizationSummaryResponseDto,
+  AdminTranslationFinalizationMediaQueryDto,
+  AdminTranslationFinalizationMediaListResponseDto,
 } from './dto/monitoring.dto';
 import { ErrorResponseDto } from 'src/common/dto';
 
@@ -150,6 +154,32 @@ export class AdminController {
     @Query() query: AdminMonitoringFailuresQueryDto,
   ): Promise<AdminMonitoringFailuresResponseDto> {
     return this.monitoringAdminService.getFailures(query);
+  }
+
+  @Get('monitoring/translation-finalization/summary')
+  @ApiOperation({ summary: 'Translation finalization usage and cost summary' })
+  @ApiResponse({
+    status: 200,
+    type: AdminTranslationFinalizationSummaryResponseDto,
+  })
+  async getTranslationFinalizationSummary(
+    @Query() query: AdminTranslationFinalizationSummaryQueryDto,
+  ): Promise<AdminTranslationFinalizationSummaryResponseDto> {
+    return this.monitoringAdminService.getTranslationFinalizationSummary(query);
+  }
+
+  @Get('monitoring/translation-finalization/media')
+  @ApiOperation({
+    summary: 'Paginated recent media with translation finalization telemetry',
+  })
+  @ApiResponse({
+    status: 200,
+    type: AdminTranslationFinalizationMediaListResponseDto,
+  })
+  async getTranslationFinalizationMedia(
+    @Query() query: AdminTranslationFinalizationMediaQueryDto,
+  ): Promise<AdminTranslationFinalizationMediaListResponseDto> {
+    return this.monitoringAdminService.getTranslationFinalizationMedia(query);
   }
 
   // ==================== PLANS ====================

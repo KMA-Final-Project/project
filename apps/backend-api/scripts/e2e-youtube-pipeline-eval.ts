@@ -222,13 +222,20 @@ async function runCase(input: {
   const finalizationMetrics = (finalArtifact.metadata as Record<string, unknown>).translation_finalization as Record<string, unknown> | undefined ?? null;
   const finalization = finalizationMetrics ? {
     enabled: finalizationMetrics.enabled as boolean,
+    appliedProfile: (finalizationMetrics.applied_profile as string) ?? '',
+    provider: (finalizationMetrics.provider as string) ?? '',
+    model: (finalizationMetrics.model as string) ?? '',
     coverageSegments: (finalizationMetrics.coverage_segments as number) ?? 0,
     coverageDurationSeconds: (finalizationMetrics.coverage_duration_seconds as number) ?? 0,
     attemptedWindows: (finalizationMetrics.attempted_windows as number) ?? 0,
     completedWindows: (finalizationMetrics.completed_windows as number) ?? 0,
     timedOutWindows: (finalizationMetrics.timed_out_windows as number) ?? 0,
     invalidWindows: (finalizationMetrics.invalid_windows as number) ?? 0,
+    failedWindows: (finalizationMetrics.failed_windows as number) ?? 0,
     fallbackSegments: (finalizationMetrics.fallback_segments as number) ?? 0,
+    totalPromptTokens: (finalizationMetrics.total_prompt_tokens as number) ?? 0,
+    totalCompletionTokens: (finalizationMetrics.total_completion_tokens as number) ?? 0,
+    totalTokens: (finalizationMetrics.total_tokens as number) ?? 0,
     totalCostUsd: (finalizationMetrics.total_cost_usd as number) ?? 0,
     finalizationDeadlineHit: (finalizationMetrics.finalization_deadline_hit as boolean) ?? false,
     segmentProvenance: ((finalizationMetrics.segment_provenance as Array<Record<string, unknown>> | undefined) ?? []).map((p) => ({

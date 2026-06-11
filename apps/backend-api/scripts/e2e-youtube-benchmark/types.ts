@@ -239,13 +239,20 @@ export type CaseSummary = {
   };
   finalization: {
     enabled: boolean;
+    appliedProfile: string;
+    provider: string;
+    model: string;
     coverageSegments: number;
     coverageDurationSeconds: number;
     attemptedWindows: number;
     completedWindows: number;
     timedOutWindows: number;
     invalidWindows: number;
+    failedWindows: number;
     fallbackSegments: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
     totalCostUsd: number;
     finalizationDeadlineHit: boolean;
     segmentProvenance: SegmentTranslationProvenance[];
@@ -301,13 +308,20 @@ export type BenchmarkOptions = {
 
 export type TranslationFinalizationMetrics = {
   enabled: boolean;
+  appliedProfile: string;
+  provider: string;
+  model: string;
   coverageSegments: number;
   coverageDurationSeconds: number;
   attemptedWindows: number;
   completedWindows: number;
   timedOutWindows: number;
   invalidWindows: number;
+  failedWindows: number;
   fallbackSegments: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
   totalCostUsd: number;
   finalizationDeadlineHit: boolean;
 };

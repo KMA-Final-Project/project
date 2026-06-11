@@ -1,6 +1,6 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-06-10
+> Last updated: 2026-06-11
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -25,10 +25,26 @@ Current completed surfaces:
 
 ## 3. Recently Completed
 
-- 2026-06-10 — Translation-finalization benchmark telemetry. Status: Working.
-  - Changed: E2E benchmark now reports finalization timing, coverage, fallback, cost, and judge-based NMT-vs-final translation deltas.
-  - Why: translation quality must be measured separately from transcript WER.
+- 2026-06-11 — Translation-finalization admin monitoring endpoints. Status: Working.
+  - Changed: Added `GET /admin/monitoring/translation-finalization/summary` and `GET /admin/monitoring/translation-finalization/media`, extending the existing admin monitoring surface with bounded usage/cost/coverage/fallback telemetry aggregated from recent completed media plus `final.json.metadata.translation_finalization`.
+  - Why: translation finalization is now viable enough for guarded MVP rollout, but operators still lacked visibility into OpenAI spend, profile/route usage, fallback behavior, and deadline-hit cases across the app.
+  - Contract touched: API (new admin monitoring endpoints), TypeScript compile-time subtitle contract (`translation_finalization` metadata now modeled in `@kapter/contracts`).
+  - Validation: `pnpm --filter @kapter/contracts build`; `pnpm --filter backend-api test -- monitoring-admin.service.spec.ts`; `pnpm --filter backend-api build`.
+  - Follow-up: if live MinIO aggregation becomes too slow at larger scale, persist a database summary snapshot rather than widening the query window.
+
+- 2026-06-11 — All-routes translation-finalization benchmark metadata alignment. Status: Working.
+  - Changed: Extended the E2E benchmark summary mapping/types so additive `translation_finalization` metadata now includes applied profile, provider/model, prompt/completion/total token counts, total cost, and the existing coverage/fallback/provenance fields.
+  - Why: the AI-engine finalization rollout now runs on all routes and records real OpenAI cost metadata, so the benchmark evidence needed to surface those fields without changing any app-facing runtime contract.
   - Contract touched: none. Internal benchmark harness only.
+  - Validation: `pnpm build`; `pnpm test:benchmark`; local OpenAI-backed E2E bundles under `outputs/e2e-benchmarks/runs/verify-all-routes-finalization-rollout-english/` and `outputs/e2e-benchmarks/runs/verify-all-routes-finalization-rollout-chinese/`.
+  - Follow-up: the benchmark still does not score translation quality deltas; this slice only improves rollout observability and cost visibility.
+
+- 2026-06-11 — Translation-finalization benchmark telemetry aligned with live OpenAI E2E verification. Status: Working.
+  - Changed: Corrected the benchmark summary typing/mapping so `evaluation.summary.json` now carries finalization failure counts alongside the existing timing, coverage, fallback, deadline, and provenance fields exposed from `final.json`.
+  - Why: the new translation-finalization verification path needed benchmark evidence that distinguishes successful LLM coverage from failed-window fallback, and the previous checkpoint wording overstated the current harness as if judge-based translation deltas were already implemented.
+  - Contract touched: none. Internal benchmark harness only.
+  - Validation: `pnpm build`; `pnpm test:benchmark`; paired with the local OpenAI-backed E2E smoke rerun saved at `outputs/e2e-benchmarks/runs/verify-translation-finalization-openai-fix2/`.
+  - Follow-up: the benchmark still measures transcript WER, not translation quality; judge-based NMT-vs-final translation evaluation and provider cost accounting remain future work.
 
 - 2026-06-10 — Mobile-web billing handoff endpoints. Status: Working.
   - `POST /auth/mobile-web-handoff`: authenticated, creates one-time UUID token in Redis (TTL 120s), returns handoffUrl.
