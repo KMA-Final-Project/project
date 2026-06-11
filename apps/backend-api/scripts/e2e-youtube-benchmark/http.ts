@@ -173,9 +173,11 @@ export function createApiClient(baseUrl: string): ApiClient {
         }
 
         if (status.status === 'FAILED') {
-          throw new Error(
-            `Media processing failed: ${status.failReason ?? 'Unknown error'}`,
-          );
+          return {
+            status,
+            timeline,
+            elapsedSeconds: round((Date.now() - submitStartedAtMs) / 1000, 3),
+          };
         }
       } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 429) {

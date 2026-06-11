@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@custom-variant dark (& .dark);
+
+/* ── Light mode ─────────────────────────────────────────── */
+:root {
+  /* Brand colors */
+  --brand-blue: 207 75% 53%;       /* #3090E0 */
+  --brand-cyan: 177 52% 46%;       /* #38B0A8 */
+  --brand-green: 147 50% 47%;      /* #3CB371 */
+
+  --background: 210 40% 98%;       /* Soft ice-blue-white */
+  --foreground: 222 47% 11%;       /* Dark slate body text */
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  
+  --primary: var(--brand-blue);
+  --primary-foreground: 0 0% 100%;
+  --secondary: var(--brand-cyan);
+  --secondary-foreground: 0 0% 100%;
+  --accent: var(--brand-green);
+  --accent-foreground: 0 0% 100%;
+  
+  --muted: 210 15% 95%;
+  --muted-foreground: 218 11% 45%;
+  --destructive: 0 84% 60%;
+  --border: 214 20% 90%;
+  --ring: var(--brand-blue);
+  --radius: 1rem;                  /* 16px - softer premium radius */
+}
+
+/* ── Dark mode ──────────────────────────────────────────── */
+.dark {
+  --background: 222 47% 4%;        /* Deep midnight blue-black */
+  --foreground: 210 20% 98%;       /* Near white */
+  --card: 222 47% 6%;              /* Midnight card background */
+  --card-foreground: 210 20% 98%;
+  
+  --primary: var(--brand-blue);
+  --primary-foreground: 0 0% 100%;
+  --secondary: var(--brand-cyan);
+  --secondary-foreground: 0 0% 100%;
+  --accent: var(--brand-green);
+  --accent-foreground: 0 0% 100%;
+  
+  --muted: 222 30% 10%;
+  --muted-foreground: 218 11% 65%;
+  --destructive: 0 62% 50%;
+  --border: 222 30% 12%;
+  --ring: var(--brand-blue);
+}
+
+/* ── Tailwind v4 theme tokens ──────────────────────────── */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
+
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Outfit", var(--font-sans), sans-serif;
+
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+/* ── Base layer ─────────────────────────────────────────── */
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* ── Custom Utilities ────────────────────────────────────── */
+@utility glass-card {
+  background-color: rgba(var(--card) / 0.65);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(var(--border) / 0.15);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite linear;
+}
+

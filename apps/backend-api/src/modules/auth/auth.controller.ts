@@ -23,9 +23,18 @@ import {
   AuthResponseDto,
   MessageResponseDto,
   TokensDto,
+  MobileWebHandoffDto,
+  MobileWebHandoffResponseDto,
+  MobileWebHandoffConsumeDto,
 } from './dto';
 import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
+import {
+  ForgotPasswordDto,
+  ResendForgotPasswordOtpDto,
+  ResetPasswordDto,
+} from './dto/forgot-password.dto';
 import { Public } from '../../common/decorators';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -132,6 +141,76 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async logout(@Body() dto: RefreshTokenDto): Promise<MessageResponseDto> {
     return this.authService.logout(dto.refreshToken);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() req: Request,
+  ): Promise<MessageResponseDto> {
+    const ip = this.getClientIp(req);
+    return this.authService.forgotPassword(dto, ip);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('resend-forgot-password-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend password reset OTP' })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async resendForgotPasswordOtp(
+    @Body() dto: ResendForgotPasswordOtpDto,
+    @Req() req: Request,
+  ): Promise<MessageResponseDto> {
+    const ip = this.getClientIp(req);
+    return this.authService.resendForgotPasswordOtp(dto, ip);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password with OTP' })
+  @ApiResponse({ status: 200, type: MessageResponseDto })
+  @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<MessageResponseDto> {
+    return this.authService.resetPassword(dto);
+  }
+
+  @ApiBearerAuth()
+  @Post('mobile-web-handoff')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Create a one-time handoff URL for mobile-to-web billing',
+  })
+  @ApiResponse({ status: 200, type: MobileWebHandoffResponseDto })
+  async createMobileWebHandoff(
+    @CurrentUser() user: { id: string },
+    @Body() dto: MobileWebHandoffDto,
+  ): Promise<MobileWebHandoffResponseDto> {
+    return this.authService.createMobileWebHandoff(user.id, dto.target);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('mobile-web-handoff/consume')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Consume a one-time mobile-web handoff token' })
+  @ApiResponse({ status: 200, type: AuthResponseDto })
+  async consumeMobileWebHandoff(
+    @Body() dto: MobileWebHandoffConsumeDto,
+  ): Promise<AuthResponseDto> {
+    return this.authService.consumeMobileWebHandoff(dto.token);
   }
 
   private getClientIp(req: Request): string | undefined {

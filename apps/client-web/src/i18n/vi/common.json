@@ -1,0 +1,12 @@
+{
+  "brand": "Kapter",
+  "nav": { "pricing": "Bảng giá", "login": "Đăng nhập", "signup": "Đăng ký", "account": "Tài khoản" },
+  "footer": { "copyright": "© 2026 Kapter. Mọi quyền được bảo lưu.", "privacy": "Chính sách", "terms": "Điều khoản" },
+  "theme": { "light": "Sáng", "dark": "Tối" },
+  "language": { "en": "English", "vi": "Tiếng Việt" },
+  "errors": {
+    "unknownError": "Đã xảy ra lỗi không mong muốn",
+    "networkError": "Lỗi mạng. Vui lòng kiểm tra kết nối.",
+    "sessionExpired": "Phiên đã hết hạn. Vui lòng đăng nhập lại."
+  }
+}

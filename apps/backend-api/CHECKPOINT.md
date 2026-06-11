@@ -1,11 +1,11 @@
 # Backend API - Checkpoint
 
-> Last updated: 2026-06-08
+> Last updated: 2026-06-11
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
 
-Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E WER suite that exercises the real app-facing submit path through API, validation worker, AI queue handoff, status polling, artifact retrieval, manual-caption ground-truth harvesting through `yt-dlp`, and word/token-level WER reporting.
+Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E WER suite plus a Chapter 3 post-processing exporter that turns a saved app-path benchmark run into thesis-ready JSON/CSV/Markdown evidence.
 
 The module owns authentication, subscription/quota enforcement, media APIs, presigned upload negotiation, MinIO integration, BullMQ job production, and the NestJS validation worker. It does not perform transcription or translation; validated jobs are handed off to the AI Engine through the `ai-processing` queue.
 
@@ -21,8 +21,76 @@ Current completed surfaces:
 ## 2. Active Work
 
 - [ ] Manually verify Kapter Explain SSE and admin metrics against local Redis/MinIO/provider credentials.
+- [ ] Wire billing module into AppModule and verify catalog endpoint returns seeded variants.
 
 ## 3. Recently Completed
+
+- 2026-06-11 — Chapter 3 benchmark evidence exporter and failed-case benchmark hardening. Status: Working.
+  - Changed: Added `scripts/export-chapter3-benchmark.ts` plus `scripts/e2e-youtube-benchmark/chapter3-export.ts`, which read an existing E2E run bundle and emit `docs/experiments/chapter3_results.json`, per-case/per-metric CSVs, a thesis-facing report, and an evidence index. Added whitespace-insensitive CER export, final-artifact timestamp/completeness checks, manual translation review sheet generation, and README usage instructions in `docs/experiments/README.md`. Also hardened the E2E evaluator so failed statuses no longer immediately abort polling and saved case bundles can persist timeline/artifact evidence even when `final.json` is unavailable. The exporter now labels timing metrics as polling-observed, emits `chapter3_policy_metrics.csv` when AI-engine route lines are present in saved logs, tolerates BOM-prefixed PowerShell JSON manifests, and reads both `ai-engine.log` and `ai-engine.err.log` for route metadata. The PowerShell runner can now record/pass `-PollMs` into the evaluator and safely splits documented comma-delimited `-CaseIds` values.
+  - Why: Chapter 3 needs benchmark evidence that is directly reusable in the thesis, preserves failures, and quantifies progressive artifacts, completeness, and transcript quality beyond the older WER-only summary.
+  - Contract touched: none. Internal benchmark/export tooling only.
+  - Validation: `pnpm test:benchmark`; `pnpm build`; `pnpm export:chapter3 -- --run-dir ..\..\outputs\e2e-benchmarks\runs\full-20260527-chinese-fix-rerun3 --out-dir ..\..\docs\experiments`.
+  - Follow-up: timing remains polling-observed rather than event-timestamped, and trust-stage / trust-decision policy details are still unavailable unless future E2E evidence records them explicitly.
+
+- 2026-06-11 — Translation-finalization admin monitoring endpoints. Status: Working.
+  - Changed: Added `GET /admin/monitoring/translation-finalization/summary` and `GET /admin/monitoring/translation-finalization/media`, extending the existing admin monitoring surface with bounded usage/cost/coverage/fallback telemetry aggregated from recent completed media plus `final.json.metadata.translation_finalization`.
+  - Why: translation finalization is now viable enough for guarded MVP rollout, but operators still lacked visibility into OpenAI spend, profile/route usage, fallback behavior, and deadline-hit cases across the app.
+  - Contract touched: API (new admin monitoring endpoints), TypeScript compile-time subtitle contract (`translation_finalization` metadata now modeled in `@kapter/contracts`).
+  - Validation: `pnpm --filter @kapter/contracts build`; `pnpm --filter backend-api test -- monitoring-admin.service.spec.ts`; `pnpm --filter backend-api build`.
+  - Follow-up: if live MinIO aggregation becomes too slow at larger scale, persist a database summary snapshot rather than widening the query window.
+
+- 2026-06-11 — All-routes translation-finalization benchmark metadata alignment. Status: Working.
+  - Changed: Extended the E2E benchmark summary mapping/types so additive `translation_finalization` metadata now includes applied profile, provider/model, prompt/completion/total token counts, total cost, and the existing coverage/fallback/provenance fields.
+  - Why: the AI-engine finalization rollout now runs on all routes and records real OpenAI cost metadata, so the benchmark evidence needed to surface those fields without changing any app-facing runtime contract.
+  - Contract touched: none. Internal benchmark harness only.
+  - Validation: `pnpm build`; `pnpm test:benchmark`; local OpenAI-backed E2E bundles under `outputs/e2e-benchmarks/runs/verify-all-routes-finalization-rollout-english/` and `outputs/e2e-benchmarks/runs/verify-all-routes-finalization-rollout-chinese/`.
+  - Follow-up: the benchmark still does not score translation quality deltas; this slice only improves rollout observability and cost visibility.
+
+- 2026-06-11 — Translation-finalization benchmark telemetry aligned with live OpenAI E2E verification. Status: Working.
+  - Changed: Corrected the benchmark summary typing/mapping so `evaluation.summary.json` now carries finalization failure counts alongside the existing timing, coverage, fallback, deadline, and provenance fields exposed from `final.json`.
+  - Why: the new translation-finalization verification path needed benchmark evidence that distinguishes successful LLM coverage from failed-window fallback, and the previous checkpoint wording overstated the current harness as if judge-based translation deltas were already implemented.
+  - Contract touched: none. Internal benchmark harness only.
+  - Validation: `pnpm build`; `pnpm test:benchmark`; paired with the local OpenAI-backed E2E smoke rerun saved at `outputs/e2e-benchmarks/runs/verify-translation-finalization-openai-fix2/`.
+  - Follow-up: the benchmark still measures transcript WER, not translation quality; judge-based NMT-vs-final translation evaluation and provider cost accounting remain future work.
+
+- 2026-06-10 — Mobile-web billing handoff endpoints. Status: Working.
+  - `POST /auth/mobile-web-handoff`: authenticated, creates one-time UUID token in Redis (TTL 120s), returns handoffUrl.
+  - `POST /auth/mobile-web-handoff/consume`: public, consume-once semantics, returns AuthResponse.
+  - Contract types in packages/contracts/src/auth.ts: MobileWebHandoffRequest, MobileWebHandoffResponse, MobileWebHandoffConsumeRequest.
+  - ConfigService key: CLIENT_WEB_BASE_URL for building handoff URLs.
+  - Contract touched: Auth (new handoff endpoints). See CONTRACTS.md Section 5.8.
+  - Validation: `pnpm build`, `pnpm lint`, `pnpm test` (52/52).
+
+- 2026-06-09 — Stripe billing module (backend-only). Status: Working.
+  - Full Stripe billing integration: Checkout, Customer Portal, webhook processing, entitlement sync.
+  - New BillingModule with 5 services: StripeService, CatalogService, CheckoutService, WebhookService, EntitlementSyncService.
+  - New BillingController (authenticated) + WebhookController (public, Stripe signature verified).
+  - Endpoints: GET /billing/catalog (public), GET /billing/status, POST /billing/checkout-session, GET /billing/checkout-sessions/:sessionId, POST /billing/customer-portal-session, POST /billing/webhooks/stripe.
+  - Prisma: BillingWebhookEvent, BillingCheckoutSession models. User extended with stripeCustomerId. Subscription extended with Stripe tracking fields. PlanVariant extended with checkoutEnabled/stripeProductId/stripePriceId.
+  - Entitlement sync: FREE→paid creates snapshot, same variant renewal updates existing, variant change creates new snapshot, paid→end falls back to FREE. AI credits replenished on invoice.paid.
+  - Admin variant billing config: checkoutEnabled, stripeProductId, stripePriceId on variant create/update.
+  - Bootstrap: rawBody: true for Stripe webhook signature verification.
+  - Contract types in packages/contracts/src/billing.ts.
+  - Unit tests: 52 passing (8 new billing tests: catalog filtering, webhook idempotency, entitlement sync).
+  - Contract touched: API (new billing endpoints), Prisma (new models + extended models). See CONTRACTS.md Section 5.7.
+  - Validation: `pnpm build`, `pnpm lint`, `pnpm test` all pass.
+
+- 2026-06-09 — EntitlementSyncService for Stripe webhook lifecycle. Status: Working.
+  - Implemented `syncSubscription`: upserts Stripe state, creates new snapshot on variant change, updates existing on renewal.
+  - Implemented `handleInvoicePaid`: replenishes `aiCreditsRemaining` from variant or snapshot.
+  - Implemented `handlePaymentFailed`: marks subscription `past_due`, keeps entitlements active.
+  - Implemented `handleSubscriptionDeleted`: ends paid subscription, calls `assignDefaultFreePlan` for FREE fallback.
+  - Uses `any` for Stripe types to avoid namespace import issues with stripe v22.
+  - Uses `SubscriptionStatus` enum from Prisma for all status fields.
+  - Contract touched: Billing module internal service, no API endpoint changes.
+  - Validation: `pnpm --filter backend-api build` passed.
+
+- 2026-06-09 — Public billing catalog endpoint. Status: Working.
+  - Implemented `CatalogService.getCatalog()` querying active, checkoutEnabled, mapped, non-FREE, non-LIFETIME PlanVariants.
+  - Added `GET /billing/catalog` public endpoint to `BillingController` with `@Public()` decorator.
+  - Returns `BillingCatalogItem[]` with planCode, planName, variantId, variantName, price, currency, billingCycleType, and quota/limit fields.
+  - Contract touched: API (new public billing endpoint).
+  - Validation: `pnpm --filter backend-api build` passed.
 
 - 2026-06-08 — Plan detail metrics and user role management. Status: Working.
   - Enhanced `GET /admin/plans/:id` returns `AdminPlanDetail` with per-variant subscription metrics (activeCurrentSubscribers, historicalSubscriptions).
@@ -281,6 +349,7 @@ Current completed surfaces:
 
 Stable documented endpoints:
 
+- `GET /billing/catalog` (public, no auth)
 - `POST /media/presigned-url`
 - `POST /media/confirm-upload`
 - `POST /media/youtube`
@@ -356,6 +425,8 @@ pnpm pmigrate:dev <name>
 
 Last verified:
 
+- 2026-06-09 — `pnpm --filter backend-api build` passed after implementing EntitlementSyncService.
+- 2026-06-09 — `pnpm --filter backend-api build` passed after implementing CatalogService and BillingController.
 - 2026-05-21 — `cd apps/backend-api && pnpm build` passed after adding the evaluator script.
 - 2026-05-21 — `.\scripts\run-e2e-youtube-pipeline.ps1` completed and produced a full local run bundle under `outputs/e2e-youtube-pipeline/20260521_113334/`.
 

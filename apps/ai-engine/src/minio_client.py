@@ -18,7 +18,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from src.config import settings
-from src.schemas import SubtitleOutput, TranslatedBatch
+from src.schemas import SubtitleOutput, TranslatedBatch, TranslationRevisionArtifact
 
 
 class MinioClient:
@@ -38,6 +38,11 @@ class MinioClient:
     def final_result_object_key(media_id: str) -> str:
         """Return the canonical final artifact key for a completed subtitle output."""
         return f"{media_id}/final.json"
+
+    @staticmethod
+    def translation_revision_object_key(media_id: str, revision_index: int) -> str:
+        """Return the canonical artifact key for a translation revision upload."""
+        return f"{media_id}/translation_revisions/{revision_index}.json"
 
     def __init__(self):
         self.client = self._build_internal_client()
@@ -249,3 +254,15 @@ class MinioClient:
 
         self._put_processed_object(object_key, json_bytes, "application/json")
         return object_key
+
+    def upload_translation_revision(
+        self, media_id: str, artifact: TranslationRevisionArtifact
+    ) -> tuple[str, str]:
+        """Upload a translation revision artifact and return (object_key, presigned_url)."""
+
+        object_key = self.translation_revision_object_key(media_id, artifact.revision_index)
+        payload = json.dumps(
+            artifact.model_dump(), ensure_ascii=False, indent=2
+        ).encode("utf-8")
+        self._put_processed_object(object_key, payload, "application/json")
+        return object_key, self.get_presigned_url(object_key)

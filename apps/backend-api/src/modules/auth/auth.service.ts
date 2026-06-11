@@ -23,6 +23,11 @@ import {
   TokensDto,
 } from './dto';
 import { ResendRegistrationOtpDto } from './dto/resend-registration-otp.dto';
+import {
+  ForgotPasswordDto,
+  ResendForgotPasswordOtpDto,
+  ResetPasswordDto,
+} from './dto/forgot-password.dto';
 import { AUTH_ERRORS } from 'src/common/constants/error-messages';
 import { OtpType } from 'prisma/generated/client';
 import { Role } from 'prisma/generated/client';
@@ -335,6 +340,155 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
+  /**
+   * Request password reset OTP.
+   * Always returns a generic message to prevent email enumeration.
+   */
+
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for future IP-based rate limiting
+    ip?: string,
+  ): Promise<{ message: string }> {
+    const email = dto.email.toLowerCase().trim();
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (user) {
+      const otp = await this.otpService.createOtp(
+        email,
+        OtpType.FORGOT_PASSWORD,
+      );
+      await this.mail.sendOtp(email, otp, OtpType.FORGOT_PASSWORD);
+    }
+
+    return {
+      message:
+        'If an account exists with this email, a password reset OTP has been sent.',
+    };
+  }
+
+  /**
+   * Resend password reset OTP with cooldown/rate limiting.
+   * Always returns a generic message to prevent email enumeration.
+   */
+  async resendForgotPasswordOtp(
+    dto: ResendForgotPasswordOtpDto,
+    ip?: string,
+  ): Promise<{ message: string }> {
+    const email = dto.email.toLowerCase().trim();
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (user) {
+      await this.enforceForgotPasswordRateLimits(email, ip);
+
+      const otp = await this.otpService.createOtp(
+        email,
+        OtpType.FORGOT_PASSWORD,
+      );
+      await this.mail.sendOtp(email, otp, OtpType.FORGOT_PASSWORD);
+    }
+
+    return {
+      message: 'If an account exists, a new OTP has been sent.',
+    };
+  }
+
+  /**
+   * Reset password using OTP verification.
+   * Invalidates all existing refresh tokens for the user.
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const email = dto.email.toLowerCase().trim();
+
+    const isValid = await this.otpService.verifyOtp(
+      email,
+      dto.otp,
+      OtpType.FORGOT_PASSWORD,
+    );
+
+    if (!isValid) {
+      throw new BadRequestException(AUTH_ERRORS.OTP_INVALID);
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      throw new BadRequestException(AUTH_ERRORS.OTP_INVALID);
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+
+    // Invalidate all sessions
+    await this.prisma.refreshToken.deleteMany({
+      where: { userId: user.id },
+    });
+
+    return {
+      message:
+        'Password reset successfully. Please log in with your new password.',
+    };
+  }
+
+  async createMobileWebHandoff(
+    userId: string,
+    target: 'pricing' | 'account-subscription',
+  ): Promise<{ handoffUrl: string; expiresInSeconds: number }> {
+    const token = randomUUID();
+    const ttl = 120;
+
+    await this.redis.set(
+      `mobile-handoff:${token}`,
+      JSON.stringify({ userId, target }),
+      ttl,
+    );
+
+    const baseUrl = this.configService.getOrThrow<string>(
+      'CLIENT_WEB_BASE_URL',
+    );
+    const handoffUrl = `${baseUrl}/handoff?token=${token}&target=${target}&fromMobile=1`;
+
+    return { handoffUrl, expiresInSeconds: ttl };
+  }
+
+  async consumeMobileWebHandoff(token: string): Promise<AuthResponseDto> {
+    const key = `mobile-handoff:${token}`;
+    const raw = await this.redis.get(key);
+    if (!raw) {
+      throw new UnauthorizedException('Invalid or expired handoff token.');
+    }
+
+    await this.redis.del(key);
+
+    const { userId } = JSON.parse(raw) as { userId: string; target: string };
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found.');
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        emailVerified: user.emailVerified,
+        role: user.role,
+      },
+      tokens,
+    };
+  }
+
   // --- Private Helper Methods ---
 
   private async generateTokens(
@@ -453,6 +607,60 @@ export class AuthService {
       if (ipCount > maxPerIp) {
         throw new HttpException(
           `${AUTH_ERRORS.OTP_RESEND_LIMIT_REACHED}`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
+    await this.redis.set(cooldownKey, '1', cooldownSeconds);
+  }
+
+  private async enforceForgotPasswordRateLimits(email: string, ip?: string) {
+    const ttlSeconds = this.configService.getOrThrow<number>(
+      'REGISTRATION_TTL_SECONDS',
+    );
+    const cooldownSeconds = Number(
+      this.configService.get<string>('REGISTRATION_RESEND_COOLDOWN_SECONDS') ??
+        30,
+    );
+    const maxPerTtl = Number(
+      this.configService.get<string>('REGISTRATION_RESEND_MAX_PER_TTL') ?? 5,
+    );
+    const maxPerIp = Number(
+      this.configService.get<string>('REGISTRATION_RESEND_MAX_PER_IP') ?? 10,
+    );
+
+    const cooldownKey = `fp:resend:cooldown:${email}`;
+    const inCooldown = await this.redis.exists(cooldownKey);
+    if (inCooldown) {
+      throw new HttpException(
+        `${AUTH_ERRORS.PASSWORD_RESET_COOLDOWN}`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const countKey = `fp:resend:count:${email}`;
+    const count = await this.redis.incr(countKey);
+    if (count === 1) {
+      await this.redis.expire(countKey, ttlSeconds);
+    }
+    if (count > maxPerTtl) {
+      throw new HttpException(
+        `${AUTH_ERRORS.PASSWORD_RESET_LIMIT_REACHED}`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (ip) {
+      const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 16);
+      const ipCountKey = `fp:resend:ip:${email}:${ipHash}`;
+      const ipCount = await this.redis.incr(ipCountKey);
+      if (ipCount === 1) {
+        await this.redis.expire(ipCountKey, ttlSeconds);
+      }
+      if (ipCount > maxPerIp) {
+        throw new HttpException(
+          `${AUTH_ERRORS.PASSWORD_RESET_LIMIT_REACHED}`,
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }

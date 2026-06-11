@@ -13,6 +13,7 @@ param(
     [string[]]$CaseIds = @(),
     [string]$TargetLanguage = "vi",
     [string]$OutputDir = "",
+    [int]$PollMs = 0,
     [switch]$KeepProcesses
 )
 
@@ -41,6 +42,20 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 } elseif (-not [System.IO.Path]::IsPathRooted($OutputDir)) {
     $OutputDir = Join-Path $repoRoot $OutputDir
 }
+
+$normalizedCaseIds = @()
+foreach ($caseId in $CaseIds) {
+    if ([string]::IsNullOrWhiteSpace($caseId)) {
+        continue
+    }
+    foreach ($part in $caseId.Split(',', [System.StringSplitOptions]::RemoveEmptyEntries)) {
+        $trimmed = $part.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+            $normalizedCaseIds += $trimmed
+        }
+    }
+}
+$CaseIds = $normalizedCaseIds
 
 $logsDir = Join-Path $OutputDir "logs"
 $resultsDir = Join-Path $OutputDir "results"
@@ -176,6 +191,9 @@ try {
                 $evalArgs += @("--case-id", $caseId)
             }
         }
+        if ($PollMs -gt 0) {
+            $evalArgs += @("--poll-ms", "$PollMs")
+        }
 
         & pnpm @evalArgs
         if ($LASTEXITCODE -ne 0) {
@@ -192,6 +210,7 @@ try {
         resultsDir = $resultsDir
         caseIds = $CaseIds
         targetLanguage = $TargetLanguage
+        pollMs = $(if ($PollMs -gt 0) { $PollMs } else { $null })
         backendPid = $backendProc.Id
         workerPid = $workerProc.Id
         aiEnginePid = $aiProc.Id

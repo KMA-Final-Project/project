@@ -109,6 +109,9 @@ export class AdminPlanVariantDetailDto implements AdminPlanVariantDetail {
   @ApiProperty() monthlyQuotaSeconds!: number;
   @ApiProperty() aiCreditsPerMonth!: number;
   @ApiProperty() isActive!: boolean;
+  @ApiProperty() checkoutEnabled!: boolean;
+  @ApiPropertyOptional() stripeProductId!: string | null;
+  @ApiPropertyOptional() stripePriceId!: string | null;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
   @ApiProperty({ type: AdminPlanSubscriptionMetricsDto })

@@ -1,7 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import {
-  Modal,
-  Pressable,
   ScrollView,
   Text,
   View,
@@ -9,8 +7,13 @@ import {
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button, ScreenHeader } from "@/components";
 import { useSubscriptionStatus } from "@/hooks";
+import { useBillingStatus, billingKeys } from "@/hooks/use-billing-status";
+import { openBillingHandoff } from "@/services/billing-handoff.service";
+import { subscriptionKeys } from "@/hooks/useSubscriptionStatus";
 import type { AvailablePlan, BillingCycleType } from "@/types/subscription";
 
 function formatMinutes(seconds: number | null, unlimitedLabel: string): string {
@@ -55,7 +58,36 @@ export default function SubscriptionScreen() {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
   const { data, isLoading } = useSubscriptionStatus();
-  const [comingSoonVisible, setComingSoonVisible] = useState(false);
+  const billingQuery = useBillingStatus();
+  const hasActivePaidSubscription =
+    billingQuery.data?.hasActivePaidSubscription ?? false;
+  const queryClient = useQueryClient();
+  const params = useLocalSearchParams<{
+    refreshBilling?: string;
+    context?: string;
+  }>();
+
+  useEffect(() => {
+    if (params.refreshBilling === "1") {
+      queryClient.invalidateQueries({ queryKey: subscriptionKeys.status });
+      queryClient.invalidateQueries({ queryKey: billingKeys.status });
+    }
+  }, [params.refreshBilling, queryClient]);
+
+  const handleUpgrade = useCallback(
+    (plan: AvailablePlan) => {
+      if (hasActivePaidSubscription) {
+        openBillingHandoff("account-subscription");
+      } else {
+        openBillingHandoff("pricing");
+      }
+    },
+    [hasActivePaidSubscription],
+  );
+
+  const handleManage = useCallback(() => {
+    openBillingHandoff("account-subscription");
+  }, []);
 
   const quotaPercent = useMemo(() => {
     if (
@@ -357,9 +389,20 @@ export default function SubscriptionScreen() {
 
                 {!plan.isCurrent ? (
                   <Button
-                    title={t("subscription.upgradeAction")}
-                    onPress={() => setComingSoonVisible(true)}
+                    title={
+                      hasActivePaidSubscription
+                        ? t("subscription.manageAction")
+                        : t("subscription.upgradeAction")
+                    }
+                    onPress={() => handleUpgrade(plan)}
                     style={styles.planButton}
+                  />
+                ) : hasActivePaidSubscription ? (
+                  <Button
+                    title={t("subscription.manageAction")}
+                    onPress={handleManage}
+                    style={styles.planButton}
+                    variant="secondary"
                   />
                 ) : null}
               </View>
@@ -368,41 +411,7 @@ export default function SubscriptionScreen() {
         </View>
       </ScrollView>
 
-      <Modal
-        visible={comingSoonVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setComingSoonVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setComingSoonVisible(false)}
-          />
-          <View
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
-              {t("subscription.comingSoonTitle")}
-            </Text>
-            <Text
-              style={[styles.modalBody, { color: theme.colors.textSecondary }]}
-            >
-              {t("subscription.comingSoonBody")}
-            </Text>
-            <Button
-              title={t("subscription.contactSupportAction")}
-              onPress={() => setComingSoonVisible(false)}
-            />
-          </View>
-        </View>
-      </Modal>
+
     </View>
   );
 }
@@ -546,32 +555,5 @@ const styles = StyleSheet.create((theme) => ({
   },
   planButton: {
     marginTop: theme.spacing[2],
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  modalBackdrop: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: "rgba(0,0,0,0.45)",
-  },
-  modalCard: {
-    borderWidth: 1,
-    borderRadius: theme.radii["2xl"],
-    padding: theme.spacing[5],
-    gap: theme.spacing[3],
-  },
-  modalTitle: {
-    fontSize: theme.typography.sizes.xl,
-    fontWeight: theme.typography.weights.bold,
-  },
-  modalBody: {
-    fontSize: theme.typography.sizes.sm,
-    lineHeight: 21,
   },
 }));

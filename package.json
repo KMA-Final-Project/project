@@ -3,10 +3,10 @@
   "private": true,
   "packageManager": "pnpm@10.24.0",
   "scripts": {
-    "build": "pnpm --filter @kapter/contracts build && pnpm --filter backend-api build && pnpm --filter dashboard build",
-    "lint": "pnpm --filter backend-api lint && pnpm --filter mobile-app lint && pnpm --filter dashboard lint",
-    "typecheck": "pnpm --filter @kapter/contracts typecheck && pnpm --filter mobile-app exec tsc --noEmit --pretty false && pnpm --filter dashboard typecheck",
-    "test": "pnpm --filter backend-api exec jest --runInBand",
+    "build": "pnpm --filter @kapter/contracts build && pnpm --filter backend-api build && pnpm --filter dashboard build && pnpm --filter client-web build",
+    "lint": "pnpm --filter backend-api lint && pnpm --filter mobile-app lint && pnpm --filter dashboard lint && pnpm --filter client-web lint",
+    "typecheck": "pnpm --filter @kapter/contracts typecheck && pnpm --filter mobile-app exec tsc --noEmit --pretty false && pnpm --filter dashboard typecheck && pnpm --filter client-web typecheck",
+    "test": "pnpm --filter backend-api exec jest --runInBand && pnpm --filter client-web test",
     "validate": "pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "build:contracts": "pnpm --filter @kapter/contracts build",
     "typecheck:contracts": "pnpm --filter @kapter/contracts typecheck"

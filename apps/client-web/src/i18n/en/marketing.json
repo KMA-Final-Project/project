@@ -1,0 +1,7 @@
+{
+  "hero": { "title": "Bilingual subtitles, perfected", "subtitle": "High-accuracy transcription and translation with word-level timing for media consumption and content creation.", "cta": "Get started free" },
+  "proofStrip": { "wordTiming": "Word-level timing", "bilingual": "Bilingual subtitles", "aiPowered": "AI-powered explanations", "quotaAware": "Quota-aware SaaS" },
+  "howItWorks": { "title": "How it works", "step1": "Upload your media", "step2": "Get bilingual subtitles", "step3": "Learn with AI" },
+  "features": { "title": "Why Kapter?", "transcription": { "title": "Precise transcription", "description": "Word-level karaoke timing for immersive subtitle learning." }, "translation": { "title": "Bilingual translation", "description": "Side-by-side subtitles in your target language." }, "ai": { "title": "AI-powered", "description": "Smart explanations and vocabulary building." } },
+  "cta": { "title": "Ready to get started?", "subtitle": "Create your free account and start learning with bilingual subtitles today.", "button": "Get started free" }
+}

@@ -16,6 +16,7 @@ def _detect_device() -> str:
     """Auto-detect the best available compute device."""
     try:
         import torch
+
         if torch.cuda.is_available():
             return "cuda"
     except ImportError:
@@ -641,6 +642,139 @@ class Settings(BaseSettings):
             "translated batch delivery and rely on raw NMT output only."
         ),
     )
+    AI_ENABLE_LLM_FINALIZATION: bool = Field(
+        default=True,
+        description="Enable cloud LLM translation finalization.",
+    )
+    AI_LLM_FINALIZATION_LANGS: str = Field(
+        default="*",
+        description="Comma-separated source languages eligible for finalization, or * for all routes.",
+    )
+    AI_LLM_FINALIZATION_CJK_LANGS: str = Field(
+        default="zh,yue,ja,ko",
+        description="Comma-separated source languages treated as CJK-family for finalization profile selection.",
+    )
+    AI_LLM_FINALIZATION_SHORT_ASSET_MAX_SEGMENTS: int = Field(
+        default=24,
+        ge=1,
+        description="Maximum total segments for a short asset single-window finalization profile.",
+    )
+    AI_LLM_FINALIZATION_SHORT_ASSET_MAX_SOURCE_TOKENS: int = Field(
+        default=520,
+        ge=1,
+        description="Maximum estimated source tokens for a short asset single-window finalization profile.",
+    )
+    AI_LLM_FINALIZATION_SPARSE_SEGMENT_DENSITY_THRESHOLD: float = Field(
+        default=0.12,
+        ge=0.0,
+        description="Segments-per-second threshold below which content is treated as sparse long-form.",
+    )
+    AI_LLM_FINALIZATION_SPARSE_SOURCE_TOKEN_DENSITY_THRESHOLD: float = Field(
+        default=1.8,
+        ge=0.0,
+        description="Estimated source-tokens-per-second threshold below which content is treated as sparse long-form.",
+    )
+    AI_LLM_FINALIZATION_MIN_SEGMENTS: int = Field(
+        default=16,
+        ge=2,
+        description="Minimum segments before a window can flush.",
+    )
+    AI_LLM_FINALIZATION_TARGET_SEGMENTS: int = Field(
+        default=28,
+        ge=4,
+        description="Target segment count per finalization window.",
+    )
+    AI_LLM_FINALIZATION_MAX_SEGMENTS: int = Field(
+        default=36,
+        ge=4,
+        description="Maximum segments per finalization window.",
+    )
+    AI_LLM_FINALIZATION_MIN_SOURCE_TOKENS: int = Field(
+        default=180,
+        ge=1,
+        description="Minimum source tokens before a window can flush.",
+    )
+    AI_LLM_FINALIZATION_TARGET_SOURCE_TOKENS: int = Field(
+        default=360,
+        ge=1,
+        description="Target source tokens per finalization window.",
+    )
+    AI_LLM_FINALIZATION_MAX_REQUEST_TOKENS: int = Field(
+        default=2600,
+        ge=128,
+        description="Maximum total request tokens per finalization window.",
+    )
+    AI_LLM_FINALIZATION_MIN_DURATION_SECONDS: float = Field(
+        default=20.0,
+        ge=0.0,
+        description="Minimum window duration in seconds before flush is allowed.",
+    )
+    AI_LLM_FINALIZATION_TARGET_DURATION_SECONDS: float = Field(
+        default=75.0,
+        ge=0.0,
+        description="Target window duration in seconds.",
+    )
+    AI_LLM_FINALIZATION_MAX_DURATION_SECONDS: float = Field(
+        default=120.0,
+        ge=1.0,
+        description="Maximum window duration in seconds before forced flush.",
+    )
+    AI_LLM_FINALIZATION_OVERLAP_SEGMENTS: int = Field(
+        default=4,
+        ge=0,
+        description="Segment overlap between consecutive finalization windows.",
+    )
+    AI_LLM_FINALIZATION_OVERLAP_SOURCE_TOKENS: int = Field(
+        default=80,
+        ge=0,
+        description="Source token overlap between consecutive finalization windows.",
+    )
+    AI_LLM_FINALIZATION_TIMEOUT_SECONDS: int = Field(
+        default=25,
+        ge=1,
+        description="Per-window LLM request timeout in seconds.",
+    )
+    AI_LLM_FINALIZATION_MAX_RETRIES: int = Field(
+        default=1,
+        ge=0,
+        description="Maximum retries per window on failure.",
+    )
+    AI_LLM_FINALIZATION_MAX_CONCURRENCY: int = Field(
+        default=2,
+        ge=1,
+        description="Maximum concurrent finalization requests.",
+    )
+    AI_LLM_FINALIZATION_BUDGET_RATIO_SECONDS_PER_MEDIA_SECOND: float = Field(
+        default=0.2,
+        ge=0.0,
+        description="Media-duration-aware budget ratio for finalization.",
+    )
+    AI_LLM_FINALIZATION_BUDGET_MIN_SECONDS: int = Field(
+        default=20,
+        ge=1,
+        description="Minimum finalization budget in seconds.",
+    )
+    AI_LLM_FINALIZATION_BUDGET_MAX_SECONDS: int = Field(
+        default=120,
+        ge=1,
+        description="Maximum finalization budget in seconds.",
+    )
+    AI_LLM_FINALIZATION_FAIL_OPEN: bool = Field(
+        default=True,
+        description="Fall back to NMT output on finalization failure.",
+    )
+    AI_LLM_FINALIZATION_PROVIDER: str = Field(
+        default="openai",
+        description="Default finalization provider: openai | gemini.",
+    )
+    AI_LLM_FINALIZATION_MODEL_OPENAI: str = Field(
+        default="gpt-4.1-mini",
+        description="OpenAI model for finalization.",
+    )
+    AI_LLM_FINALIZATION_MODEL_GEMINI: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model for finalization.",
+    )
     DEFAULT_LLM_PROVIDER_FOR_MERGER: str = Field(
         default="gemini",
         description="Primary LLM provider for semantic merge windows: ollama | openai | gemini.",
@@ -652,6 +786,10 @@ class Settings(BaseSettings):
     DEFAULT_LLM_PROVIDER_FOR_REFINEMENT: str = Field(
         default="gemini",
         description="Primary LLM provider for optional post-NMT refinement: ollama | openai | gemini.",
+    )
+    DEFAULT_LLM_PROVIDER_FOR_TRANSLATION_FINALIZATION: str = Field(
+        default="openai",
+        description="Primary LLM provider for translation finalization: ollama | openai | gemini.",
     )
     LLM_REMOTE_TO_OLLAMA_FALLBACK: bool = Field(
         default=True,
@@ -680,6 +818,10 @@ class Settings(BaseSettings):
         default="qwen2.5:7b-instruct",
         description="Ollama model used for optional refinement.",
     )
+    OLLAMA_LLM_MODEL_FOR_TRANSLATION_FINALIZATION: str = Field(
+        default="qwen2.5:7b-instruct",
+        description="Ollama model used for translation finalization.",
+    )
     OLLAMA_NUM_CTX_FOR_MERGER: int = Field(
         default=8192,
         description="Bounded Ollama context size for merge windows.",
@@ -691,6 +833,10 @@ class Settings(BaseSettings):
     OLLAMA_NUM_CTX_FOR_REFINEMENT: int = Field(
         default=8192,
         description="Bounded Ollama context size for refinement windows.",
+    )
+    OLLAMA_NUM_CTX_FOR_TRANSLATION_FINALIZATION: int = Field(
+        default=8192,
+        description="Bounded Ollama context size for translation finalization windows.",
     )
     OPENAI_API_KEY: str = Field(default="")
     OPENAI_BASE_URL: str = Field(
@@ -709,6 +855,20 @@ class Settings(BaseSettings):
         default="gpt-4.1-mini",
         description="OpenAI model used for optional refinement.",
     )
+    OPENAI_LLM_MODEL_FOR_TRANSLATION_FINALIZATION: str = Field(
+        default="gpt-4.1-mini",
+        description="OpenAI model used for translation finalization.",
+    )
+    OPENAI_LLM_INPUT_PRICE_PER_1M_FOR_TRANSLATION_FINALIZATION: float = Field(
+        default=0.40,
+        ge=0.0,
+        description="OpenAI USD cost per 1M input tokens for translation finalization.",
+    )
+    OPENAI_LLM_OUTPUT_PRICE_PER_1M_FOR_TRANSLATION_FINALIZATION: float = Field(
+        default=1.60,
+        ge=0.0,
+        description="OpenAI USD cost per 1M output tokens for translation finalization.",
+    )
     GEMINI_API_KEY: str = Field(default="")
     GEMINI_LLM_MODEL_FOR_MERGER: str = Field(
         default="gemini-2.5-flash",
@@ -721,6 +881,10 @@ class Settings(BaseSettings):
     GEMINI_LLM_MODEL_FOR_REFINEMENT: str = Field(
         default="gemini-2.5-flash",
         description="Gemini model used for optional refinement.",
+    )
+    GEMINI_LLM_MODEL_FOR_TRANSLATION_FINALIZATION: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model used for translation finalization.",
     )
     CHUNK_SIZE: int = Field(
         default=8, description="Sentences per streaming chunk (all stages)"
@@ -979,7 +1143,7 @@ class Settings(BaseSettings):
 
     @staticmethod
     def normalize_llm_capability(capability: str) -> str:
-        """Map capability aliases onto the three supported LLM task buckets."""
+        """Map capability aliases onto the four supported LLM task buckets."""
         normalized = capability.strip().lower()
         if normalized in {"merge", "merger"}:
             return "merger"
@@ -987,11 +1151,26 @@ class Settings(BaseSettings):
             return "analysis"
         if normalized in {"refine", "refinement"}:
             return "refinement"
+        if normalized in {"translation_finalization", "finalization"}:
+            return "translation_finalization"
         raise ValueError(f"Unsupported LLM capability: {capability}")
 
     def llm_provider_for(self, capability: str) -> str:
         """Resolve the configured primary provider for a capability."""
         capability_name = self.normalize_llm_capability(capability)
+        if capability_name == "translation_finalization":
+            provider = (
+                str(
+                    self.AI_LLM_FINALIZATION_PROVIDER
+                    or self.DEFAULT_LLM_PROVIDER_FOR_TRANSLATION_FINALIZATION
+                    or "ollama"
+                )
+                .strip()
+                .lower()
+            )
+            if provider not in {"ollama", "openai", "gemini"}:
+                return "ollama"
+            return provider
         field_name = f"DEFAULT_LLM_PROVIDER_FOR_{capability_name.upper()}"
         provider = str(getattr(self, field_name, "ollama") or "ollama").strip().lower()
         if provider not in {"ollama", "openai", "gemini"}:
@@ -1006,6 +1185,19 @@ class Settings(BaseSettings):
             raise ValueError(f"Unsupported LLM provider: {provider}")
         field_name = f"{provider_name.upper()}_LLM_MODEL_FOR_{capability_name.upper()}"
         return str(getattr(self, field_name)).strip()
+
+    def llm_token_prices_for(
+        self, provider: str, capability: str
+    ) -> tuple[float, float]:
+        """Resolve per-1M input/output token pricing for a provider/capability pair."""
+        capability_name = self.normalize_llm_capability(capability)
+        provider_name = provider.strip().lower()
+        if provider_name == "openai" and capability_name == "translation_finalization":
+            return (
+                float(self.OPENAI_LLM_INPUT_PRICE_PER_1M_FOR_TRANSLATION_FINALIZATION),
+                float(self.OPENAI_LLM_OUTPUT_PRICE_PER_1M_FOR_TRANSLATION_FINALIZATION),
+            )
+        return (0.0, 0.0)
 
     def ollama_num_ctx_for(self, capability: str) -> int:
         """Resolve bounded Ollama context settings by capability."""

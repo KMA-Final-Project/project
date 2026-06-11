@@ -571,6 +571,110 @@ Source-specific behavior:
 - **MEDIA**: queries durable `media_items` where `status = FAILED` and `deletedAt = null`, joins user email, filters in SQL, sorts newest first
 - **QUEUE**: enumerates retained BullMQ failed jobs (`queue.getFailed()`), maps payload fields, filters/sorts in memory, then paginates. Queue failures are a sliding window (currently 500 per queue), not durable history.
 
+#### GET /admin/monitoring/translation-finalization/summary
+
+Returns bounded translation-finalization telemetry aggregated from recent completed media and `final.json.metadata.translation_finalization`.
+
+Query params:
+
+- `period`: `"7d" | "30d"` (default `7d`)
+- `sourceLanguage?`
+- `targetLanguage?`
+- `provider?`
+- `profile?`
+
+Response shape:
+
+```ts
+{
+  period: "7d" | "30d";
+  generatedAt: string;
+  totals: {
+    completedMedia: number;
+    finalizedMedia: number;
+    finalizationEnabledMedia: number;
+    totalCostUsd: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
+    totalCoverageSegments: number;
+    totalFallbackSegments: number;
+    deadlineHitMedia: number;
+    failedWindowMedia: number;
+  };
+  averages: {
+    costPerMediaUsd: number;
+    costPerMediaMinuteUsd: number;
+    tokensPerMedia: number;
+    coverageRate: number;
+    fallbackRate: number;
+    averageWindowSuccessRate: number;
+  };
+  breakdowns: {
+    byProvider: Array<{ provider: string; mediaCount: number; totalCostUsd: number; totalTokens: number }>;
+    byProfile: Array<{ profile: string; mediaCount: number; totalCostUsd: number; averageCoverageRate: number }>;
+    byRoute: Array<{ sourceLanguage: string; targetLanguage: string; mediaCount: number; totalCostUsd: number; averageCoverageRate: number }>;
+    dailyUsage: Array<{ date: string; mediaCount: number; totalCostUsd: number; totalTokens: number; deadlineHits: number }>;
+  };
+}
+```
+
+Rules:
+
+- Bounded admin-only observability surface; phase 1 reads live finalization metadata from `final.json` instead of a dedicated database rollup.
+- Missing or unreadable finalization metadata must fail open: skip the item, do not fail the entire response.
+- This endpoint does not change mobile or runtime AI-engine behavior.
+
+#### GET /admin/monitoring/translation-finalization/media
+
+Returns a paginated recent-media drill-down dataset for translation finalization.
+
+Query params:
+
+- `period`: `"7d" | "30d"` (default `7d`)
+- `page`, `limit`
+- `sourceLanguage?`
+- `targetLanguage?`
+- `provider?`
+- `profile?`
+- `health?`: `"all" | "healthy" | "fallback" | "deadline_hit" | "failed_windows"`
+
+Response shape:
+
+```ts
+{
+  page: number;
+  limit: number;
+  total: number;
+  data: Array<{
+    mediaId: string;
+    title: string;
+    userEmail: string;
+    sourceLanguage: string;
+    targetLanguage: string;
+    durationSeconds: number;
+    completedAt: string;
+    provider: string;
+    model: string;
+    profile: string;
+    coverageSegments: number;
+    fallbackSegments: number;
+    attemptedWindows: number;
+    completedWindows: number;
+    failedWindows: number;
+    timedOutWindows: number;
+    invalidWindows: number;
+    deadlineHit: boolean;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    llmRevisedSegments: number;
+    nmtFallbackSegments: number;
+  }>;
+}
+```
+
 Dashboard auth behavior:
 
 - Dashboard reuses `POST /auth/refresh` for token rotation
@@ -641,6 +745,69 @@ Response: `{ id, role, updatedAt }`
 Backend enforcement:
 - Block self-demotion (compare `req.user.id` with target `id`)
 - Block demoting the last remaining admin
+
+### 5.7 Billing API
+
+**Source of truth split:**
+- Stripe = financial source of truth (payment status, billing cycle, invoicing, cancellation)
+- Internal Subscription + User = entitlement source of truth (quota, AI credits, upload access)
+
+**Endpoints:**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/billing/catalog` | Public | Checkout-eligible recurring paid variants |
+| GET | `/billing/status` | JWT | Current billing state for authenticated user |
+| POST | `/billing/checkout-session` | JWT | Create Stripe Checkout Session |
+| GET | `/billing/checkout-sessions/:sessionId` | JWT | Get checkout session status |
+| POST | `/billing/customer-portal-session` | JWT | Create Stripe Customer Portal session |
+| POST | `/billing/webhooks/stripe` | Stripe signature | Stripe webhook endpoint |
+
+**GET /billing/catalog**
+Returns active, checkoutEnabled, mapped, non-FREE, non-LIFETIME variants.
+
+**POST /billing/checkout-session**
+Request: `{ variantId, successUrl, cancelUrl }`
+Response: `{ checkoutUrl, sessionId }`
+Validation: variant exists, active, recurring, mapped, checkoutEnabled, user has no active paid Stripe sub.
+
+**GET /billing/status**
+Response: `{ hasStripeCustomer, hasActivePaidSubscription, stripeCustomerId, currentSubscription: { variantId, planName, status, stripeStatus, cancelAtPeriodEnd, currentPeriodEnd } }`
+
+**POST /billing/webhooks/stripe**
+Public endpoint. Security via Stripe signature verification using webhook secret. Idempotent by stripeEventId. Processes: checkout.session.completed/expired, customer.subscription.created/updated/deleted, invoice.paid, invoice.payment_failed.
+
+**Entitlement sync rules:**
+- FREE → paid: create new internal Subscription snapshot, set as currentSubscriptionId
+- Same variant renewal: update dates/status on existing internal row
+- Variant change: create new internal Subscription snapshot
+- Paid → end: mark paid row ended, create new FREE snapshot as current
+- AI credits replaced with target plan's aiCreditsPerMonth on activation, renewal, upgrade, and FREE fallback
+
+**Admin variant billing config:**
+PlanVariant extended with: `checkoutEnabled` (boolean), `stripeProductId` (string?), `stripePriceId` (string?)
+Validation: checkoutEnabled=true requires both stripeProductId and stripePriceId.
+
+**ConfigService keys:** STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PORTAL_CONFIGURATION_ID, STRIPE_ALLOWED_ORIGINS
+
+### 5.8 Mobile-Web Billing Handoff
+
+**POST /auth/mobile-web-handoff** (authenticated)
+- Request: `{ target: "pricing" | "account-subscription" }`
+- Response: `{ handoffUrl: string, expiresInSeconds: 120 }`
+- Creates one-time UUID token, stores in Redis with TTL 120s
+- Builds URL from `CLIENT_WEB_BASE_URL` config
+
+**POST /auth/mobile-web-handoff/consume** (public)
+- Request: `{ token: string }`
+- Response: standard `AuthResponse` (user + tokens)
+- Consume-once: first successful consume deletes the token, retries fail
+- Rejects expired or already-consumed tokens
+
+**Web handoff flow:**
+- Client-web `/handoff` route consumes token, stores session, redirects to target with `?fromMobile=1`
+- `Return to app` button visible on pricing/account/success/cancel pages when `fromMobile=1`
+- Mobile callback URL: `mobileapp://subscription?refreshBilling=1&context=checkout-success|checkout-cancel|account`
 
 ## 6. Artifact Storage Contract
 
@@ -741,6 +908,13 @@ Rules:
 - `phonetic` must be a string. Use `""` for languages where phonetic output is unavailable.
 - `words` are the renderable karaoke and lookup tokens, not a guarantee of raw ASR character granularity. Chinese-family output may group consecutive character-level timings into multi-character lexical words while preserving token order and using `start=first_child.start`, `end=last_child.end`.
 - The mobile app depends on `start`, `end`, `text`, `translation`, `phonetic`, and `words` for bilingual/karaoke rendering.
+
+### 6.6 Translation Revisions (Phase 1 - Internal)
+
+- Internal additive artifact family: `processed/{mediaId}/translation_revisions/`
+- Phase 1 rule: backend/mobile do not consume `translation_revisions/` directly.
+- Phase 1 invariant: LLM may revise `translation` only; source text, timestamps, words, punctuation, segment indexes, and segmentation remain NMT-owned.
+- `final.json` remains canonical and may include additive `metadata.translation_finalization`, including per-segment provenance, selected finalization profile, provider/model, and aggregate token/cost metadata used by benchmark/debug tooling.
 
 ## 7. MinIO URL Contract
 
@@ -956,6 +1130,7 @@ Rules:
 - Mobile keeps translation enabled by default.
 - Mobile may auto-disable translation only when subtitle metadata shows source language and target language are the same.
 - AI Engine owns source transcription, target translation, phonetic enrichment, and final bilingual artifact generation.
+- Translation finalization, when enabled, is an AI-engine-owned final `translation` overlay stage that may run on all routes while preserving `translated_batches/` as the progressive latency layer and `final.json` as the canonical completed artifact.
 
 ## 13. Validation Matrix
 

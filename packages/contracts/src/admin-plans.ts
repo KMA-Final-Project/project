@@ -11,6 +11,9 @@ export interface PlanVariant {
   monthlyQuotaSeconds: number;
   aiCreditsPerMonth: number;
   isActive: boolean;
+  checkoutEnabled: boolean;
+  stripeProductId: string | null;
+  stripePriceId: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { subscriptions: number };

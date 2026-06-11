@@ -6,7 +6,7 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 
 ---
 
-## Status as of 2026-06-08
+## Status as of 2026-06-11
 
 ### Working ✅
 
@@ -20,10 +20,11 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 | Users page (`/users`) | Server-side filters (search, role, planId, variantId) via URL params, role change button per row |
 | Users detail (`/users/:id`) | Profile, subscription, quota, role management card, role change with confirmation |
 | Queues page (`/monitoring/queues`) | Real-time queue health, 15s auto-refresh, health badges |
+| Translation finalization page (`/monitoring/translation-finalization`) | Usage/cost/coverage/fallback monitoring with route/profile/provider filters and recent-media drill-down |
 | Failures page (`/monitoring/failures`) | Source-tabs, URL-backed filters, server-side pagination, summary cards |
 | Auth resilience | Single-flight token refresh on 401, session-expired toast |
 | Toast notifications | sonner `<Toaster />` mounted in provider tree |
-| Router | `/overview`, `/users`, `/users/:id`, `/plans`, `/plans/:id`, `/ai-explain`, `/monitoring/queues`, `/monitoring/failures`, 404 |
+| Router | `/overview`, `/users`, `/users/:id`, `/plans`, `/plans/:id`, `/ai-explain`, `/monitoring/queues`, `/monitoring/translation-finalization`, `/monitoring/failures`, 404 |
 | Route guard | `RequireAdmin` wraps all admin routes; `AuthGuard` on login redirect |
 
 ### Scaffold / Incomplete ⚠️
@@ -50,6 +51,15 @@ Stack: Vite 7, React 19, React Router 7, TanStack Query 5, shadcn/ui, Tailwind C
 ---
 
 ## Recent Update — 2026-06-08
+
+- 2026-06-11 — Translation finalization monitoring page. Status: Working.
+  - Added `/monitoring/translation-finalization` under the existing monitoring feature and sidebar navigation.
+  - New dashboard surface shows bounded summary metrics for finalized media count, total cost, average cost per media minute, token usage, coverage rate, fallback rate, deadline hits, route/provider/profile mix, and a paginated recent-media drill-down table.
+  - Added typed API wrappers and TanStack Query factories for `GET /admin/monitoring/translation-finalization/summary` and `/media`.
+  - Keeps the MVP contract additive: no mobile changes, no AI-engine runtime changes, no new global dashboard state.
+  - Contract touchpoints: API (new admin monitoring endpoints), shared TypeScript contracts.
+  - Validation: `pnpm --filter dashboard typecheck`; `pnpm --filter dashboard build`.
+  - Follow-up: if operators need larger historical windows or instant page loads later, move backend aggregation from live MinIO reads to a persisted database rollup.
 
 - 2026-06-08 — Plan detail page + role management. Status: Working.
   - New `/plans/:id` detail page with plan metadata, summary cards (variants, active subscribers, historical subscriptions), variant cards with per-variant metrics, plan/variant actions, subscriber links to `/users?planId=...` and `/users?variantId=...`.

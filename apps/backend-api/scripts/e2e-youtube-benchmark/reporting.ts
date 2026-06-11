@@ -193,6 +193,36 @@ export function renderSuiteMarkdown(summary: SuiteSummary): string {
     );
   }
 
+  const finalizationCases = summary.cases.filter((entry) => entry.finalization !== null);
+  if (finalizationCases.length > 0) {
+    lines.push(
+      '',
+      '## Finalization',
+      '| Case | Coverage Segs | Coverage Dur (s) | Attempted | Completed | Timed Out | Invalid | Fallback | Cost (USD) | Deadline Hit | LLM Revised |',
+      '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |',
+    );
+
+    for (const entry of finalizationCases) {
+      const f = entry.finalization!;
+      const llmRevisedSegments = f.segmentProvenance.filter((p) => p.source === 'llm_revision').length;
+      lines.push(
+        `| ${entry.caseId} | ${f.coverageSegments} | ${formatNumber(f.coverageDurationSeconds)} | ${f.attemptedWindows} | ${f.completedWindows} | ${f.timedOutWindows} | ${f.invalidWindows} | ${f.fallbackSegments} | ${formatNumber(f.totalCostUsd)} | ${f.finalizationDeadlineHit ? 'yes' : 'no'} | ${llmRevisedSegments} |`,
+      );
+    }
+
+    const totalCost = finalizationCases.reduce((sum, e) => sum + (e.finalization?.totalCostUsd ?? 0), 0);
+    const totalAttempted = finalizationCases.reduce((sum, e) => sum + (e.finalization?.attemptedWindows ?? 0), 0);
+    const totalCompleted = finalizationCases.reduce((sum, e) => sum + (e.finalization?.completedWindows ?? 0), 0);
+    const totalTimedOut = finalizationCases.reduce((sum, e) => sum + (e.finalization?.timedOutWindows ?? 0), 0);
+    const totalFallback = finalizationCases.reduce((sum, e) => sum + (e.finalization?.fallbackSegments ?? 0), 0);
+    const deadlineHits = finalizationCases.filter((e) => e.finalization?.finalizationDeadlineHit).length;
+
+    lines.push(
+      '',
+      `**Finalization totals:** ${finalizationCases.length} case(s) | windows: ${totalAttempted} attempted, ${totalCompleted} completed, ${totalTimedOut} timed out | fallback segments: ${totalFallback} | total cost: $${formatNumber(totalCost)} | deadline hits: ${deadlineHits}/${finalizationCases.length}`,
+    );
+  }
+
   lines.push('', '## Notes');
   lines.push(
     '- WER is computed only when a manual subtitle track is available through yt-dlp.',

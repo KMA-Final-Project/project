@@ -173,6 +173,64 @@ TranslatedSentence = Sentence
 # ---------------------------------------------------------------------------
 
 
+class TranslationRevisionSegment(BaseModel):
+    segment_index: int
+    translation: str = Field(default="")
+
+
+class TranslationRevisionArtifact(BaseModel):
+    revision_index: int
+    window_start_segment_index: int
+    window_end_segment_index: int
+    core_start_segment_index: int
+    core_end_segment_index: int
+    source_hash: str
+    provider: str
+    model: str
+    status: str
+    validation_score: float = 0.0
+    created_at: str
+    attempt_count: int = 1
+    latency_ms: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    segments: List[TranslationRevisionSegment]
+
+
+class SegmentTranslationProvenance(BaseModel):
+    segment_index: int
+    source: str = Field(
+        default="nmt",
+        description="nmt or llm_revision",
+    )
+    revision_index: int | None = None
+
+
+class TranslationFinalizationMetadata(BaseModel):
+    enabled: bool = False
+    applied_profile: str = ""
+    provider: str = ""
+    model: str = ""
+    coverage_segments: int = 0
+    coverage_duration_seconds: float = 0.0
+    attempted_windows: int = 0
+    completed_windows: int = 0
+    timed_out_windows: int = 0
+    invalid_windows: int = 0
+    failed_windows: int = 0
+    fallback_segments: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    finalization_deadline_hit: bool = False
+    segment_provenance: List[SegmentTranslationProvenance] = Field(
+        default_factory=list
+    )
+
+
 class SubtitleMetadata(BaseModel):
     """Metadata about the pipeline run, included in the final output."""
 
@@ -186,6 +244,9 @@ class SubtitleMetadata(BaseModel):
     )
     model_used: str = Field(
         default="", description="Whisper model name used for transcription."
+    )
+    translation_finalization: TranslationFinalizationMetadata = Field(
+        default_factory=TranslationFinalizationMetadata
     )
 
 

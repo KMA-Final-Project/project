@@ -58,6 +58,21 @@ export class CreateVariantDto implements CreateVariantPayload {
   @IsInt()
   @Min(0)
   aiCreditsPerMonth: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  checkoutEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  stripeProductId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  stripePriceId?: string;
 }
 
 export class UpdateVariantDto implements UpdateVariantPayload {
@@ -103,4 +118,19 @@ export class UpdateVariantDto implements UpdateVariantPayload {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  checkoutEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  stripeProductId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  stripePriceId?: string;
 }

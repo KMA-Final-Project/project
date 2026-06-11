@@ -57,3 +57,127 @@ export interface AdminMonitoringFailuresResponse {
   page: number;
   limit: number;
 }
+
+export type AdminTranslationFinalizationPeriod = "7d" | "30d";
+
+export interface AdminTranslationFinalizationSummaryQuery {
+  period?: AdminTranslationFinalizationPeriod;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  provider?: string;
+  profile?: string;
+}
+
+export type AdminTranslationFinalizationHealthFilter =
+  | "all"
+  | "healthy"
+  | "fallback"
+  | "deadline_hit"
+  | "failed_windows";
+
+export interface AdminTranslationFinalizationMediaQuery
+  extends AdminTranslationFinalizationSummaryQuery {
+  page?: number;
+  limit?: number;
+  health?: AdminTranslationFinalizationHealthFilter;
+}
+
+export interface AdminTranslationFinalizationSummaryTotals {
+  completedMedia: number;
+  finalizedMedia: number;
+  finalizationEnabledMedia: number;
+  totalCostUsd: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  totalCoverageSegments: number;
+  totalFallbackSegments: number;
+  deadlineHitMedia: number;
+  failedWindowMedia: number;
+}
+
+export interface AdminTranslationFinalizationSummaryAverages {
+  costPerMediaUsd: number;
+  costPerMediaMinuteUsd: number;
+  tokensPerMedia: number;
+  coverageRate: number;
+  fallbackRate: number;
+  averageWindowSuccessRate: number;
+}
+
+export interface AdminTranslationFinalizationProviderBreakdownItem {
+  provider: string;
+  mediaCount: number;
+  totalCostUsd: number;
+  totalTokens: number;
+}
+
+export interface AdminTranslationFinalizationProfileBreakdownItem {
+  profile: string;
+  mediaCount: number;
+  totalCostUsd: number;
+  averageCoverageRate: number;
+}
+
+export interface AdminTranslationFinalizationRouteBreakdownItem {
+  sourceLanguage: string;
+  targetLanguage: string;
+  mediaCount: number;
+  totalCostUsd: number;
+  averageCoverageRate: number;
+}
+
+export interface AdminTranslationFinalizationDailyUsageItem {
+  date: string;
+  mediaCount: number;
+  totalCostUsd: number;
+  totalTokens: number;
+  deadlineHits: number;
+}
+
+export interface AdminTranslationFinalizationSummaryResponse {
+  period: AdminTranslationFinalizationPeriod;
+  generatedAt: string;
+  totals: AdminTranslationFinalizationSummaryTotals;
+  averages: AdminTranslationFinalizationSummaryAverages;
+  breakdowns: {
+    byProvider: AdminTranslationFinalizationProviderBreakdownItem[];
+    byProfile: AdminTranslationFinalizationProfileBreakdownItem[];
+    byRoute: AdminTranslationFinalizationRouteBreakdownItem[];
+    dailyUsage: AdminTranslationFinalizationDailyUsageItem[];
+  };
+}
+
+export interface AdminTranslationFinalizationMediaListItem {
+  mediaId: string;
+  title: string;
+  userEmail: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  durationSeconds: number;
+  completedAt: string;
+  provider: string;
+  model: string;
+  profile: string;
+  coverageSegments: number;
+  fallbackSegments: number;
+  attemptedWindows: number;
+  completedWindows: number;
+  failedWindows: number;
+  timedOutWindows: number;
+  invalidWindows: number;
+  deadlineHit: boolean;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  llmRevisedSegments: number;
+  nmtFallbackSegments: number;
+}
+
+export interface AdminTranslationFinalizationMediaListResponse {
+  page: number;
+  limit: number;
+  total: number;
+  data: AdminTranslationFinalizationMediaListItem[];
+}

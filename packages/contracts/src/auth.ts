@@ -41,3 +41,16 @@ export interface VerifyOtpPayload {
 export interface RefreshTokenPayload {
   refreshToken: string;
 }
+
+export interface MobileWebHandoffRequest {
+  target: "pricing" | "account-subscription";
+}
+
+export interface MobileWebHandoffResponse {
+  handoffUrl: string;
+  expiresInSeconds: number;
+}
+
+export interface MobileWebHandoffConsumeRequest {
+  token: string;
+}

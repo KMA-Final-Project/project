@@ -26,6 +26,12 @@ export const AUTH_ERRORS = {
   USER_NOT_FOUND: 'userNotFound',
   // Password must be at least 8 characters long and contain at least one uppercase letter...
   PASSWORD_INVALID: 'passwordTooWeak',
+  // Password reset OTP cooldown
+  PASSWORD_RESET_COOLDOWN: 'passwordResetCooldown',
+  // Too many password reset attempts
+  PASSWORD_RESET_LIMIT_REACHED: 'passwordResetLimitReached',
+  // Password reset session expired
+  PASSWORD_RESET_EXPIRED: 'passwordResetExpired',
 } as const;
 
 export type AuthErrorKey = keyof typeof AUTH_ERRORS;

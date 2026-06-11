@@ -19,8 +19,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "test:all": "jest && jest --config scripts/e2e-youtube-benchmark/jest.config.ts",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "cross-env NODE_OPTIONS=\"--experimental-vm-modules\" jest --config ./test/jest-e2e.json --runInBand --forceExit",
     "pgen": "prisma generate",
     "db:reseed": "prisma migrate reset --force && prisma db seed",
     "sync:schema": "tsx scripts/sync-schema.ts",
@@ -28,7 +29,9 @@
     "start:local": "cd ../../infra && docker-compose up -d && cd - && npm run start:dev",
     "clean:env": "tsx scripts/clean-test-env.ts",
     "test:youtube": "tsx scripts/test-youtube-submit.ts",
-    "test:youtube:e2e": "tsx scripts/e2e-youtube-pipeline-eval.ts"
+    "test:youtube:e2e": "tsx scripts/e2e-youtube-pipeline-eval.ts",
+    "test:benchmark": "jest --config scripts/e2e-youtube-benchmark/jest.config.ts",
+    "export:chapter3": "tsx scripts/export-chapter3-benchmark.ts"
   },
   "dependencies": {
     "@kapter/contracts": "workspace:*",
@@ -62,6 +65,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
+    "stripe": "^22.2.0",
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
@@ -76,6 +80,7 @@
     "@types/nodemailer": "^7.0.9",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^6.0.2",
+    "cross-env": "^10.1.0",
     "dotenv": "^17.2.3",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",

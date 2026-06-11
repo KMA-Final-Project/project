@@ -5,8 +5,19 @@ from typing import Any
 
 import pytest
 
+from src.config import settings
 from src.minio_client import MinioClient
-from src.schemas import Sentence, SubtitleMetadata, SubtitleOutput, TranslatedBatch, Word
+from src.schemas import (
+    SegmentTranslationProvenance,
+    Sentence,
+    SubtitleMetadata,
+    SubtitleOutput,
+    TranslatedBatch,
+    TranslationFinalizationMetadata,
+    TranslationRevisionArtifact,
+    TranslationRevisionSegment,
+    Word,
+)
 
 REQUIRED_WORD_KEYS = {"word", "start", "end", "confidence", "phoneme"}
 REQUIRED_SENTENCE_KEYS = {
@@ -25,6 +36,7 @@ REQUIRED_METADATA_KEYS = {
     "source_lang",
     "target_lang",
     "model_used",
+    "translation_finalization",
 }
 REQUIRED_BATCH_KEYS = {
     "batch_index",
@@ -141,6 +153,11 @@ def _assert_sentence_contract(sentence: dict[str, Any]) -> None:
             "media-123/translated_batches/2.json",
         ),
         ("final_result_object_key", ("media-123",), "media-123/final.json"),
+        (
+            "translation_revision_object_key",
+            ("media-123", 4),
+            "media-123/translation_revisions/4.json",
+        ),
     ],
 )
 def test_minio_path_helpers_freeze_the_canonical_artifact_keys(
@@ -400,3 +417,123 @@ def test_segment_identity_is_usable_for_matching_across_batch_and_final() -> Non
     # segments' positions in the array (no blind index overlay required)
     for batch_seg, matched_seg in zip(batch.segments, matched):
         assert batch_seg.segment_index == matched_seg.segment_index
+
+
+# ---------------------------------------------------------------------------
+# Translation finalization config and artifact models
+# ---------------------------------------------------------------------------
+
+
+def test_translation_finalization_settings_have_safe_defaults() -> None:
+    assert settings.AI_ENABLE_LLM_FINALIZATION is False
+    assert settings.AI_LLM_FINALIZATION_MIN_SEGMENTS == 12
+    assert settings.AI_LLM_FINALIZATION_TARGET_SEGMENTS == 24
+    assert settings.AI_LLM_FINALIZATION_MAX_SEGMENTS == 36
+    assert settings.AI_LLM_FINALIZATION_BUDGET_RATIO_SECONDS_PER_MEDIA_SECOND == 0.2
+    assert settings.AI_LLM_FINALIZATION_BUDGET_MIN_SECONDS == 20
+    assert settings.AI_LLM_FINALIZATION_BUDGET_MAX_SECONDS == 120
+    assert settings.AI_LLM_FINALIZATION_FAIL_OPEN is True
+
+
+def test_translation_revision_artifact_is_translation_only() -> None:
+    artifact = TranslationRevisionArtifact(
+        revision_index=3,
+        window_start_segment_index=40,
+        window_end_segment_index=67,
+        core_start_segment_index=44,
+        core_end_segment_index=63,
+        source_hash="abc123",
+        provider="openai",
+        model="gpt-4.1-mini",
+        status="valid",
+        validation_score=0.98,
+        created_at="2026-06-10T08:00:00Z",
+        segments=[
+            TranslationRevisionSegment(segment_index=44, translation="Xin chao")
+        ],
+    )
+    dumped = artifact.model_dump()
+    assert dumped["segments"][0] == {
+        "segment_index": 44,
+        "translation": "Xin chao",
+    }
+    assert "text" not in dumped["segments"][0]
+
+
+def test_subtitle_metadata_accepts_finalization_metrics() -> None:
+    metadata = SubtitleMetadata(
+        duration=120.0,
+        source_lang="zh",
+        target_lang="vi",
+        translation_finalization=TranslationFinalizationMetadata(
+            enabled=True,
+            coverage_segments=18,
+            coverage_duration_seconds=42.5,
+            attempted_windows=2,
+            completed_windows=1,
+            timed_out_windows=1,
+            fallback_segments=6,
+            total_cost_usd=0.0175,
+            finalization_deadline_hit=True,
+            segment_provenance=[
+                SegmentTranslationProvenance(
+                    segment_index=0,
+                    source="llm_revision",
+                    revision_index=0,
+                ),
+                SegmentTranslationProvenance(
+                    segment_index=1,
+                    source="nmt",
+                    revision_index=None,
+                ),
+            ],
+        ),
+    )
+    assert metadata.translation_finalization.coverage_segments == 18
+    assert metadata.translation_finalization.segment_provenance[0].source == "llm_revision"
+
+
+# ---------------------------------------------------------------------------
+# Translation revision MinIO key stability
+# ---------------------------------------------------------------------------
+
+
+def test_minio_translation_revision_key_is_stable() -> None:
+    assert (
+        MinioClient.translation_revision_object_key("media-1", 4)
+        == "media-1/translation_revisions/4.json"
+    )
+
+
+def test_upload_translation_revision_artifact(
+    minio_double: MinioClient,
+) -> None:
+    artifact = TranslationRevisionArtifact(
+        revision_index=2,
+        window_start_segment_index=10,
+        window_end_segment_index=30,
+        core_start_segment_index=14,
+        core_end_segment_index=26,
+        source_hash="deadbeef",
+        provider="openai",
+        model="gpt-4.1-mini",
+        status="valid",
+        validation_score=0.95,
+        created_at="2026-06-10T12:00:00Z",
+        segments=[
+            TranslationRevisionSegment(segment_index=14, translation="Xin chao"),
+            TranslationRevisionSegment(segment_index=15, translation="The gioi"),
+        ],
+    )
+
+    key, url = minio_double.upload_translation_revision("media-123", artifact)
+    payload = _last_put_json(minio_double)
+
+    assert key == MinioClient.translation_revision_object_key("media-123", 2)
+    assert url.startswith(f"http://fake/{key}")
+    assert payload["revision_index"] == 2
+    assert payload["source_hash"] == "deadbeef"
+    assert payload["status"] == "valid"
+    assert len(payload["segments"]) == 2
+    assert payload["segments"][0] == {"segment_index": 14, "translation": "Xin chao"}
+    assert "text" not in payload["segments"][0]

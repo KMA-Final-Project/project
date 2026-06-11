@@ -39,6 +39,11 @@ const navigation = [
     icon: RiRadarLine,
   },
   {
+    label: "Finalization",
+    to: "/monitoring/translation-finalization",
+    icon: RiRadarLine,
+  },
+  {
     label: "Failures",
     to: "/monitoring/failures",
     icon: RiRadarLine,

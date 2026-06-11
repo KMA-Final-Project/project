@@ -237,6 +237,26 @@ export type CaseSummary = {
     firstSegments: FinalArtifact['segments'];
     firstTranslatedBatchSegments: FinalArtifact['segments'] | null;
   };
+  finalization: {
+    enabled: boolean;
+    appliedProfile: string;
+    provider: string;
+    model: string;
+    coverageSegments: number;
+    coverageDurationSeconds: number;
+    attemptedWindows: number;
+    completedWindows: number;
+    timedOutWindows: number;
+    invalidWindows: number;
+    failedWindows: number;
+    fallbackSegments: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    finalizationDeadlineHit: boolean;
+    segmentProvenance: SegmentTranslationProvenance[];
+  } | null;
 };
 
 export type SuiteSummary = {
@@ -284,4 +304,41 @@ export type BenchmarkOptions = {
   pollIntervalMs: number;
   throttleBackoffMs: number;
   timeoutMs: number;
+};
+
+export type TranslationFinalizationMetrics = {
+  enabled: boolean;
+  appliedProfile: string;
+  provider: string;
+  model: string;
+  coverageSegments: number;
+  coverageDurationSeconds: number;
+  attemptedWindows: number;
+  completedWindows: number;
+  timedOutWindows: number;
+  invalidWindows: number;
+  failedWindows: number;
+  fallbackSegments: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  finalizationDeadlineHit: boolean;
+};
+
+export type SegmentTranslationProvenance = {
+  segmentIndex: number;
+  source: 'nmt' | 'llm_revision';
+  revisionIndex: number | null;
+};
+
+export type TranslationJudgeResult = {
+  winner: 'nmt' | 'llm_final' | 'tie';
+  scores: {
+    meaning: number;
+    fluency: number;
+    consistency: number;
+    readability: number;
+  };
+  rationale?: string;
 };

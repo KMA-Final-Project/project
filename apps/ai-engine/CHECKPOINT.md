@@ -1,6 +1,6 @@
 # AI Engine - Checkpoint
 
-> Last updated: 2026-05-25
+> Last updated: 2026-06-11
 > Maintained by: agents - update this file after every significant change.
 
 ## 1. Current Status
@@ -37,6 +37,41 @@ Deprecated V1 paths must not be reintroduced.
 - [ ] Re-run the next targeted Chinese E2E after the prompt-only rescue pass and verify whether segments like `你好，我是。你是李雷吧？`, `对，是我。第一次见面。`, and `幸会，等很久了吗？` survive through translation cleanly.
 
 ## 3. Recently Completed
+
+- 2026-06-11 — All-routes OpenAI translation finalization rollout hardening. Status: Working.
+  - Changed: Removed the effective Chinese-only finalization gate by allowing `AI_LLM_FINALIZATION_LANGS=*`, added route-profiled finalization policy selection (`short_asset_single_window`, `dense_dialogue_general`, `dense_dialogue_cjk`, `sparse_longform`), enforced real per-window timeout/retry/concurrency handling, and added real OpenAI token/cost aggregation into `final.json.metadata.translation_finalization` plus internal revision artifacts.
+  - Why: translation quality is a product goal across all routes, not only Chinese, but the rollout also needed real timeboxing and measurable provider cost before broader MVP use.
+  - Contract touched: Artifact | Language
+  - Validation: `venv\Scripts\python.exe -m pytest tests/test_llm_provider_translation_finalization.py tests/test_translation_finalization_policy.py tests/test_translation_finalization_runtime.py tests/test_translation_revision_windowing.py tests/test_translation_revision_overlay.py tests/test_translation_finalization_budgeting.py -q` (24 passed); `venv\Scripts\python.exe -c "from src.core.pipeline import PipelineOrchestrator; print('OK')"`; `powershell -ExecutionPolicy Bypass -File scripts\run-e2e-youtube-pipeline.ps1 -CaseIds english_-moW9jvvMr4 -OutputDir outputs\e2e-benchmarks\runs\verify-all-routes-finalization-rollout-english`; `powershell -ExecutionPolicy Bypass -File scripts\run-e2e-youtube-pipeline.ps1 -CaseIds chinese_60xeAEe7H28 -OutputDir outputs\e2e-benchmarks\runs\verify-all-routes-finalization-rollout-chinese`, which produced OpenAI-backed finalization on both route families with 5 completed windows, 0 fallback segments, and non-zero `total_prompt_tokens`, `total_completion_tokens`, and `total_cost_usd`.
+  - Follow-up: the builder still uses buffer-first semantics rather than true core-after-halo semantics, so profile tuning is still partially config-driven.
+
+- 2026-06-11 — Translation-finalization default window policy tuned from live OpenAI E2E evidence. Status: Working.
+  - Changed: Raised the default finalization window thresholds to `min_segments=16`, `target_segments=28`, `min_source_tokens=180`, `target_source_tokens=360`, `max_request_tokens=2600`, `target_duration_seconds=75`, `max_duration_seconds=120`, and `overlap_source_tokens=80` in `src/config.py`.
+  - Why: the previous defaults (`12/24` with overlap `4`) were causing the current builder to flush too early, which turned a 62-segment Chinese case into 7 small LLM windows (`12/8/8/8/8/10/8`) instead of fewer context-richer semantic windows.
+  - Contract touched: none. Internal finalization policy only.
+  - Validation: `powershell -ExecutionPolicy Bypass -File scripts\run-e2e-youtube-pipeline.ps1 -CaseIds chinese_60xeAEe7H28 -OutputDir outputs\e2e-benchmarks\runs\verify-translation-finalization-openai-defaults-baked` with `AI_ENABLE_LLM_FINALIZATION=true`, `AI_LLM_FINALIZATION_PROVIDER=openai`, `DEFAULT_LLM_PROVIDER_FOR_TRANSLATION_FINALIZATION=openai`, and `LLM_REMOTE_TO_OLLAMA_FALLBACK=false`, which completed with `attempted_windows=5`, `completed_windows=5`, `coverage_segments=62`, `fallback_segments=0`, and `wallClockLatencySeconds=90.161`; plus `venv\Scripts\python.exe -m pytest tests/test_llm_provider_translation_finalization.py tests/test_translation_revision_windowing.py tests/test_translation_revision_overlay.py tests/test_translation_finalization_budgeting.py -q` (17 passed).
+  - Follow-up: the builder still reasons on raw buffered segments rather than “core size after halo,” so a future logic cleanup could make the policy semantics cleaner than today’s config-driven approximation.
+
+- 2026-06-11 — OpenAI-backed translation finalization E2E path verified. Status: Working.
+  - Changed: Fixed `translation_finalization` provider routing to honor dedicated finalization settings, pinned the default finalization provider to OpenAI, disabled remote-to-Ollama fallback for phase-1 finalization requests, parsed finalization responses into strict JSON objects before pipeline validation, and hardened the EOF window builder so overlap-only tails do not crash final export.
+  - Why: phase-1 finalization was entering the pipeline but either falling back before a real cloud call, returning raw strings that the pipeline treated like dicts, or crashing after successful window revisions on EOF overlap cleanup.
+  - Contract touched: Artifact | Language
+  - Validation: `venv\Scripts\python.exe -m pip install "openai>=1.99.0"`; `venv\Scripts\python.exe -m pytest tests/test_llm_provider_translation_finalization.py tests/test_translation_revision_windowing.py tests/test_translation_revision_overlay.py tests/test_translation_finalization_budgeting.py tests/test_streaming_contracts.py tests/test_event_discipline.py -q`; `powershell -ExecutionPolicy Bypass -File scripts\run-e2e-youtube-pipeline.ps1 -CaseIds chinese_60xeAEe7H28 -OutputDir outputs\e2e-benchmarks\runs\verify-translation-finalization-openai-fix2` with `AI_ENABLE_LLM_FINALIZATION=true`, `AI_LLM_FINALIZATION_PROVIDER=openai`, `DEFAULT_LLM_PROVIDER_FOR_TRANSLATION_FINALIZATION=openai`, and `LLM_REMOTE_TO_OLLAMA_FALLBACK=false`, which completed with `attempted_windows=7`, `completed_windows=7`, `coverage_segments=62`, `fallback_segments=0`, and `finalization_deadline_hit=false`.
+  - Follow-up: cost accounting and judge-based translation-quality deltas are still pending; the current benchmark harness now proves live OpenAI revision coverage and provenance, not final translation quality superiority.
+
+- 2026-06-10 — Translation-finalization phase 1. Status: Working.
+  - Changed: Added hybrid window-based cloud LLM finalization writing `translation_revisions/` and overlaying valid translations into `final.json`.
+  - Why: improve final subtitle quality while keeping NMT latency artifacts unchanged.
+  - Contract touched: Artifact | Language
+  - Validation: `venv\Scripts\python.exe -m pytest tests/test_translation_revision_windowing.py tests/test_translation_revision_overlay.py tests/test_translation_finalization_budgeting.py tests/test_streaming_contracts.py tests/test_event_discipline.py -q`
+
+- 2026-06-10 — Added translation finalization config settings and Pydantic models.
+  - Status: Working
+  - Changed: Added 23 finalization config fields to `Settings` in `src/config.py` (enable flag, lang filter, segment windowing, budget controls, provider/model selection). Added `TranslationRevisionSegment`, `TranslationRevisionArtifact`, `SegmentTranslationProvenance`, and `TranslationFinalizationMetadata` models to `src/schemas.py`. Extended `SubtitleMetadata` with `translation_finalization` field. Updated `REQUIRED_METADATA_KEYS` in `tests/test_streaming_contracts.py` and added 3 new tests.
+  - Why: Foundation for Task 2-6 of the translation-only cloud-LLM finalization feature. These models and config fields will be used by windowing, overlay, and pipeline integration code.
+  - Contract touched: Artifact
+  - Validation: `venv\Scripts\python.exe -m py_compile src\config.py src\schemas.py tests\test_streaming_contracts.py`; `venv\Scripts\python.exe -m pytest tests\test_streaming_contracts.py -q` (16 passed)
+  - Follow-up: Task 2 — windowing logic that uses these config fields to split segments into LLM-processable windows.
 
 - 2026-06-05 — Added macOS-usable process-tree profiling and validated the Kim vocal-isolation model cache.
   - Status: Working

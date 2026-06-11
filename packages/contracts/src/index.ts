@@ -4,6 +4,7 @@ export * from "./admin-overview.js";
 export * from "./admin-plans.js";
 export * from "./admin-users.js";
 export * from "./auth.js";
+export * from "./billing.js";
 export * from "./explain.js";
 export * from "./lookup.js";
 export * from "./media.js";
