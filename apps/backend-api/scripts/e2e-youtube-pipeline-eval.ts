@@ -167,7 +167,7 @@ async function runCase(input: {
     submission.response.id,
   );
 
-  const finalArtifact = await loadFinalArtifact(input.api.http, artifacts);
+  const finalArtifact = await loadFinalArtifactIfPresent(input.api.http, artifacts);
   const firstChunkArtifact = artifacts.chunks[0]
     ? await fetchJsonFromUrl<unknown>(artifacts.chunks[0].url, input.api.http)
     : null;
@@ -190,23 +190,27 @@ async function runCase(input: {
       firstTranslatedBatchArtifact,
     );
   }
-  writeJsonFile(join(paths.caseDir, 'final.json'), finalArtifact);
+  if (finalArtifact !== null) {
+    writeJsonFile(join(paths.caseDir, 'final.json'), finalArtifact);
+  }
 
-  const hypothesisTokens = await tokenizeArtifactSourceText(
-    tokenizer,
-    caseDefinition.sourceLanguage,
-    finalArtifact,
-  );
+  const hypothesisTokens = finalArtifact
+    ? await tokenizeArtifactSourceText(
+        tokenizer,
+        caseDefinition.sourceLanguage,
+        finalArtifact,
+      )
+    : [];
   const normalizedHypothesisText = hypothesisTokens.join(' ');
   writeTextFile(paths.normalizedHypothesisPath, normalizedHypothesisText);
 
-  const wer = referenceTokens.length > 0
+  const wer = referenceTokens.length > 0 && finalArtifact !== null
     ? computeWer(referenceTokens, hypothesisTokens)
     : null;
 
   const durationSeconds =
     completion.status.durationSeconds ||
-    Number(finalArtifact.metadata.duration) ||
+    Number(finalArtifact?.metadata.duration ?? 0) ||
     0;
   const processingToDurationRatio =
     durationSeconds > 0 ? completion.elapsedSeconds / durationSeconds : 0;
@@ -219,7 +223,9 @@ async function runCase(input: {
     completion.elapsedSeconds,
   );
 
-  const finalizationMetrics = (finalArtifact.metadata as Record<string, unknown>).translation_finalization as Record<string, unknown> | undefined ?? null;
+  const finalizationMetrics = finalArtifact
+    ? ((finalArtifact.metadata as Record<string, unknown>).translation_finalization as Record<string, unknown> | undefined ?? null)
+    : null;
   const finalization = finalizationMetrics ? {
     enabled: finalizationMetrics.enabled as boolean,
     appliedProfile: (finalizationMetrics.applied_profile as string) ?? '',
@@ -245,6 +251,14 @@ async function runCase(input: {
     } satisfies SegmentTranslationProvenance)),
   } : null;
 
+  const werSkipReason = wer !== null
+    ? null
+    : finalArtifact === null
+      ? completion.status.status === 'FAILED'
+        ? 'case_failed_before_final_artifact'
+        : 'final_artifact_unavailable'
+      : 'manual_subtitles_unavailable';
+
   const summary: CaseSummary = {
     caseId: caseDefinition.caseId,
     family: caseDefinition.family,
@@ -266,22 +280,22 @@ async function runCase(input: {
     milestoneTimings,
     statusTimeline: completion.timeline,
     sourceLanguageFromStatus: completion.status.sourceLanguage,
-    sourceLanguageFromFinalArtifact: finalArtifact.metadata.source_lang ?? null,
+    sourceLanguageFromFinalArtifact: finalArtifact?.metadata.source_lang ?? null,
     targetLanguageRequested: options.targetLanguage,
     targetLanguageFromStatus: completion.status.targetLanguage,
-    targetLanguageFromFinalArtifact: finalArtifact.metadata.target_lang ?? null,
-    finalMetadata: finalArtifact.metadata,
+    targetLanguageFromFinalArtifact: finalArtifact?.metadata.target_lang ?? null,
+    finalMetadata: finalArtifact?.metadata ?? null,
     artifactSummary: artifacts.summary,
     subtitleReference: {
       manualSubtitlesAvailable:
-        subtitleReference?.availableManualTags.length !== 0,
+        (subtitleReference?.availableManualTags.length ?? 0) !== 0,
       automaticCaptionsAvailable:
-        subtitleReference?.availableAutomaticTags.length !== 0,
+        (subtitleReference?.availableAutomaticTags.length ?? 0) !== 0,
       selectedLanguageTag: subtitleReference?.languageTag ?? null,
       subtitleFormat: subtitleReference?.format ?? null,
       subtitleAcquisitionSeconds: subtitleReference?.acquisitionSeconds ?? null,
       werEligible: wer !== null,
-      werSkipReason: wer === null ? 'manual_subtitles_unavailable' : null,
+      werSkipReason,
       availableManualTags: subtitleReference?.availableManualTags ?? [],
       availableAutomaticTags: subtitleReference?.availableAutomaticTags ?? [],
     },
@@ -290,14 +304,16 @@ async function runCase(input: {
       hypothesis: hypothesisTokens.length,
     },
     wer,
-    heuristic: evaluateArtifactHeuristics(finalArtifact, caseDefinition.family),
+    heuristic: finalArtifact
+      ? evaluateArtifactHeuristics(finalArtifact, caseDefinition.family)
+      : null,
     artifacts: {
       finalUrl: artifacts.final?.url ?? null,
       firstChunkUrl: artifacts.chunks[0]?.url ?? null,
       firstTranslatedBatchUrl: artifacts.translatedBatches[0]?.url ?? null,
     },
     samples: {
-      firstSegments: finalArtifact.segments.slice(0, 5),
+      firstSegments: finalArtifact?.segments.slice(0, 5) ?? [],
       firstTranslatedBatchSegments:
         firstTranslatedBatchArtifact?.segments.slice(0, 5) ?? null,
     },
@@ -308,14 +324,12 @@ async function runCase(input: {
   return summary;
 }
 
-async function loadFinalArtifact(
+async function loadFinalArtifactIfPresent(
   http: ReturnType<typeof createApiClient>['http'],
   artifacts: MediaArtifactsResponse,
-): Promise<FinalArtifact> {
+) : Promise<FinalArtifact | null> {
   if (!artifacts.final?.url) {
-    throw new Error(
-      `Completed media ${artifacts.mediaId} did not expose a final artifact URL`,
-    );
+    return null;
   }
   return fetchJsonFromUrl<FinalArtifact>(artifacts.final.url, http);
 }

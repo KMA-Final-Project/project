@@ -5,7 +5,7 @@
 
 ## 1. Current Status
 
-Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E WER suite that exercises the real app-facing submit path through API, validation worker, AI queue handoff, status polling, artifact retrieval, manual-caption ground-truth harvesting through `yt-dlp`, and word/token-level WER reporting.
+Backend API is in a working production-flow state for the current project scope, and now has an automated local YouTube E2E WER suite plus a Chapter 3 post-processing exporter that turns a saved app-path benchmark run into thesis-ready JSON/CSV/Markdown evidence.
 
 The module owns authentication, subscription/quota enforcement, media APIs, presigned upload negotiation, MinIO integration, BullMQ job production, and the NestJS validation worker. It does not perform transcription or translation; validated jobs are handed off to the AI Engine through the `ai-processing` queue.
 
@@ -24,6 +24,13 @@ Current completed surfaces:
 - [ ] Wire billing module into AppModule and verify catalog endpoint returns seeded variants.
 
 ## 3. Recently Completed
+
+- 2026-06-11 — Chapter 3 benchmark evidence exporter and failed-case benchmark hardening. Status: Working.
+  - Changed: Added `scripts/export-chapter3-benchmark.ts` plus `scripts/e2e-youtube-benchmark/chapter3-export.ts`, which read an existing E2E run bundle and emit `docs/experiments/chapter3_results.json`, per-case/per-metric CSVs, a thesis-facing report, and an evidence index. Added whitespace-insensitive CER export, final-artifact timestamp/completeness checks, manual translation review sheet generation, and README usage instructions in `docs/experiments/README.md`. Also hardened the E2E evaluator so failed statuses no longer immediately abort polling and saved case bundles can persist timeline/artifact evidence even when `final.json` is unavailable. The exporter now labels timing metrics as polling-observed, emits `chapter3_policy_metrics.csv` when AI-engine route lines are present in saved logs, tolerates BOM-prefixed PowerShell JSON manifests, and reads both `ai-engine.log` and `ai-engine.err.log` for route metadata. The PowerShell runner can now record/pass `-PollMs` into the evaluator and safely splits documented comma-delimited `-CaseIds` values.
+  - Why: Chapter 3 needs benchmark evidence that is directly reusable in the thesis, preserves failures, and quantifies progressive artifacts, completeness, and transcript quality beyond the older WER-only summary.
+  - Contract touched: none. Internal benchmark/export tooling only.
+  - Validation: `pnpm test:benchmark`; `pnpm build`; `pnpm export:chapter3 -- --run-dir ..\..\outputs\e2e-benchmarks\runs\full-20260527-chinese-fix-rerun3 --out-dir ..\..\docs\experiments`.
+  - Follow-up: timing remains polling-observed rather than event-timestamped, and trust-stage / trust-decision policy details are still unavailable unless future E2E evidence records them explicitly.
 
 - 2026-06-11 — Translation-finalization admin monitoring endpoints. Status: Working.
   - Changed: Added `GET /admin/monitoring/translation-finalization/summary` and `GET /admin/monitoring/translation-finalization/media`, extending the existing admin monitoring surface with bounded usage/cost/coverage/fallback telemetry aggregated from recent completed media plus `final.json.metadata.translation_finalization`.
