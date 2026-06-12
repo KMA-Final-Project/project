@@ -1,17 +1,8 @@
-# Script thuyết trình chi tiết theo cấu trúc 13 slide
-
-Tài liệu này viết lại script theo hướng:
-
-- tối đa `13 slide`
-- ưu tiên **kỹ thuật hệ thống**
-- phân bổ thời lượng **không đều**
-- slide nào chứa kiến trúc, logic, flow và công nghệ quan trọng thì script dài hơn rõ rệt
-
 ## Slide 1 — Đề tài và cách định vị
 
 **Thời lượng gợi ý:** 20-25 giây
 
-“Em xin chào hội đồng. Đề tài của em là *Phát triển ứng dụng phiên dịch và tạo phụ đề song ngữ thời gian thực cho video/audio sử dụng Machine Learning*.”
+“Em xin chào hội đồng. Đề tài của em là _Phát triển ứng dụng phiên dịch và tạo phụ đề song ngữ thời gian thực cho video/audio sử dụng Machine Learning_.”
 
 “Ngay từ đầu em xin định vị rõ: đây là đồ án phát triển **hệ thống phần mềm end-to-end có tích hợp Machine Learning**. Mục tiêu chính của em không phải là nghiên cứu hay huấn luyện ra một mô hình mới, mà là xây dựng một pipeline hoàn chỉnh từ input media cho đến output phụ đề song ngữ và trải nghiệm người dùng có thể sử dụng được.”
 
@@ -720,18 +711,18 @@ Các việc nó làm:
 - Chỉ drop English-only clause nếu đó thực sự giống garbage span và cờ `AI_CHINESE_DROP_ENGLISH_GLOSS` bật.
 - Bỏ adjacent duplicate clauses.
 - Gom lại thành subtitle segments theo các ngưỡng:
-`AI_CHINESE_MAX_SEGMENT_SECONDS=8.0`,
-`AI_CHINESE_MAX_SEGMENT_HAN_CHARS=35`,
-`AI_CHINESE_MAX_SEGMENT_SENTENCE_UNITS=3`.
+  `AI_CHINESE_MAX_SEGMENT_SECONDS=8.0`,
+  `AI_CHINESE_MAX_SEGMENT_HAN_CHARS=35`,
+  `AI_CHINESE_MAX_SEGMENT_SENTENCE_UNITS=3`.
 - Dedupe các segment gần nhau nếu quá giống nhau, với các ngưỡng:
-`AI_CHINESE_DUPLICATE_TIME_WINDOW_SECONDS=12.0`,
-`AI_CHINESE_DUPLICATE_SIMILARITY=0.92`.
+  `AI_CHINESE_DUPLICATE_TIME_WINDOW_SECONDS=12.0`,
+  `AI_CHINESE_DUPLICATE_SIMILARITY=0.92`.
 - Không dedupe các short phrases nằm trong whitelist như `你好`, `幸会`, `谢谢`, `哈哈`.
 - Chạy một số repair dạng dialogue-specific punctuation recovery, ví dụ:
-chèn dấu ngắt hợp lý cho “对，是我。”,
-phục hồi dạng hỏi cho “你是…吧？”,
-phục hồi dấu hỏi cho “等很久了吗？”,
-và chuẩn hóa một số mẫu như “幸会，等很久了吗？”.
+  chèn dấu ngắt hợp lý cho “对，是我。”,
+  phục hồi dạng hỏi cho “你是…吧？”,
+  phục hồi dấu hỏi cho “等很久了吗？”,
+  và chuẩn hóa một số mẫu như “幸会，等很久了吗？”.
 
 Ý nghĩa:
 
