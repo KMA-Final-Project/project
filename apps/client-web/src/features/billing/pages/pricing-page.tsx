@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge.tsx"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.tsx"
 import { ReturnToApp } from "@/shared/components/return-to-app"
+import { cn } from "@/lib/utils.ts"
 import type { BillingCatalogItem } from "@kapter/contracts"
 
 type PlanGroup = {
@@ -67,6 +68,7 @@ export function PricingPage() {
 
   // Read variant from URL (from checkout intent after auth)
   const intentVariantId = searchParams.get("variant") ?? ""
+  const isMobileHandoff = searchParams.get("fromMobile") === "1"
 
   useEffect(() => {
     if (checkoutUrl) {
@@ -188,12 +190,22 @@ export function PricingPage() {
 
   if (catalogQuery.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-20 relative overflow-hidden">
+      <div
+        className={cn(
+          "relative mx-auto overflow-hidden px-6 py-20",
+          isMobileHandoff ? "max-w-xl" : "max-w-6xl",
+        )}
+      >
         <div className="absolute top-1/4 left-1/4 size-96 rounded-full bg-primary/5 blur-[100px] pointer-events-none" />
         <h1 className="mb-12 text-center font-heading text-4xl font-extrabold tracking-tight text-foreground">
           {t("pricing.title")}
         </h1>
-        <div className="grid gap-6 md:grid-cols-3">
+        <div
+          className={cn(
+            "grid gap-6",
+            isMobileHandoff ? "mx-auto max-w-xl grid-cols-1" : "md:grid-cols-3",
+          )}
+        >
           {[1, 2, 3].map((i) => (
             <Card key={i} className="animate-pulse">
               <CardHeader className="space-y-4">
@@ -216,7 +228,12 @@ export function PricingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-20 relative overflow-hidden">
+    <div
+      className={cn(
+        "relative mx-auto overflow-hidden px-6 py-20",
+        isMobileHandoff ? "max-w-xl" : "max-w-6xl",
+      )}
+    >
       {/* Background decoration blurs */}
       <div className="absolute top-[10%] left-[-10%] size-96 rounded-full bg-primary/10 blur-[100px] pointer-events-none" />
       <div className="absolute bottom-[10%] right-[-10%] size-96 rounded-full bg-secondary/10 blur-[100px] pointer-events-none" />
@@ -238,7 +255,14 @@ export function PricingPage() {
         <ReturnToApp context="account" />
       </div>
 
-      <div className="grid gap-8 md:grid-cols-3 items-stretch relative z-10">
+      <div
+        data-testid="pricing-plan-list"
+        data-layout={isMobileHandoff ? "mobile-stacked" : "adaptive-grid"}
+        className={cn(
+          "relative z-10 grid items-stretch gap-8",
+          isMobileHandoff ? "mx-auto max-w-xl grid-cols-1" : "md:grid-cols-3",
+        )}
+      >
         {planGroups.map((group) => {
           const variant = getSelectedVariant(group)
           const hasMultipleVariants = group.variants.length > 1

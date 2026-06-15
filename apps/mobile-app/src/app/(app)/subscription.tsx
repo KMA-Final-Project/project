@@ -57,6 +57,7 @@ function formatPlanPrice(
 export default function SubscriptionScreen() {
   const { theme } = useUnistyles();
   const { t } = useTranslation();
+  const router = useRouter();
   const { data, isLoading } = useSubscriptionStatus();
   const billingQuery = useBillingStatus();
   const hasActivePaidSubscription =
@@ -67,27 +68,40 @@ export default function SubscriptionScreen() {
     context?: string;
   }>();
 
+  const refreshBillingState = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: subscriptionKeys.status }),
+      queryClient.invalidateQueries({ queryKey: billingKeys.status }),
+    ]);
+  }, [queryClient]);
+
   useEffect(() => {
     if (params.refreshBilling === "1") {
-      queryClient.invalidateQueries({ queryKey: subscriptionKeys.status });
-      queryClient.invalidateQueries({ queryKey: billingKeys.status });
+      void refreshBillingState();
     }
-  }, [params.refreshBilling, queryClient]);
+  }, [params.refreshBilling, refreshBillingState]);
 
   const handleUpgrade = useCallback(
-    (plan: AvailablePlan) => {
+    async (plan: AvailablePlan) => {
       if (hasActivePaidSubscription) {
-        openBillingHandoff("account-subscription");
+        await openBillingHandoff("account-subscription");
+        await refreshBillingState();
       } else {
-        openBillingHandoff("pricing");
+        await openBillingHandoff("pricing");
+        await refreshBillingState();
       }
     },
-    [hasActivePaidSubscription],
+    [hasActivePaidSubscription, refreshBillingState],
   );
 
-  const handleManage = useCallback(() => {
-    openBillingHandoff("account-subscription");
-  }, []);
+  const handleManage = useCallback(async () => {
+    await openBillingHandoff("account-subscription");
+    await refreshBillingState();
+  }, [refreshBillingState]);
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
 
   const quotaPercent = useMemo(() => {
     if (
@@ -112,7 +126,7 @@ export default function SubscriptionScreen() {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title={t("subscription.title")} />
+      <ScreenHeader title={t("subscription.title")} onBack={handleBack} />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}

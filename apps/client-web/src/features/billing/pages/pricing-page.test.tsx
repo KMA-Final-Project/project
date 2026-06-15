@@ -72,7 +72,7 @@ const mockCatalog: BillingCatalogItem[] = [
   },
 ]
 
-function renderPricingPage() {
+function renderPricingPage(initialEntries: string[] = ["/pricing"]) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -81,7 +81,7 @@ function renderPricingPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <PricingPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -133,6 +133,18 @@ describe("PricingPage", () => {
       // Each plan card should have a CTA button
       const buttons = screen.getAllByRole("button")
       expect(buttons.length).toBeGreaterThan(0)
+    })
+  })
+
+  it("stacks all plans in one column for mobile billing handoff", async () => {
+    vi.mocked(getBillingCatalog).mockResolvedValue(mockCatalog)
+    renderPricingPage(["/pricing?fromMobile=1"])
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pricing-plan-list")).toHaveAttribute(
+        "data-layout",
+        "mobile-stacked",
+      )
     })
   })
 

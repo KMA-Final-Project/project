@@ -2,13 +2,21 @@
 
 ## Current Status
 
-Mobile-web billing handoff implemented — /handoff route, Return to app button, checkout URL preservation.
+Mobile-web billing handoff implemented — /handoff route, Return to app button, checkout URL preservation, and single-column pricing cards for the mobile handoff browser.
 
 ## Active Work
 
 - None currently
 
 ## Recently Completed
+
+- 2026-06-13 — Mobile pricing handoff responsive stacking. Status: Working.
+  - The client-web pricing page now detects `fromMobile=1` and switches the plan list into a mobile-handoff layout that stacks every plan card in a single column.
+  - Narrowed the pricing container in that handoff context so the in-app browser no longer compresses the paid tiers off-screen behind the free plan card.
+  - Added a regression test covering the mobile handoff layout marker on `/pricing?fromMobile=1`.
+  - Why: users opening upgrade from the mobile app could not reliably see paid plans in the handoff browser, which blocked subscription upgrades.
+  - Validation: `pnpm --filter client-web typecheck`; `pnpm --filter client-web lint`; `pnpm --filter client-web test`; `pnpm --filter client-web build`.
+  - Follow-up: run a device-level pass through the Expo billing handoff once the local browser automation runtime has Playwright browsers installed.
 
 - 2026-06-10 — Mobile-web billing handoff. Status: Working.
   - `/handoff` route: consumes one-time token, stores session, redirects to pricing or subscription with `fromMobile=1`
