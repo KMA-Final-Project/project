@@ -52,7 +52,7 @@ const SEED_VARIANTS: SeedVariantConfig[] = [
     price: 0,
     currency: 'USD',
     billingCycleType: BillingCycleType.MONTHLY,
-    maxDurationPerFile: 5 * 60,
+    maxDurationPerFile: 10 * 60,
     monthlyQuotaSeconds: 30 * 60,
     aiCreditsPerMonth: 10,
   },

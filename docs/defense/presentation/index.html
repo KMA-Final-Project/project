@@ -82,6 +82,16 @@
                   <strong>Progressive asynchronous subtitle generation</strong>
                 </div>
               </div>
+              <div class="hero-band">
+                <div class="hero-band-item">
+                  <span class="panel-label">Runtime focus</span>
+                  <strong>System orchestration + ML integration</strong>
+                </div>
+                <div class="hero-band-item">
+                  <span class="panel-label">User-facing proof</span>
+                  <strong>Processing UI · Player · Lookup / Explain</strong>
+                </div>
+              </div>
             </div>
             <div class="hero-visual">
               <div class="device-stage">
@@ -93,99 +103,154 @@
                     alt="Màn hình player subtitle song ngữ"
                   />
                 </figure>
+                <div class="hero-float-card hero-float-top">
+                  <span class="panel-label">Player output</span>
+                  <strong>Phụ đề song ngữ theo từng câu</strong>
+                </div>
+                <div class="hero-float-card hero-float-bottom">
+                  <span class="panel-label">Evidence path</span>
+                  <strong>chunks → translated_batches → final.json</strong>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
         <section class="slide" data-slide="2">
-          <div class="slide-shell">
+          <div class="slide-shell problem-slide">
             <div class="section-heading">
               <span class="eyebrow">Bài toán</span>
               <h2>Từ nhu cầu thực tế đến mục tiêu hệ thống</h2>
             </div>
-            <div class="problem-grid">
-              <article class="problem-card">
-                <span class="card-index">01</span>
-                <h3>Pipeline thủ công tốn thời gian</h3>
-                <p>
-                  Transcript, dịch, căn thời gian và đóng gói subtitle thường
-                  phải đi qua nhiều bước rời rạc.
-                </p>
-              </article>
-              <article class="problem-card">
-                <span class="card-index">02</span>
-                <h3>Người dùng phải chờ quá lâu</h3>
-                <p>
-                  Nếu chỉ sinh output cuối cùng, người dùng không thấy được giá
-                  trị trong suốt quá trình xử lý.
-                </p>
-              </article>
-              <article class="problem-card">
-                <span class="card-index">03</span>
-                <h3>Khó đưa ML vào sản phẩm thực tế</h3>
-                <p>
-                  Bài toán không chỉ là nhận dạng và dịch, mà còn là queue,
-                  artifact, trạng thái bền và trải nghiệm người dùng.
-                </p>
-              </article>
-            </div>
-            <div class="vision-strip">
-              <div class="vision-node">Media input</div>
-              <div class="vision-arrow">→</div>
-              <div class="vision-node">Subtitle pipeline</div>
-              <div class="vision-arrow">→</div>
-              <div class="vision-node">Output tiến dần</div>
-              <div class="vision-arrow">→</div>
-              <div class="vision-node">Player song ngữ</div>
+            <div class="problem-layout">
+              <div class="problem-column">
+                <div class="problem-grid">
+                  <article class="problem-card">
+                    <span class="card-index">01</span>
+                    <h3>Pipeline thủ công tốn thời gian</h3>
+                    <p>
+                      Transcript, dịch, căn thời gian và đóng gói subtitle thường
+                      phải đi qua nhiều bước rời rạc.
+                    </p>
+                  </article>
+                  <article class="problem-card">
+                    <span class="card-index">02</span>
+                    <h3>Người dùng phải chờ quá lâu</h3>
+                    <p>
+                      Nếu chỉ sinh output cuối cùng, người dùng không thấy được
+                      giá trị trong suốt quá trình xử lý.
+                    </p>
+                  </article>
+                  <article class="problem-card">
+                    <span class="card-index">03</span>
+                    <h3>Khó đưa ML vào sản phẩm thực tế</h3>
+                    <p>
+                      Bài toán không chỉ là nhận dạng và dịch, mà còn là queue,
+                      artifact, trạng thái bền và trải nghiệm người dùng.
+                    </p>
+                  </article>
+                </div>
+                <div class="vision-strip">
+                  <div class="vision-node">Media input</div>
+                  <div class="vision-arrow">→</div>
+                  <div class="vision-node">Subtitle pipeline</div>
+                  <div class="vision-arrow">→</div>
+                  <div class="vision-node">Output tiến dần</div>
+                  <div class="vision-arrow">→</div>
+                  <div class="vision-node">Player song ngữ</div>
+                </div>
+              </div>
+              <aside class="problem-visual-board">
+                <div class="signal-board">
+                  <span class="panel-label">Manual flow</span>
+                  <h3>Nếu không tích hợp hệ thống</h3>
+                  <div class="signal-stack">
+                    <div class="signal-line">Lấy media</div>
+                    <div class="signal-line">Tách audio / transcript</div>
+                    <div class="signal-line">Dịch thủ công hoặc bán thủ công</div>
+                    <div class="signal-line">Căn thời gian và export subtitle</div>
+                  </div>
+                </div>
+                <figure class="shot-card compact-shot">
+                  <img
+                    src="../../../app-images/upload-youtube.png"
+                    alt="Màn hình nhập YouTube URL"
+                  />
+                  <figcaption>
+                    Đồ án thay pipeline rời rạc bằng một luồng ingest và xử lý
+                    tập trung ngay từ bước đưa media vào hệ thống.
+                  </figcaption>
+                </figure>
+              </aside>
             </div>
           </div>
         </section>
 
         <section class="slide" data-slide="3">
-          <div class="slide-shell">
+          <div class="slide-shell scope-slide">
             <div class="section-heading">
               <span class="eyebrow">Phạm vi</span>
               <h2>Hệ thống hiện tại gồm những gì</h2>
             </div>
-            <div class="scope-layout">
-              <div class="scope-column">
-                <h3>Trong phạm vi đồ án</h3>
-                <ul class="scope-list">
-                  <li>
-                    Mobile app cho upload, processing, player, lookup và Explain
-                  </li>
-                  <li>
-                    Backend API + backend worker cho auth, quota, validation và
-                    orchestration
-                  </li>
-                  <li>
-                    AI Engine chạy queue subtitle pipeline với ASR, NMT và
-                    artifact export
-                  </li>
-                  <li>
-                    Dashboard/admin và client-web cho vận hành, account và
-                    billing handoff
-                  </li>
-                </ul>
+            <div class="scope-stage">
+              <div class="scope-layout">
+                <div class="scope-column">
+                  <h3>Trong phạm vi đồ án</h3>
+                  <ul class="scope-list">
+                    <li>
+                      Mobile app cho upload, processing, player, lookup và
+                      Explain
+                    </li>
+                    <li>
+                      Backend API + backend worker cho auth, quota, validation và
+                      orchestration
+                    </li>
+                    <li>
+                      AI Engine chạy queue subtitle pipeline với ASR, NMT và
+                      artifact export
+                    </li>
+                    <li>
+                      Dashboard/admin và client-web cho vận hành, account và
+                      billing handoff
+                    </li>
+                  </ul>
+                </div>
+                <div class="scope-column muted">
+                  <h3>Ngoài phạm vi đồ án</h3>
+                  <ul class="scope-list">
+                    <li>Huấn luyện hoặc fine-tuning mô hình mới</li>
+                    <li>Live simultaneous interpreting theo nghĩa tuyệt đối</li>
+                    <li>Hạ tầng production HA hoặc multi-region scale</li>
+                    <li>Đánh giá translation quality tự động quy mô lớn</li>
+                  </ul>
+                </div>
               </div>
-              <div class="scope-column muted">
-                <h3>Ngoài phạm vi đồ án</h3>
-                <ul class="scope-list">
-                  <li>Huấn luyện hoặc fine-tuning mô hình mới</li>
-                  <li>Live simultaneous interpreting theo nghĩa tuyệt đối</li>
-                  <li>Hạ tầng production HA hoặc multi-region scale</li>
-                  <li>Đánh giá translation quality tự động quy mô lớn</li>
-                </ul>
+              <aside class="scope-visual-board">
+                <div class="surface-ribbon">
+                  <span>Mobile App</span>
+                  <span>Backend API</span>
+                  <span>Backend Worker</span>
+                  <span>AI Engine</span>
+                  <span>Dashboard</span>
+                  <span>Client-web</span>
+                </div>
+                <div class="scope-mini-gallery">
+                  <figure class="shot-card compact-shot">
+                    <img
+                      src="../../../app-images/choose-upload-type.png"
+                      alt="Chọn kiểu upload"
+                    />
+                    <figcaption>Input surface</figcaption>
+                  </figure>
+                  <figure class="shot-card compact-shot">
+                    <img
+                      src="../../../app-images/library-1.png"
+                      alt="Thư viện media"
+                    />
+                    <figcaption>Media library</figcaption>
+                  </figure>
+                </div>
               </div>
-            </div>
-            <div class="surface-ribbon">
-              <span>Mobile App</span>
-              <span>Backend API</span>
-              <span>Backend Worker</span>
-              <span>AI Engine</span>
-              <span>Dashboard</span>
-              <span>Client-web</span>
             </div>
           </div>
         </section>
@@ -311,53 +376,71 @@
         </section>
 
         <section class="slide" data-slide="6">
-          <div class="slide-shell">
+          <div class="slide-shell orchestration-slide">
             <div class="section-heading">
               <span class="eyebrow">Backend orchestration</span>
               <h2>Auth, quota, validation và queue không chỉ là CRUD</h2>
             </div>
-            <div class="orchestration-grid">
-              <article class="orchestration-card">
-                <h3>Auth authority</h3>
-                <p>
-                  Register, verify OTP, login, refresh, logout và password reset
-                  đều tập trung ở backend.
-                </p>
-              </article>
-              <article class="orchestration-card">
-                <h3>Subscription + quota gating</h3>
-                <p>
-                  Kiểm tra entitlement ở API layer, rồi kiểm tra lại bằng
-                  duration thật ở worker layer.
-                </p>
-              </article>
-              <article class="orchestration-card">
-                <h3>Presigned upload model</h3>
-                <p>
-                  File media không đi qua body của NestJS; client upload thẳng
-                  vào MinIO để giảm tải path HTTP.
-                </p>
-              </article>
-              <article class="orchestration-card">
-                <h3>Worker as trust boundary</h3>
-                <p>
-                  Worker chuẩn hóa local upload và YouTube ingest trước khi cho
-                  phép tiêu thụ tài nguyên AI.
-                </p>
-              </article>
+            <div class="orchestration-stage">
+              <div class="orchestration-grid">
+                <article class="orchestration-card">
+                  <h3>Auth authority</h3>
+                  <p>
+                    Register, verify OTP, login, refresh, logout và password
+                    reset đều tập trung ở backend.
+                  </p>
+                </article>
+                <article class="orchestration-card">
+                  <h3>Subscription + quota gating</h3>
+                  <p>
+                    Kiểm tra entitlement ở API layer, rồi kiểm tra lại bằng
+                    duration thật ở worker layer.
+                  </p>
+                </article>
+                <article class="orchestration-card">
+                  <h3>Presigned upload model</h3>
+                  <p>
+                    File media không đi qua body của NestJS; client upload thẳng
+                    vào MinIO để giảm tải path HTTP.
+                  </p>
+                </article>
+                <article class="orchestration-card">
+                  <h3>Worker as trust boundary</h3>
+                  <p>
+                    Worker chuẩn hóa local upload và YouTube ingest trước khi cho
+                    phép tiêu thụ tài nguyên AI.
+                  </p>
+                </article>
+              </div>
+              <div class="orchestration-rail">
+                <div class="queue-board">
+                  <div class="queue-group">
+                    <span class="queue-label">Queue 1</span>
+                    <div class="queue-box">transcription</div>
+                    <p>Validation / ingest / duration / quota</p>
+                  </div>
+                  <div class="queue-link">→</div>
+                  <div class="queue-group">
+                    <span class="queue-label">Queue 2</span>
+                    <div class="queue-box accent">ai-processing</div>
+                    <p>ASR, NMT, artifact generation, progress events</p>
+                  </div>
+                </div>
+                <div class="service-lane">
+                  <div class="service-node">Request gate</div>
+                  <div class="service-node">Raw ingest normalize</div>
+                  <div class="service-node">Worker re-validation</div>
+                  <div class="service-node">AI queue handoff</div>
+                </div>
+              </div>
             </div>
-            <div class="queue-board">
-              <div class="queue-group">
-                <span class="queue-label">Queue 1</span>
-                <div class="queue-box">transcription</div>
-                <p>Validation / ingest / duration / quota</p>
-              </div>
-              <div class="queue-link">→</div>
-              <div class="queue-group">
-                <span class="queue-label">Queue 2</span>
-                <div class="queue-box accent">ai-processing</div>
-                <p>ASR, NMT, artifact generation, progress events</p>
-              </div>
+            <div class="callout-inline orchestration-callout">
+              <strong>Thiết kế có chủ đích:</strong>
+              <span
+                >Tách request path, worker validation và AI queue giúp hệ thống
+                kiểm soát quota, chuẩn hóa đầu vào và không để GPU pipeline bị
+                kích hoạt quá sớm.</span
+              >
             </div>
           </div>
         </section>
@@ -548,81 +631,129 @@
                 Hệ thống không dừng ở pipeline, mà đã có bề mặt sử dụng thật
               </h2>
             </div>
-            <div class="app-showcase">
-              <figure class="shot-card hero-shot">
-                <img
-                  src="../../../app-images/player-1.png"
-                  alt="Player subtitle song ngữ"
-                />
-                <figcaption>
-                  Player song ngữ là nơi artifact được tiêu thụ trực tiếp.
-                </figcaption>
-              </figure>
-              <figure class="shot-card">
-                <img
-                  src="../../../app-images/processing-progress-2.png"
-                  alt="Màn hình processing"
-                />
-                <figcaption>
-                  Processing screen theo dõi progress và current step.
-                </figcaption>
-              </figure>
-              <figure class="shot-card">
-                <img
-                  src="../../../app-images/lookup-1.png"
-                  alt="Màn hình lookup"
-                />
-                <figcaption>
-                  Lookup / Explain / word bank chứng minh output còn được dùng
-                  cho tương tác học tập.
-                </figcaption>
-              </figure>
+            <div class="app-stage">
+              <div class="app-showcase">
+                <figure class="shot-card hero-shot">
+                  <img
+                    src="../../../app-images/player-1.png"
+                    alt="Player subtitle song ngữ"
+                  />
+                  <figcaption>
+                    Player song ngữ là nơi artifact được tiêu thụ trực tiếp.
+                  </figcaption>
+                </figure>
+                <figure class="shot-card">
+                  <img
+                    src="../../../app-images/processing-progress-2.png"
+                    alt="Màn hình processing"
+                  />
+                  <figcaption>
+                    Processing screen theo dõi progress và current step.
+                  </figcaption>
+                </figure>
+                <figure class="shot-card">
+                  <img
+                    src="../../../app-images/lookup-1.png"
+                    alt="Màn hình lookup"
+                  />
+                  <figcaption>
+                    Lookup / Explain / word bank tạo giá trị sau khi subtitle đã
+                    sinh ra.
+                  </figcaption>
+                </figure>
+                <figure class="shot-card">
+                  <img
+                    src="../../../app-images/library-1.png"
+                    alt="Thư viện media"
+                  />
+                  <figcaption>
+                    Library giữ media và artifact để mở lại, replay và tra cứu.
+                  </figcaption>
+                </figure>
+              </div>
+              <aside class="app-value-rail">
+                <div class="signal-board">
+                  <span class="panel-label">Surface chain</span>
+                  <h3>Từ ingest đến consumption</h3>
+                  <div class="signal-stack">
+                    <div class="signal-line">Upload / YouTube submit</div>
+                    <div class="signal-line">Processing progress + current step</div>
+                    <div class="signal-line">Player subtitle song ngữ</div>
+                    <div class="signal-line">Lookup / Explain / word bank</div>
+                  </div>
+                </div>
+                <figure class="shot-card compact-shot">
+                  <img
+                    src="../../../app-images/choose-upload-type.png"
+                    alt="Chọn kiểu upload media"
+                  />
+                  <figcaption>
+                    Bề mặt người dùng thật là bằng chứng hệ thống đã vượt qua
+                    mức demo pipeline đơn lẻ.
+                  </figcaption>
+                </figure>
+              </aside>
             </div>
           </div>
         </section>
 
         <section class="slide" data-slide="10">
-          <div class="slide-shell">
+          <div class="slide-shell benchmark-setup-slide">
             <div class="section-heading">
               <span class="eyebrow">Benchmark setup</span>
               <h2>Chapter 3 đo pipeline ở mức hệ thống</h2>
             </div>
-            <div class="benchmark-setup">
-              <div class="setup-card large">
-                <span class="metric-big">20</span>
-                <span class="metric-caption">YouTube cases</span>
+            <div class="benchmark-setup-stage">
+              <div class="benchmark-setup">
+                <div class="setup-card large">
+                  <span class="metric-big">20</span>
+                  <span class="metric-caption">YouTube cases</span>
+                </div>
+                <div class="setup-card">
+                  <strong>10 English</strong>
+                  <p>Target language: tiếng Việt</p>
+                </div>
+                <div class="setup-card">
+                  <strong>10 Chinese</strong>
+                  <p>Target language: tiếng Việt</p>
+                </div>
+                <div class="setup-card">
+                  <strong>18 manual references</strong>
+                  <p>Có manual subtitle để tính WER/CER</p>
+                </div>
+                <div class="setup-card">
+                  <strong>Poll = 1000 ms</strong>
+                  <p>Timing theo backend polling interval</p>
+                </div>
+                <div class="setup-card wide">
+                  <strong>Metric groups</strong>
+                  <p>
+                    Latency, ratio wall-clock trên thời lượng media, first
+                    chunk, first translated batch, artifact completeness,
+                    WER/CER, policy evidence, progressive artifact evidence.
+                  </p>
+                </div>
+                <div class="setup-card wide subtle">
+                  <strong>Caveat quan trọng</strong>
+                  <p>
+                    Toàn bộ milestone timing là polling-observed từ backend
+                    status polling, không phải timestamp socket hay client tuyệt
+                    đối.
+                  </p>
+                </div>
               </div>
-              <div class="setup-card">
-                <strong>10 English</strong>
-                <p>Target language: tiếng Việt</p>
-              </div>
-              <div class="setup-card">
-                <strong>10 Chinese</strong>
-                <p>Target language: tiếng Việt</p>
-              </div>
-              <div class="setup-card">
-                <strong>18 manual references</strong>
-                <p>Có manual subtitle để tính WER/CER</p>
-              </div>
-              <div class="setup-card">
-                <strong>Poll = 1000 ms</strong>
-                <p>Timing theo backend polling interval</p>
-              </div>
-              <div class="setup-card wide">
-                <strong>Metric groups</strong>
-                <p>
-                  Latency, ratio wall-clock trên thời lượng media, first chunk,
-                  first translated batch, artifact completeness, WER/CER, policy
-                  evidence, progressive artifact evidence.
-                </p>
-              </div>
-              <div class="setup-card wide subtle">
-                <strong>Caveat quan trọng</strong>
-                <p>
-                  Toàn bộ milestone timing là polling-observed từ backend status
-                  polling, không phải timestamp socket hay client tuyệt đối.
-                </p>
-              </div>
+              <aside class="measurement-board">
+                <div class="signal-board">
+                  <span class="panel-label">What is actually measured</span>
+                  <h3>Benchmark bám vào hành vi runtime thật</h3>
+                  <div class="signal-stack">
+                    <div class="signal-line">Policy đang chạy: during_asr / after_asr</div>
+                    <div class="signal-line">Artifact đi ra sớm tới đâu trước final</div>
+                    <div class="signal-line">Latency toàn pipeline trên thời lượng media</div>
+                    <div class="signal-line">Transcript quality qua WER / CER</div>
+                  </div>
+                </div>
+              </aside>
             </div>
           </div>
         </section>
@@ -755,44 +886,64 @@
         </section>
 
         <section class="slide" data-slide="12">
-          <div class="slide-shell">
+          <div class="slide-shell contribution-slide">
             <div class="section-heading">
               <span class="eyebrow">Đóng góp kỹ thuật</span>
               <h2>Điểm mạnh của đồ án nằm ở tích hợp hệ thống</h2>
             </div>
-            <div class="contribution-grid">
-              <article class="contribution-card">
-                <span class="contribution-index">01</span>
-                <h3>Subtitle platform end-to-end</h3>
-                <p>
-                  Từ ingest media, orchestration, artifact cho đến player song
-                  ngữ.
-                </p>
-              </article>
-              <article class="contribution-card">
-                <span class="contribution-index">02</span>
-                <h3>Async architecture rõ ràng</h3>
-                <p>
-                  Tách API, worker và AI Engine thay vì dồn toàn bộ vào một
-                  service duy nhất.
-                </p>
-              </article>
-              <article class="contribution-card">
-                <span class="contribution-index">03</span>
-                <h3>Artifact model tiến dần</h3>
-                <p>
-                  `chunks`, `translated_batches`, `final.json` giúp hệ thống vừa
-                  usable hơn vừa benchmarkable hơn.
-                </p>
-              </article>
-              <article class="contribution-card">
-                <span class="contribution-index">04</span>
-                <h3>Chinese trust path có chủ đích</h3>
-                <p>
-                  Không đánh đổi hoàn toàn chất lượng transcript để lấy output
-                  sớm ở những case khó.
-                </p>
-              </article>
+            <div class="contribution-stage">
+              <div class="contribution-grid">
+                <article class="contribution-card">
+                  <span class="contribution-index">01</span>
+                  <h3>Subtitle platform end-to-end</h3>
+                  <p>
+                    Từ ingest media, orchestration, artifact cho đến player song
+                    ngữ.
+                  </p>
+                </article>
+                <article class="contribution-card">
+                  <span class="contribution-index">02</span>
+                  <h3>Async architecture rõ ràng</h3>
+                  <p>
+                    Tách API, worker và AI Engine thay vì dồn toàn bộ vào một
+                    service duy nhất.
+                  </p>
+                </article>
+                <article class="contribution-card">
+                  <span class="contribution-index">03</span>
+                  <h3>Artifact model tiến dần</h3>
+                  <p>
+                    `chunks`, `translated_batches`, `final.json` giúp hệ thống
+                    vừa usable hơn vừa benchmarkable hơn.
+                  </p>
+                </article>
+                <article class="contribution-card">
+                  <span class="contribution-index">04</span>
+                  <h3>Chinese trust path có chủ đích</h3>
+                  <p>
+                    Không đánh đổi hoàn toàn chất lượng transcript để lấy output
+                    sớm ở những case khó.
+                  </p>
+                </article>
+              </div>
+              <aside class="contribution-rail">
+                <div class="signal-board">
+                  <span class="panel-label">Positioning</span>
+                  <h3>Đồ án này mạnh ở engineering integration</h3>
+                  <div class="signal-stack">
+                    <div class="signal-line">Không huấn luyện mô hình mới</div>
+                    <div class="signal-line">Tập trung đưa ML vào hệ thống usable</div>
+                    <div class="signal-line">Có artifact contract và benchmark thật</div>
+                    <div class="signal-line">Có bề mặt sản phẩm để người dùng tương tác</div>
+                  </div>
+                </div>
+              </aside>
+            </div>
+            <div class="contribution-strip">
+              <div class="contribution-pill">End-to-end product system</div>
+              <div class="contribution-pill">Async architecture</div>
+              <div class="contribution-pill">Progressive artifact contract</div>
+              <div class="contribution-pill">Chinese trust-gated path</div>
             </div>
           </div>
         </section>
@@ -803,29 +954,48 @@
               <span class="eyebrow">Hạn chế và định hướng</span>
               <h2>Trung thực về giới hạn, rõ ràng về hướng đi tiếp</h2>
             </div>
-            <div class="closing-layout">
-              <div class="closing-column">
-                <h3>Giới hạn hiện tại</h3>
-                <ul class="closing-list">
-                  <li>Chưa nên gọi là live simultaneous interpreting.</li>
-                  <li>
-                    Chinese path vẫn là điểm yếu lớn nhất về latency và WER/CER.
-                  </li>
-                  <li>Timing benchmark hiện là polling-observed.</li>
-                  <li>
-                    Translation quality đích chưa có manual review đủ sâu như
-                    transcript nguồn.
-                  </li>
-                </ul>
+            <div class="closing-stage">
+              <div class="closing-layout">
+                <div class="closing-column">
+                  <h3>Giới hạn hiện tại</h3>
+                  <ul class="closing-list">
+                    <li>Chưa nên gọi là live simultaneous interpreting.</li>
+                    <li>
+                      Chinese path vẫn là điểm yếu lớn nhất về latency và
+                      WER/CER.
+                    </li>
+                    <li>Timing benchmark hiện là polling-observed.</li>
+                    <li>
+                      Translation quality đích chưa có manual review đủ sâu như
+                      transcript nguồn.
+                    </li>
+                  </ul>
+                </div>
+                <div class="closing-column">
+                  <h3>Hướng phát triển</h3>
+                  <ul class="closing-list">
+                    <li>Tối ưu Chinese route và trust-gated runtime policy.</li>
+                    <li>Giảm latency của progressive subtitle pipeline.</li>
+                    <li>Mở rộng đánh giá translation quality.</li>
+                    <li>Hoàn thiện thêm lớp vận hành và scale của hệ thống.</li>
+                  </ul>
+                </div>
               </div>
-              <div class="closing-column">
-                <h3>Hướng phát triển</h3>
-                <ul class="closing-list">
-                  <li>Tối ưu Chinese route và trust-gated runtime policy.</li>
-                  <li>Giảm latency của progressive subtitle pipeline.</li>
-                  <li>Mở rộng đánh giá translation quality.</li>
-                  <li>Hoàn thiện thêm lớp vận hành và scale của hệ thống.</li>
-                </ul>
+              <div class="closing-signal-row">
+                <div class="signal-board subtle">
+                  <span class="panel-label">Nói thẳng khi bảo vệ</span>
+                  <p>
+                    Đây là đồ án phát triển ứng dụng phần mềm tích hợp Machine
+                    Learning, không phải nghiên cứu huấn luyện mô hình mới.
+                  </p>
+                </div>
+                <div class="signal-board subtle">
+                  <span class="panel-label">Điểm giữ được</span>
+                  <p>
+                    Dù còn hạn chế, hệ thống đã chạy end-to-end, có benchmark,
+                    có artifact chuẩn và có bề mặt sử dụng thật.
+                  </p>
+                </div>
               </div>
             </div>
             <div class="closing-banner">

@@ -46,7 +46,7 @@ references/
 
 diagrams/
 
-reports/
+# reports/
 
 .superpowers
 .vercel
