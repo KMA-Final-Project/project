@@ -152,10 +152,10 @@ button {
 }
 
 .slide-shell {
-  width: min(1380px, calc(100vw - 48px));
+  width: min(1460px, calc(100vw - 40px));
   height: calc(100vh - var(--toolbar-h) - var(--footer-h) - 28px);
   margin: 14px auto;
-  padding: 1.55rem 1.8rem;
+  padding: 1.8rem 2rem;
   border-radius: 30px;
   border: 1px solid var(--line);
   background:
@@ -167,7 +167,7 @@ button {
   scrollbar-width: none;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.15rem;
 }
 
 .slide-shell::-webkit-scrollbar {
@@ -200,14 +200,14 @@ button {
 }
 
 .hero-copy h1 {
-  font-size: clamp(2.45rem, 4.9vw, 4.6rem);
+  font-size: clamp(2.9rem, 5vw, 5rem);
   max-width: 12ch;
 }
 
 .lead {
   max-width: 60ch;
-  font-size: 1.02rem;
-  line-height: 1.58;
+  font-size: 1.12rem;
+  line-height: 1.62;
   color: var(--text-soft);
   margin-top: 0.9rem;
 }
@@ -217,6 +217,20 @@ button {
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
   margin-top: 1.35rem;
+}
+
+.hero-band {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.hero-band-item {
+  padding: 0.95rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .meta-card,
@@ -243,7 +257,7 @@ button {
 }
 
 .meta-card {
-  padding: 1rem 1.05rem;
+  padding: 1.1rem 1.15rem;
 }
 
 .meta-label,
@@ -262,7 +276,7 @@ button {
 .meta-card strong {
   display: block;
   margin-top: 0.55rem;
-  font-size: 0.98rem;
+  font-size: 1.08rem;
   line-height: 1.45;
 }
 
@@ -277,6 +291,35 @@ button {
   width: 100%;
   display: flex;
   justify-content: center;
+}
+
+.hero-float-card {
+  position: absolute;
+  z-index: 2;
+  width: min(240px, 44%);
+  padding: 0.8rem 0.9rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 14, 28, 0.76);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-md);
+}
+
+.hero-float-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.98rem;
+  line-height: 1.4;
+}
+
+.hero-float-top {
+  top: 8%;
+  left: 4%;
+}
+
+.hero-float-bottom {
+  right: 2%;
+  bottom: 6%;
 }
 
 .device-glow {
@@ -329,8 +372,66 @@ button {
 }
 
 .section-heading h2 {
-  font-size: clamp(2rem, 3.7vw, 3.05rem);
+  font-size: clamp(2.35rem, 4vw, 3.45rem);
   max-width: 18ch;
+}
+
+.problem-slide .section-heading h2,
+.scope-slide .section-heading h2,
+.benchmark-setup-slide .section-heading h2,
+.contribution-slide .section-heading h2,
+.closing-slide .section-heading h2 {
+  max-width: 16ch;
+}
+
+.problem-layout,
+.scope-stage,
+.orchestration-stage,
+.app-stage,
+.benchmark-setup-stage,
+.contribution-stage,
+.closing-stage {
+  display: grid;
+  gap: 1rem;
+  flex: 1;
+}
+
+.problem-layout,
+.scope-stage,
+.orchestration-stage,
+.app-stage,
+.benchmark-setup-stage,
+.contribution-stage {
+  grid-template-columns: minmax(0, 1.18fr) minmax(310px, 0.82fr);
+  align-items: stretch;
+}
+
+.problem-column,
+.problem-visual-board,
+.scope-visual-board,
+.orchestration-rail,
+.app-value-rail,
+.measurement-board,
+.contribution-rail {
+  display: grid;
+  gap: 1rem;
+}
+
+.problem-visual-board,
+.scope-visual-board,
+.app-value-rail,
+.measurement-board,
+.contribution-rail {
+  align-content: start;
+}
+
+.compact-shot {
+  align-self: start;
+}
+
+.compact-shot img {
+  max-height: 250px;
+  object-fit: cover;
 }
 
 .problem-grid,
@@ -342,12 +443,26 @@ button {
   gap: 1rem;
 }
 
+.problem-slide .problem-grid,
+.orchestration-slide .orchestration-grid,
+.contribution-slide .contribution-grid,
+.scope-slide .scope-layout,
+.closing-slide .closing-layout {
+  align-items: start;
+}
+
 .problem-grid {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.scope-mini-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
 .problem-card {
-  padding: 1rem;
+  padding: 1.1rem;
 }
 
 .card-index,
@@ -372,7 +487,7 @@ button {
 .contribution-card h3,
 .closing-column h3 {
   margin: 0;
-  font-size: 1.14rem;
+  font-size: 1.24rem;
 }
 
 .problem-card p,
@@ -385,7 +500,8 @@ button {
 .compare-note,
 .signal-board p {
   color: var(--text-soft);
-  line-height: 1.55;
+  line-height: 1.6;
+  font-size: 1rem;
 }
 
 .vision-strip,
@@ -402,10 +518,11 @@ button {
 .surface-ribbon span,
 .pipeline-step,
 .policy-chip {
-  padding: 0.8rem 1rem;
+  padding: 0.88rem 1.08rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
+  font-size: 0.96rem;
 }
 
 .vision-arrow {
@@ -430,7 +547,7 @@ button {
 
 .scope-column,
 .closing-column {
-  padding: 1.05rem;
+  padding: 1.15rem 1.2rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.025);
@@ -449,10 +566,12 @@ button {
 .scope-list li,
 .closing-list li {
   margin-bottom: 0.8rem;
+  font-size: 1rem;
+  line-height: 1.55;
 }
 
 .surface-ribbon span {
-  font-size: 0.95rem;
+  font-size: 0.96rem;
 }
 
 .architecture-board {
@@ -532,7 +651,19 @@ button {
 
 .footnote-card,
 .signal-board {
-  padding: 1rem 1.05rem;
+  padding: 1.05rem 1.1rem;
+}
+
+.signal-stack,
+.closing-signal-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.signal-board h3 {
+  margin: 0.25rem 0 0;
+  font-size: 1.18rem;
+  line-height: 1.35;
 }
 
 .footnote-card strong,
@@ -584,10 +715,12 @@ button {
 
 .flow-node,
 .rail-node {
-  padding: 0.9rem 1rem;
+  padding: 0.95rem 1rem;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
+  font-size: 1rem;
+  line-height: 1.45;
 }
 
 .flow-merge {
@@ -620,16 +753,23 @@ button {
   color: #ffe0b8;
 }
 
+.orchestration-callout {
+  margin-top: 0.2rem;
+}
+
 .orchestration-grid {
   grid-template-columns: repeat(2, 1fr);
 }
 
 .orchestration-card {
-  padding: 1.1rem 1.2rem;
+  padding: 1.18rem 1.2rem;
+}
+
+.orchestration-rail {
+  align-content: start;
 }
 
 .queue-board {
-  margin-top: auto;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   gap: 1rem;
@@ -637,14 +777,14 @@ button {
 }
 
 .queue-group {
-  padding: 1rem 1.2rem;
+  padding: 1.1rem 1.2rem;
 }
 
 .queue-box {
   margin-top: 0.6rem;
-  padding: 1rem;
+  padding: 1.05rem;
   text-align: center;
-  font-size: 1.12rem;
+  font-size: 1.18rem;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.06);
 }
@@ -657,6 +797,22 @@ button {
 .queue-link {
   font-size: 2rem;
   color: #ffce8b;
+}
+
+.service-lane {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+}
+
+.service-node {
+  padding: 0.92rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.16);
+  background: rgba(96, 165, 250, 0.08);
+  text-align: center;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .pipeline-overview {
@@ -900,24 +1056,33 @@ button {
 }
 
 .signal-line {
-  padding: 0.8rem 0.9rem;
+  padding: 0.86rem 0.92rem;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
   color: var(--text-soft);
   line-height: 1.45;
+  font-size: 0.98rem;
+}
+
+.app-stage {
+  grid-template-columns: minmax(0, 1.32fr) minmax(280px, 0.68fr);
 }
 
 .app-showcase {
   display: grid;
-  grid-template-columns: 1.25fr 0.8fr 0.8fr;
+  grid-template-columns: 1.15fr 0.85fr 0.85fr;
   gap: 1rem;
   flex: 1;
 }
 
+.app-slide .section-heading h2 {
+  max-width: 15ch;
+}
+
 .shot-card {
   margin: 0;
-  padding: 0.8rem;
+  padding: 0.85rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
@@ -926,12 +1091,35 @@ button {
 
 .hero-shot {
   align-self: stretch;
+  grid-row: span 2;
+}
+
+.app-showcase .hero-shot img {
+  max-height: 650px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.app-showcase .shot-card:not(.hero-shot) img {
+  max-height: 350px;
+  object-fit: cover;
+  object-position: top;
 }
 
 .shot-card figcaption {
   margin-top: 0.8rem;
   color: var(--text-soft);
   line-height: 1.5;
+  font-size: 0.98rem;
+}
+
+.scope-visual-board .shot-card figcaption,
+.problem-visual-board .shot-card figcaption {
+  text-align: center;
+}
+
+.benchmark-setup-stage {
+  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
 }
 
 .benchmark-setup {
@@ -941,7 +1129,7 @@ button {
 }
 
 .setup-card {
-  padding: 0.95rem 1rem;
+  padding: 1rem 1.05rem;
 }
 
 .setup-card.large {
@@ -953,7 +1141,7 @@ button {
 
 .metric-big {
   font-family: "Libre Bodoni", serif;
-  font-size: 4.1rem;
+  font-size: 4.45rem;
   line-height: 1;
   color: #ffd39f;
 }
@@ -964,6 +1152,16 @@ button {
 
 .setup-card.subtle {
   background: rgba(255, 255, 255, 0.022);
+}
+
+.setup-card strong {
+  display: block;
+  font-size: 1.08rem;
+}
+
+.setup-card p {
+  font-size: 0.98rem;
+  line-height: 1.5;
 }
 
 .results-topline {
@@ -1007,7 +1205,7 @@ button {
 }
 
 .benchmark-slide .section-heading h2 {
-  font-size: clamp(1.82rem, 3vw, 2.45rem);
+  font-size: clamp(2.02rem, 3.2vw, 2.75rem);
   max-width: 24ch;
 }
 
@@ -1020,7 +1218,7 @@ button {
 }
 
 .benchmark-slide .result-value {
-  font-size: 1.85rem;
+  font-size: 2rem;
 }
 
 .benchmark-slide .result-label {
@@ -1041,8 +1239,8 @@ button {
 }
 
 .benchmark-slide .matrix-header h3 {
-  font-size: 0.98rem;
-  line-height: 1.34;
+  font-size: 1.04rem;
+  line-height: 1.4;
   max-width: none;
 }
 
@@ -1053,7 +1251,7 @@ button {
 .benchmark-slide .matrix-row {
   gap: 0.55rem;
   padding: 0.56rem 0.66rem;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
 }
 
 .benchmark-slide .matrix-row strong {
@@ -1072,7 +1270,7 @@ button {
 .benchmark-slide .compare-metric {
   gap: 0.65rem;
   padding: 0.58rem 0;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
 }
 
 .benchmark-slide .compare-metric strong {
@@ -1192,19 +1390,60 @@ button {
 }
 
 .contribution-card {
-  padding: 0.95rem 1rem;
+  padding: 1.05rem 1.1rem;
+}
+
+.contribution-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.contribution-pill {
+  padding: 0.82rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  background: rgba(245, 158, 11, 0.08);
+  color: #ffe6c7;
+  font-weight: 600;
+  font-size: 0.96rem;
 }
 
 .closing-layout {
   flex: 1;
 }
 
+.contribution-stage {
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+}
+
+.closing-stage {
+  gap: 1rem;
+}
+
+.closing-signal-row {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.closing-slide .closing-column {
+  min-height: 0;
+}
+
 .closing-banner {
   display: flex;
   gap: 0.8rem;
   align-items: flex-start;
-  padding: 0.95rem 1rem;
+  padding: 1.05rem 1.1rem;
   border-color: rgba(245, 158, 11, 0.25);
+}
+
+.closing-banner strong {
+  font-size: 1.06rem;
+}
+
+.closing-banner span {
+  font-size: 1.06rem;
+  line-height: 1.55;
 }
 
 .deck-footer {
@@ -1257,6 +1496,75 @@ button {
   font-size: 0.84rem;
 }
 
+html[data-mode="export"],
+html[data-mode="export"] body {
+  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html[data-mode="export"] .deck-app {
+  display: block;
+  height: 100vh;
+}
+
+html[data-mode="export"] .deck-toolbar,
+html[data-mode="export"] .deck-footer {
+  display: none;
+}
+
+html[data-mode="export"] .slides-viewport {
+  overflow: hidden;
+  height: 100vh;
+}
+
+html[data-mode="export"] .slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: none;
+  transition: none;
+}
+
+html[data-mode="export"] .slide.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+html[data-mode="export"] .slide-shell {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  padding: 2.4rem 2.7rem;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+html[data-mode="export"] .hero-copy h1 {
+  font-size: clamp(2.9rem, 4.2vw, 5rem);
+}
+
+html[data-mode="export"] .section-heading h2 {
+  font-size: clamp(2.2rem, 3vw, 3.4rem);
+}
+
+html[data-mode="export"] .hero-float-card {
+  width: min(250px, 38%);
+}
+
+html[data-mode="export"] .lead,
+html[data-mode="export"] p,
+html[data-mode="export"] li,
+html[data-mode="export"] span,
+html[data-mode="export"] strong {
+  text-wrap: balance;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .slide,
   .toolbar-btn,
@@ -1298,25 +1606,34 @@ button {
   }
 
   .hero-slide,
+  .problem-layout,
+  .scope-stage,
   .problem-grid,
   .scope-layout,
   .architecture-board,
   .arch-footnote,
   .runtime-flow,
   .flow-rail,
+  .orchestration-stage,
   .orchestration-grid,
   .queue-board,
+  .service-lane,
   .pipeline-spine,
   .pipeline-branches,
   .pipeline-footer,
   .contract-flow,
   .artifact-channel-grid,
+  .app-stage,
   .app-showcase,
+  .benchmark-setup-stage,
   .benchmark-setup,
   .results-topline,
+  .contribution-stage,
   .benchmark-dashboard,
   .contribution-grid,
-  .closing-layout {
+  .closing-layout,
+  .closing-signal-row,
+  .scope-mini-gallery {
     grid-template-columns: 1fr;
   }
 

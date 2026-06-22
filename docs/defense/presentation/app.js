@@ -7,12 +7,17 @@ const prevBtn = document.getElementById("prev-btn");
 const nextBtn = document.getElementById("next-btn");
 const fullscreenBtn = document.getElementById("fullscreen-btn");
 const slideShells = Array.from(document.querySelectorAll(".slide-shell"));
+const urlParams = new URLSearchParams(window.location.search);
+const renderMode = urlParams.get("mode") || "interactive";
+const renderFormat = urlParams.get("format") || "landscape";
 
 let currentIndex = 0;
 
+document.documentElement.dataset.mode = renderMode;
+document.documentElement.dataset.format = renderFormat;
+
 function getInitialSlideIndex() {
-  const params = new URLSearchParams(window.location.search);
-  const rawFromQuery = params.get("slide");
+  const rawFromQuery = urlParams.get("slide");
   const rawFromHash = window.location.hash.startsWith("#slide-")
     ? window.location.hash.replace("#slide-", "")
     : "";
@@ -61,10 +66,12 @@ function updateSlides() {
   prevBtn.disabled = currentIndex === 0;
   nextBtn.disabled = currentIndex === slides.length - 1;
 
-  const url = new URL(window.location.href);
-  url.searchParams.set("slide", String(currentIndex + 1));
-  url.hash = `slide-${currentIndex + 1}`;
-  window.history.replaceState({}, "", url);
+  if (renderMode !== "export") {
+    const url = new URL(window.location.href);
+    url.searchParams.set("slide", String(currentIndex + 1));
+    url.hash = `slide-${currentIndex + 1}`;
+    window.history.replaceState({}, "", url);
+  }
 
   document.title = `Slide ${currentIndex + 1} / ${slides.length} - Defense Presentation`;
 }
